@@ -1,0 +1,26 @@
+trait Measure {
+    proc measure() -> i64;
+}
+
+form Box<T> {
+    value: T
+}
+
+impl<T> Measure for Box<T> {
+    proc measure(receiver: Box<T>) -> i64 {
+        return 42;
+    }
+}
+
+proc read<T: Measure>(value: T) -> i64 {
+    return value.measure();
+}
+
+proc main() -> i64 {
+    let boxed_integer: Box<i64> = Box<i64> { value: 7 };
+    let boxed_boolean: Box<bool> = Box<bool> { value: true };
+    if read(boxed_boolean) != 42 {
+        return 1;
+    }
+    return read(boxed_integer) - 42;
+}

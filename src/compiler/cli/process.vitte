@@ -1,0 +1,433 @@
+/// Vitte-owned command dispatcher for the native compiler.
+space compiler::cli::process;
+
+use compiler::api::version::{version_string};
+use compiler::diagnostic::diagnostic::{origin_name, severity_name};
+use compiler::diagnostic::registry::{DiagnosticRegistryEntry, diagnostic_registry_find};
+use compiler::package::installer::{vitte_package_install};
+use compiler::cli::cli::{
+    Cli,
+    CliCommand,
+    CliError,
+    CliDiagnosticFormat,
+    vitte_cli_destroy,
+    vitte_cli_error_name,
+    vitte_cli_forward_arg_at,
+    vitte_cli_forward_arg_count,
+    vitte_cli_init,
+    vitte_cli_input_at,
+    vitte_cli_input_count,
+    vitte_cli_last_error,
+    vitte_cli_message,
+    vitte_cli_parse,
+    vitte_cli_selected_command,
+    vitte_cli_selected_diagnostic_format,
+    vitte_cli_selected_output,
+    vitte_cli_seen_options,
+    vitte_cli_suggested_exit_status,
+    vitte_cli_wants_help,
+    vitte_cli_wants_version,
+    VITTE_CLI_SEEN_COLOR,
+    VITTE_CLI_SEEN_DIAGNOSTICS,
+    VITTE_CLI_SEEN_EMIT_C,
+    VITTE_CLI_SEEN_EMIT_IR,
+    VITTE_CLI_SEEN_OUTPUT,
+    VITTE_CLI_SEEN_PACKAGE_VERSION,
+    VITTE_CLI_SEEN_GLOBAL,
+    VITTE_CLI_SEEN_QUIET,
+    VITTE_CLI_SEEN_VERBOSE
+};
+use vitte::core::pointer::{add_bytes_const, read};
+
+extern proc puts(text: string) -> i32;
+extern proc vitte_native_write_stdout(data: *const char, length: usize);
+extern proc vitte_native_write_stderr(data: *const char, length: usize);
+extern proc vitte_api_check_path(path: string) -> i32;
+extern proc vitte_api_compile_path(source_path: string, output_path: string) -> i32;
+extern proc vitte_api_emit_ir_path(source_path: string) -> i32;
+extern proc vitte_api_build_path(source_path: string, output_path: ?string, run_program: bool, diagnostic_json: bool, run_argc: i32, run_argv: *mut *mut u8) -> i32;
+extern proc vitte_api_lex_path(path: string) -> i32;
+extern proc vitte_api_parse_path(path: string) -> i32;
+
+proc cli_entry_puts(text: string) {
+    let _ = puts(text);
+}
+
+proc cli_entry_unavailable(message: string) -> i32 {
+    cli_entry_puts(message);
+    return 2;
+}
+
+proc cli_entry_write(text: string) {
+    vitte_native_write_stdout(text.as_ptr() as *const char, text.len());
+}
+
+proc cli_entry_write_error(text: string) {
+    vitte_native_write_stderr(text.as_ptr() as *const char, text.len());
+}
+
+proc cli_entry_json_string(text: string) -> string {
+    let mut output = "\"";
+    let mut index: usize = 0;
+    while index < text.len() {
+        let character = text[index];
+        if character == '"' {
+            set output += "\\\"";
+        } else if character == '\\' {
+            set output += "\\\\";
+        } else if character == '\n' {
+            set output += "\\n";
+        } else if character == '\r' {
+            set output += "\\r";
+        } else if character == '\t' {
+            set output += "\\t";
+        } else {
+            set output += text.slice(index, index + 1);
+        }
+        set index += 1;
+    }
+    set output += "\"";
+    return output;
+}
+
+proc cli_entry_explain(registry_value: *const DiagnosticRegistryEntry, json: bool) -> string {
+    if registry_value == null {
+        return "";
+    }
+    if json {
+        let mut output = "{\"code\":";
+        set output += cli_entry_json_string((*registry_value).public_code);
+        set output += ",\"internal_code\":";
+        set output += cli_entry_json_string((*registry_value).internal_code);
+        set output += ",\"title\":";
+        set output += cli_entry_json_string((*registry_value).title);
+        set output += ",\"explanation\":";
+        set output += cli_entry_json_string((*registry_value).explanation);
+        set output += ",\"category\":";
+        set output += cli_entry_json_string((*registry_value).category);
+        set output += ",\"severity\":";
+        set output += cli_entry_json_string(severity_name((*registry_value).default_severity));
+        set output += ",\"phase\":";
+        set output += cli_entry_json_string(origin_name((*registry_value).origin));
+        set output += ",\"deprecated\":";
+        set output += if (*registry_value).deprecated { "true" } else { "false" };
+        set output += "}\n";
+        return output;
+    }
+    let mut output = (*registry_value).public_code;
+    set output += ": ";
+    set output += (*registry_value).title;
+    set output += "\n\n";
+    set output += (*registry_value).explanation;
+    set output += "\n\nDiagnostic information\n----------------------\nCode:       ";
+    set output += (*registry_value).public_code;
+    set output += "\nInternal:   ";
+    set output += (*registry_value).internal_code;
+    set output += "\nSeverity:   ";
+    set output += severity_name((*registry_value).default_severity);
+    set output += "\nPhase:      ";
+    set output += origin_name((*registry_value).origin);
+    set output += "\nCategory:   ";
+    set output += (*registry_value).category;
+    set output += "\n";
+    return output;
+}
+
+proc cli_entry_normalize_diagnostic_code(code: string) -> string {
+    if code.len() == 0 { return code; }
+    if code[0] == 'e' { return "E" + code.slice(1, code.len()); }
+    if code[0] == 'w' { return "W" + code.slice(1, code.len()); }
+    if code[0] == 'n' { return "N" + code.slice(1, code.len()); }
+    if code[0] == 'h' { return "H" + code.slice(1, code.len()); }
+    return code;
+}
+
+proc cli_entry_argument(argv: *const string, index: usize) -> string {
+    let slot = add_bytes_const(
+        argv as *const u8,
+        index * sizeof(string)
+    ) as *const string;
+    return read(slot);
+}
+
+proc cli_entry_print_help() {
+    cli_entry_puts("Vitte compiler");
+    cli_entry_puts("Usage: vitte <command> [options] <input>");
+    cli_entry_puts("Commands: compile, build, run, check, install, lex, parse, explain, completion, version, help");
+    cli_entry_puts("Install: vitte install <package> [--version X.Y.Z] [--global]");
+}
+
+proc cli_entry_completion(shell: string) -> ?string {
+    let commands = "compile build run check install lex parse explain completion help version";
+    let options = "-h --help -V --version -q --quiet -v --verbose --color --no-color --diagnostics --diagnostic --diagnostic-format --backend --opt --target -j --jobs --max-errors -o --output --manifest-path -p --package --filter --release --debug --debug-info --emit-c --source-map --no-source-map --emit-comments --no-runtime-checks --no-bounds-checks --no-null-checks --no-overflow-checks -Werror --warnings-as-errors --deterministic --no-deterministic --incremental --no-incremental --offline --locked --frozen --force --global --check --write";
+    if shell == "bash" {
+        return "_vitte() {\n  local current=\"${COMP_WORDS[COMP_CWORD]}\"\n  COMPREPLY=( $(compgen -W \"" + commands + " " + options + "\" -- \"$current\") )\n}\ncomplete -F _vitte vitte\n";
+    }
+    if shell == "zsh" {
+        return "#compdef vitte\n_arguments '1:command:(" + commands + ")' '*:file:_files'\n";
+    }
+    if shell == "fish" {
+        return "complete -c vitte -n '__fish_use_subcommand' -a '" + commands + "'\n";
+    }
+    return null;
+}
+
+proc cli_entry_run_parsed(argc: i32, argv: *const string) -> i32 {
+    let mut cli: Cli;
+    if not vitte_cli_init(&mut cli) {
+        cli_entry_puts("vitte: unable to initialize command-line parser");
+        return 2;
+    }
+
+    if not vitte_cli_parse(&mut cli, argc, argv) {
+        let error = vitte_cli_last_error(&cli);
+        if error == CliError.UnknownCommand {
+            vitte_cli_destroy(&mut cli);
+            return cli_entry_unavailable("vitte: command is not available in the native driver");
+        }
+
+        cli_entry_puts("vitte: command-line error:");
+        cli_entry_puts(vitte_cli_error_name(error));
+        let message = vitte_cli_message(&cli);
+        if message != null {
+            if (*message).argument != null {
+                cli_entry_puts((*message).argument?);
+            }
+            if (*message).detail != null {
+                cli_entry_puts((*message).detail?);
+            }
+        }
+        let status = vitte_cli_suggested_exit_status(&cli);
+        vitte_cli_destroy(&mut cli);
+        return status;
+    }
+
+    if vitte_cli_wants_version(&cli) {
+        let version_line: string = "vitte " + version_string();
+        cli_entry_puts(version_line);
+        cli_entry_puts("Vitte compiler");
+        cli_entry_puts("language: Vitte");
+        cli_entry_puts("frontend: Vitte command dispatcher");
+        vitte_cli_destroy(&mut cli);
+        return 0;
+    }
+
+    if vitte_cli_wants_help(&cli) {
+        cli_entry_print_help();
+        vitte_cli_destroy(&mut cli);
+        return 0;
+    }
+
+    let command = vitte_cli_selected_command(&cli);
+    if command == CliCommand.Build and argc > 1 and
+       cli_entry_argument(argv, 1) == "compile" {
+        let compile_options = VITTE_CLI_SEEN_COLOR | VITTE_CLI_SEEN_EMIT_C |
+            VITTE_CLI_SEEN_OUTPUT | VITTE_CLI_SEEN_QUIET |
+            VITTE_CLI_SEEN_VERBOSE | VITTE_CLI_SEEN_DIAGNOSTICS |
+            VITTE_CLI_SEEN_EMIT_IR;
+        if (vitte_cli_seen_options(&cli) & ~compile_options) != 0 {
+            vitte_cli_destroy(&mut cli);
+            return cli_entry_unavailable("vitte compile: one or more options are not available in the native driver");
+        }
+        let input = vitte_cli_input_at(&cli, 0);
+        if input == null {
+            cli_entry_puts("vitte compile: expected a source file");
+            cli_entry_puts("Usage: vitte compile <source.vit> [--emit-c] [-o output.c]");
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        let selected_output = vitte_cli_selected_output(&cli);
+        let output_path: string = if selected_output == null { "" } else { selected_output? };
+        let status = if (vitte_cli_seen_options(&cli) & VITTE_CLI_SEEN_EMIT_IR) != 0 {
+            vitte_api_emit_ir_path(input?)
+        } else {
+            vitte_api_compile_path(input?, output_path)
+        };
+        vitte_cli_destroy(&mut cli);
+        return status;
+    }
+
+    if command == CliCommand.Check {
+        let input = vitte_cli_input_at(&cli, 0);
+        if input == null {
+            cli_entry_puts("vitte check: expected a source file");
+            cli_entry_puts("Usage: vitte check <source.vit>");
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        let status = vitte_api_check_path(input?);
+        if status == 0 {
+            cli_entry_puts("check succeeded");
+        }
+        vitte_cli_destroy(&mut cli);
+        return status;
+    }
+
+    if command == CliCommand.Lex or command == CliCommand.Parse {
+        let input = vitte_cli_input_at(&cli, 0);
+        if input == null {
+            cli_entry_puts(if command == CliCommand.Lex {
+                "vitte lex: expected a source file"
+            } else {
+                "vitte parse: expected a source file"
+            });
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        let status = if command == CliCommand.Lex {
+            vitte_api_lex_path(input?)
+        } else {
+            vitte_api_parse_path(input?)
+        };
+        vitte_cli_destroy(&mut cli);
+        return status;
+    }
+
+    if command == CliCommand.Completion {
+        let input = vitte_cli_input_at(&cli, 0);
+        if input == null {
+            cli_entry_puts("vitte completion: expected bash, zsh or fish");
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        let output = cli_entry_completion(input?);
+        if output == null {
+            cli_entry_puts("vitte completion: shell must be bash, zsh or fish");
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        cli_entry_write(output?);
+        vitte_cli_destroy(&mut cli);
+        return 0;
+    }
+
+    if command == CliCommand.Explain {
+        if vitte_cli_input_count(&cli) != 1 {
+            cli_entry_write_error("vitte explain: expected one diagnostic code\n");
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        let code = vitte_cli_input_at(&cli, 0);
+        if code == null {
+            cli_entry_write_error("vitte explain: unknown diagnostic code\n");
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        let code_text = cli_entry_normalize_diagnostic_code(code?);
+        let registry_value = diagnostic_registry_find(code_text);
+        if registry_value == null {
+            cli_entry_write_error("vitte explain: unknown diagnostic code\n");
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        let format = vitte_cli_selected_diagnostic_format(&cli);
+        if format != CliDiagnosticFormat.Default and
+           format != CliDiagnosticFormat.Terminal and
+           format != CliDiagnosticFormat.Json {
+            cli_entry_write_error("vitte explain: supports terminal or JSON output; use --diagnostic=json\n");
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        let output = cli_entry_explain(registry_value, format == CliDiagnosticFormat.Json);
+        if output == "" {
+            cli_entry_write_error("vitte explain: unable to format diagnostic explanation\n");
+            vitte_cli_destroy(&mut cli);
+            return 1;
+        }
+        cli_entry_write(output);
+        vitte_cli_destroy(&mut cli);
+        return 0;
+    }
+
+    if command == CliCommand.Install {
+        let install_options = VITTE_CLI_SEEN_PACKAGE_VERSION | VITTE_CLI_SEEN_GLOBAL |
+            VITTE_CLI_SEEN_QUIET | VITTE_CLI_SEEN_VERBOSE;
+        if (vitte_cli_seen_options(&cli) & ~install_options) != 0 {
+            vitte_cli_destroy(&mut cli);
+            return cli_entry_unavailable("vitte install: one or more options are not available in the native installer");
+        }
+        let input_count = vitte_cli_input_count(&cli);
+        let input = vitte_cli_input_at(&cli, 0);
+        if input_count > 1 or (input == null and cli.config.package == null) {
+            cli_entry_write_error("vitte install: expected one package name\n");
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        if input != null and cli.config.package != null {
+            cli_entry_write_error("vitte install: specify the package once\n");
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        let package_name: string = if input != null { input? } else { cli.config.package? };
+        let status = vitte_package_install(
+            package_name,
+            cli.config.package_version,
+            cli.config.global_install
+        );
+        vitte_cli_destroy(&mut cli);
+        return status;
+    }
+
+    if command == CliCommand.Build or command == CliCommand.Run {
+        let allowed_options = VITTE_CLI_SEEN_COLOR | VITTE_CLI_SEEN_OUTPUT |
+            VITTE_CLI_SEEN_QUIET | VITTE_CLI_SEEN_VERBOSE |
+            VITTE_CLI_SEEN_DIAGNOSTICS;
+        if (vitte_cli_seen_options(&cli) & ~allowed_options) != 0 {
+            vitte_cli_destroy(&mut cli);
+            return cli_entry_unavailable("vitte: one or more options are not available in the native driver");
+        }
+        let input = vitte_cli_input_at(&cli, 0);
+        if input == null {
+            cli_entry_puts("vitte: expected a source file");
+            vitte_cli_destroy(&mut cli);
+            return 2;
+        }
+        let selected_output = vitte_cli_selected_output(&cli);
+        if command == CliCommand.Run and selected_output != null {
+            vitte_cli_destroy(&mut cli);
+            return cli_entry_unavailable("vitte run: selecting an output path is not supported");
+        }
+        let mut output_pointer: ?string = null;
+        if selected_output != null {
+            set output_pointer = selected_output;
+        }
+
+        let mut run_arguments: [*mut u8] = [];
+        let run_argument_count = vitte_cli_forward_arg_count(&cli);
+        let mut run_index: usize = 0;
+        while run_index < run_argument_count {
+            let argument = vitte_cli_forward_arg_at(&cli, run_index);
+            if argument != null {
+                let _ = run_arguments.push((argument?).as_ptr() as *mut u8);
+            }
+            set run_index += 1;
+        }
+        let run_pointer = if run_argument_count == 0 {
+            null
+        } else {
+            run_arguments.as_ptr() as *mut *mut u8
+        };
+        let status = vitte_api_build_path(
+            input?,
+            output_pointer,
+            command == CliCommand.Run,
+            vitte_cli_selected_diagnostic_format(&cli) == CliDiagnosticFormat.Json,
+            run_argument_count as i32,
+            run_pointer
+        );
+        vitte_cli_destroy(&mut cli);
+        return status;
+    }
+
+    vitte_cli_destroy(&mut cli);
+    return cli_entry_unavailable("vitte: command is not available in the native driver");
+}
+
+/// Handle process commands implemented by the Vitte-native dispatcher.
+export proc vitte_main_entry_vitte(argc: i32, argv: *const string) -> i32 {
+    if argc <= 0 {
+        return cli_entry_unavailable("vitte: expected a command");
+    }
+
+    return cli_entry_run_parsed(argc, argv);
+}

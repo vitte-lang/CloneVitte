@@ -12,6 +12,60 @@ from pathlib import Path
 
 
 SEMANTIC_CASES = {
+    "nullable coalescing accepts an optional payload": (
+        "proc main() -> i64 { let value: i64 = 42; let optional: ?i64 = &value; "
+        "return (optional ?? 0) - 42; }\n",
+        True,
+    ),
+    "nullable coalescing rejects a non-optional value": (
+        "proc main() -> i64 { let value: i64 = 42; return value ?? 0; }\n",
+        False,
+    ),
+    "nullable coalescing rejects an incompatible fallback": (
+        "proc main() -> i64 { let value: i64 = 42; let optional: ?i64 = &value; "
+        'let result: i64 = optional ?? "wrong"; return 0; }\n',
+        False,
+    ),
+    "assert rejects non-boolean conditions": (
+        "proc main() -> i64 { assert(1); return 0; }\n",
+        False,
+    ),
+    "test declaration rejects non-boolean assertion": (
+        'test "invalid condition" { assert(1); }\n',
+        False,
+    ),
+    "await accepts a direct async call": (
+        "async proc delayed_value() -> i64 { return 42; }\n"
+        "proc main() -> i64 { return (await delayed_value()) - 42; }\n",
+        True,
+    ),
+    "await rejects a synchronous call": (
+        "proc immediate_value() -> i64 { return 42; }\n"
+        "proc main() -> i64 { return await immediate_value(); }\n",
+        False,
+    ),
+    "async call creates a storable task": (
+        "async proc delayed_value() -> i64 { return 42; }\n"
+        "proc main() -> i64 { let task = delayed_value(); return await task - 42; }\n",
+        True,
+    ),
+    "await rejects a non-call value": (
+        "async proc delayed_value() -> i64 { return 42; }\n"
+        "proc main() -> i64 { let value: i64 = 42; return await value; }\n",
+        False,
+    ),
+    "print rejects zero arguments": (
+        "proc main() -> int { print(); return 0; }\n",
+        False,
+    ),
+    "print rejects multiple arguments": (
+        'proc main() -> int { print("one", "two"); return 0; }\n',
+        False,
+    ),
+    "print rejects non-string arguments": (
+        "proc main() -> int { print(42); return 0; }\n",
+        False,
+    ),
     "array form field": (
         "form Packet { values: [3]i64 }\n"
         "proc main() -> i64 {\n"
@@ -305,6 +359,223 @@ SEMANTIC_CASES = {
         "proc main() -> i64 { if identity(true) { return 0; } return 1; }\n",
         True,
     ),
+    "generic parameter trait bound resolves implementation": (
+        "trait Marker {}\n"
+        "proc identity<T: Marker>(value: T) -> T { return value; }\n"
+        "impl Marker for i64 {}\n"
+        "proc main() -> i64 { return identity(42) - 42; }\n",
+        True,
+    ),
+    "generic parameter trait bound rejects missing implementation": (
+        "trait Marker {}\n"
+        "proc identity<T: Marker>(value: T) -> T { return value; }\n"
+        "impl Marker for i64 {}\n"
+        "proc main() -> i64 { if identity(true) { return 1; } return 0; }\n",
+        False,
+    ),
+    "generic where trait bound resolves implementation": (
+        "trait Marker {}\n"
+        "proc identity<T>(value: T) -> T where T: Marker { return value; }\n"
+        "impl Marker for i64 {}\n"
+        "proc main() -> i64 { return identity(42) - 42; }\n",
+        True,
+    ),
+    "generic where trait bound rejects missing implementation": (
+        "trait Marker {}\n"
+        "proc identity<T>(value: T) -> T where T: Marker { return value; }\n"
+        "impl Marker for i64 {}\n"
+        "proc main() -> i64 { if identity(true) { return 1; } return 0; }\n",
+        False,
+    ),
+    "unused generic parameter rejects unknown bound": (
+        "proc unused<T: Missing>(value: T) -> T { return value; }\n"
+        "proc main() -> i64 { return 0; }\n",
+        False,
+    ),
+    "unused generic where rejects unknown trait": (
+        "proc unused<T>(value: T) -> T where T: Missing { return value; }\n"
+        "proc main() -> i64 { return 0; }\n",
+        False,
+    ),
+    "unused generic where rejects unknown subject": (
+        "trait Marker {}\n"
+        "proc unused<T>(value: T) -> T where U: Marker { return value; }\n"
+        "proc main() -> i64 { return 0; }\n",
+        False,
+    ),
+    "unused generic bound rejects non-trait type": (
+        "proc unused<T: i64>(value: T) -> T { return value; }\n"
+        "proc main() -> i64 { return 0; }\n",
+        False,
+    ),
+    "unused generic form rejects unknown bound": (
+        "form Guarded<T: Missing> { value: T }\n"
+        "proc main() -> i64 { return 0; }\n",
+        False,
+    ),
+    "unused where clause rejects an undeclared form parameter": (
+        "trait Marker {}\n"
+        "form Guarded where T: Marker { value: i64 }\n"
+        "proc main() -> i64 { return 0; }\n",
+        False,
+    ),
+    "unused where clause rejects an undeclared alias parameter": (
+        "trait Marker {}\n"
+        "type Guarded where T: Marker = i64;\n"
+        "proc main() -> i64 { return 0; }\n",
+        False,
+    ),
+    "unused generic pick rejects unknown bound": (
+        "pick Envelope<T: Missing> { Value(T) }\n"
+        "proc main() -> i64 { return 0; }\n",
+        False,
+    ),
+    "unused generic pick rejects unknown where trait": (
+        "trait Marker {}\n"
+        "pick Envelope<T> where T: Missing { Value(T) }\n"
+        "proc main() -> i64 { return 0; }\n",
+        False,
+    ),
+    "unused generic pick accepts a declared marker bound": (
+        "trait Marker {}\n"
+        "pick Envelope<T: Marker> { Value(T) }\n"
+        "proc main() -> i64 { return 0; }\n",
+        True,
+    ),
+    "unused generic implementation rejects unknown where trait": (
+        "trait Container {}\n"
+        "form Box<T> { value: T }\n"
+        "impl<T> Container for Box<T> where T: Missing {}\n"
+        "proc main() -> i64 { return 0; }\n",
+        False,
+    ),
+    "generic trait implementation matches composed type": (
+        "form Box<T> { value: T }\n"
+        "trait Boxed {}\n"
+        "impl<T> Boxed for Box<T> {}\n"
+        "proc identity<U: Boxed>(value: U) -> U { return value; }\n"
+        "proc main() -> i64 { let value = Box<i64> { value: 42 }; return identity(value).value - 42; }\n",
+        True,
+    ),
+    "generic form parameter bound checks every type application": (
+        "trait Marker {}\n"
+        "impl Marker for i64 {}\n"
+        "form Guarded<T: Marker> { value: T }\n"
+        "proc main() -> i64 { let value = Guarded<i64> { value: 42 }; return value.value - 42; }\n",
+        True,
+    ),
+    "generic form where clause rejects missing implementation": (
+        "trait Marker {}\n"
+        "impl Marker for i64 {}\n"
+        "form Guarded<T> where T: Marker { value: T }\n"
+        "proc main() -> i64 { let value: Guarded<bool> = Guarded<bool> { value: true }; return 0; }\n",
+        False,
+    ),
+    "generic alias bound accepts implementation": (
+        "trait Marker {}\n"
+        "impl Marker for i64 {}\n"
+        "type Marked<T: Marker> = T;\n"
+        "proc main() -> i64 { let value: Marked<i64> = 42; return value - 42; }\n",
+        True,
+    ),
+    "generic alias bound rejects missing implementation": (
+        "trait Marker {}\n"
+        "impl Marker for i64 {}\n"
+        "type Marked<T: Marker> = T;\n"
+        "proc main() -> i64 { let value: Marked<bool> = true; return 0; }\n",
+        False,
+    ),
+    "generic alias where clause rejects missing implementation": (
+        "trait Marker {}\n"
+        "impl Marker for i64 {}\n"
+        "type Marked<T> where T: Marker = T;\n"
+        "proc main() -> i64 { let value: Marked<bool> = true; return 0; }\n",
+        False,
+    ),
+    "generic opaque bound rejects missing implementation": (
+        "trait Marker {}\n"
+        "impl Marker for i64 {}\n"
+        "opaque Handle<T: Marker>;\n"
+        "proc main() -> i64 { let value: *Handle<bool> = null; return 0; }\n",
+        False,
+    ),
+    "generic opaque where clause rejects missing implementation": (
+        "trait Marker {}\n"
+        "impl Marker for i64 {}\n"
+        "opaque Handle<T> where T: Marker;\n"
+        "proc main() -> i64 { let value: *Handle<bool> = null; return 0; }\n",
+        False,
+    ),
+    "generic opaque where clause accepts implementation": (
+        "trait Marker {}\n"
+        "impl Marker for i64 {}\n"
+        "opaque Handle<T> where T: Marker;\n"
+        "proc consume(value: *Handle<i64>) {}\n"
+        "proc main() -> i64 { return 0; }\n",
+        True,
+    ),
+    "generic trait bound rejects missing implementation in application": (
+        "trait Marker {}\n"
+        "trait Collection<T: Marker> {}\n"
+        "impl Marker for i64 {}\n"
+        "proc consume(value: Collection<bool>) {}\n"
+        "proc main() -> i64 { consume(null); return 0; }\n",
+        False,
+    ),
+    "generic trait where clause rejects missing implementation": (
+        "trait Marker {}\n"
+        "trait Collection<T> where T: Marker {}\n"
+        "impl Marker for i64 {}\n"
+        "proc consume(value: Collection<bool>) {}\n"
+        "proc main() -> i64 { return 0; }\n",
+        False,
+    ),
+    "generic trait where clause accepts implementation": (
+        "trait Marker {}\n"
+        "trait Collection<T> where T: Marker {}\n"
+        "impl Marker for i64 {}\n"
+        "proc consume(value: Collection<i64>) {}\n"
+        "proc main() -> i64 { return 0; }\n",
+        True,
+    ),
+    "generic implementation where bound rejects missing implementation": (
+        "trait Marker {}\n"
+        "trait Container {}\n"
+        "form Box<T> { value: T }\n"
+        "impl Marker for i64 {}\n"
+        "impl<T> Container for Box<T> where T: Marker {}\n"
+        "proc take<T: Container>(value: T) -> T { return value; }\n"
+        "proc main() -> i64 { let value = Box<bool> { value: true }; let result = take(value); return 0; }\n",
+        False,
+    ),
+    "generic implementation parameter bound rejects missing implementation": (
+        "trait Marker {}\n"
+        "trait Container {}\n"
+        "form Box<T> { value: T }\n"
+        "impl Marker for i64 {}\n"
+        "impl<T: Marker> Container for Box<T> {}\n"
+        "proc take<T: Container>(value: T) -> T { return value; }\n"
+        "proc main() -> i64 { let value = Box<bool> { value: true }; let result = take(value); return 0; }\n",
+        False,
+    ),
+    "generic implementation parameter bound resolves implementation": (
+        "trait Marker {}\n"
+        "trait Container {}\n"
+        "form Box<T> { value: T }\n"
+        "impl Marker for i64 {}\n"
+        "impl<T: Marker> Container for Box<T> {}\n"
+        "proc take<T: Container>(value: T) -> T { return value; }\n"
+        "proc main() -> i64 { let value = Box<i64> { value: 42 }; return take(value).value - 42; }\n",
+        True,
+    ),
+    "generic trait bounds require every declared trait": (
+        "trait Marker {}\n"
+        "trait Displayable {}\n"
+        "proc identity<T: Marker + Displayable>(value: T) -> T { return value; }\n"
+        "impl Marker for i64 {}\n"
+        "proc main() -> i64 { return identity(42) - 42; }\n",
+        False,
+    ),
     "generic procedure unifies repeated parameter": (
         "proc same<T>(left: T, right: T) -> T { return left; }\n"
         "proc main() -> i64 { return same(41, 42) - 41; }\n",
@@ -541,6 +812,47 @@ def run_emit_c(binary: Path, source_path: Path):
     )
 
 
+def run_strict_c17_emission(binary: Path, source_path: Path, label: str):
+    emitted = run_emit_c(binary, source_path)
+    if emitted.returncode != 0:
+        raise AssertionError(
+            f"{label}: C17 emission failed; stderr={emitted.stderr[:2000]!r}"
+        )
+    if "__auto_type" in emitted.stdout or "({" in emitted.stdout:
+        raise AssertionError(
+            f"{label}: generated C contains a GNU statement-expression extension"
+        )
+    with tempfile.TemporaryDirectory(prefix="vitte-strict-c17-") as temp_dir:
+        executable = Path(temp_dir) / "program"
+        compiled = subprocess.run(
+            [
+                "cc",
+                "-std=c17",
+                "-pedantic-errors",
+                "-x",
+                "c",
+                "-",
+                "-o",
+                str(executable),
+            ],
+            input=emitted.stdout,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if compiled.returncode != 0:
+            raise AssertionError(
+                f"{label}: generated code is not strict ISO C17; "
+                f"stderr={compiled.stderr[:3000]!r}"
+            )
+        return subprocess.run(
+            [str(executable)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+
 def diagnostic_codes(result, binary: Path, label: str):
     payload = result.stderr or result.stdout
     try:
@@ -609,6 +921,26 @@ def main() -> int:
                     f"{name}: native/bootstrap semantic results differ: "
                     f"native={native_result}, bootstrap={bootstrap_result}"
                 )
+
+        async_runtime_source = Path(__file__).with_name("async_runtime.vit")
+        for compiler_name, compiler in (
+            ("native", native),
+            ("bootstrap", bootstrap),
+        ):
+            async_runtime = run_program(
+                compiler,
+                async_runtime_source,
+                f"{compiler_name} async/await runtime",
+            )
+            if async_runtime != (True, ()):
+                raise AssertionError(
+                    f"{compiler_name} async/await runtime failed: "
+                    f"{async_runtime}"
+                )
+        print(
+            "Async task runtime parity passed: "
+            "native and bootstrap exit 0."
+        )
 
         generic_procedure_source = directory / "generic_procedure_runtime.vit"
         generic_procedure_source.write_text(
@@ -682,6 +1014,88 @@ def main() -> int:
                     f"compile and run with exit 0; got {generic_procedure_runtime}"
                 )
         print("Generic procedure runtime parity passed: native and bootstrap exit 0.")
+
+        generic_impl_trait_method_runtime = (
+            Path(__file__).parent / "generic_impl_trait_method_runtime.vit"
+        )
+        for compiler, compiler_name in (
+            (native, "native"),
+            (bootstrap, "bootstrap"),
+        ):
+            impl_trait_runtime = run_program(
+                compiler,
+                generic_impl_trait_method_runtime,
+                f"{compiler_name} generic impl trait method runtime",
+            )
+            if impl_trait_runtime != (True, ()):
+                raise AssertionError(
+                    f"{compiler_name} generic impl trait method specialization "
+                    f"must compile and run with exit 0; got {impl_trait_runtime}"
+                )
+        print(
+            "Generic impl trait method runtime parity passed: "
+            "native and bootstrap exit 0."
+        )
+
+        constrained_generic_procedure_source = directory / "constrained_generic_procedure_runtime.vit"
+        constrained_generic_procedure_source.write_text(
+            "trait Marker {}\n"
+            "trait Displayable {}\n"
+            "trait Boxed {}\n"
+            "impl Marker for i64 {}\n"
+            "impl Displayable for i64 {}\n"
+            "trait Container {}\n"
+            "trait ParamContainer {}\n"
+            "type Marked<T> where T: Marker = T;\n"
+            "form Box<T> { value: T }\n"
+            "form Guarded<T: Marker> { value: T }\n"
+            "form WhereGuarded<T> where T: Marker { value: T }\n"
+            "impl<T> Boxed for Box<T> {}\n"
+            "impl<T> Container for Box<T> where T: Marker + Displayable {}\n"
+            "impl<T: Marker + Displayable> ParamContainer for Box<T> {}\n"
+            "proc bounded<T: Marker + Displayable>(value: T) -> T { return value; }\n"
+            "proc constrained<T>(value: T) -> T where T: Marker + Displayable { return value; }\n"
+            "proc relay<T: Marker + Displayable>(value: T) -> T { return bounded(value); }\n"
+            "proc relay_where<T>(value: T) -> T where T: Marker + Displayable { return constrained(value); }\n"
+            "proc pair<T, U>(first: T, second: U) -> T where T: Marker, U: Marker { return first; }\n"
+            "proc boxed<U: Boxed>(value: U) -> U { return value; }\n"
+            "proc contained<U: Container>(value: U) -> U { return value; }\n"
+            "proc param_contained<U: ParamContainer>(value: U) -> U { return value; }\n"
+            "proc guarded<U: Marker>(value: Guarded<U>) -> U { return value.value; }\n"
+            "proc guarded_where<U: Marker>(value: WhereGuarded<U>) -> U { return value.value; }\n"
+            "proc main() -> i64 {\n"
+            "    if relay(20) != 20 { return 1; }\n"
+            "    if relay_where(22) != 22 { return 2; }\n"
+            "    let marked: Marked<i64> = 24;\n"
+            "    if marked != 24 { return 7; }\n"
+            "    let value = Box<i64> { value: 18 };\n"
+            "    if boxed(value).value != 18 { return 3; }\n"
+            "    if contained(value).value != 18 { return 6; }\n"
+            "    if param_contained(value).value != 18 { return 8; }\n"
+            "    let guarded_value = Guarded<i64> { value: 19 };\n"
+            "    if guarded(guarded_value) != 19 { return 4; }\n"
+            "    let where_value = WhereGuarded<i64> { value: 21 };\n"
+            "    if guarded_where(where_value) != 21 { return 5; }\n"
+            "    return pair(42, 7) - 42;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        for compiler, compiler_name in (
+            (native, "native"),
+            (bootstrap, "bootstrap"),
+        ):
+            constrained_runtime = run_program(
+                compiler,
+                constrained_generic_procedure_source,
+                f"{compiler_name} constrained generic procedure runtime",
+            )
+            if constrained_runtime != (True, ()):
+                raise AssertionError(
+                    f"{compiler_name} constrained generic procedures must check "
+                    "parameter bounds and `where` clauses, emit C17 and run "
+                    f"with exit 0; got {constrained_runtime}"
+                )
+        print("Constrained generic procedure parity passed: parameter bounds and where clauses run on native and bootstrap.")
 
         composed_generic_procedure_source = directory / "composed_generic_procedure_runtime.vit"
         composed_generic_procedure_source.write_text(
@@ -1620,6 +2034,472 @@ def main() -> int:
             f"got {bootstrap_composition_example}"
         )
     print("Generic composition tutorial runtime passed: native and bootstrap exit 0.")
+
+    constraints_example = (
+        Path(__file__).resolve().parents[2]
+        / "examples"
+        / "tutorials"
+        / "contraintes-generiques.vit"
+    )
+    native_constraints_example = run_program(
+        native, constraints_example, "generic constraints tutorial"
+    )
+    bootstrap_constraints_example = run_program(
+        bootstrap, constraints_example, "generic constraints tutorial"
+    )
+    if native_constraints_example != (True, ()):
+        raise AssertionError(
+            "native generic constraints tutorial must compile and run with exit 0; "
+            f"got {native_constraints_example}"
+        )
+    if bootstrap_constraints_example != (True, ()):
+        raise AssertionError(
+            "bootstrap generic constraints tutorial must compile and run with exit 0; "
+            f"got {bootstrap_constraints_example}"
+        )
+    print("Generic constraints tutorial runtime passed: native and bootstrap exit 0.")
+
+    trait_method_example = (
+        Path(__file__).resolve().parent
+        / "generic_trait_method_dispatch_runtime.vit"
+    )
+    native_trait_method_example = run_program(
+        native, trait_method_example, "generic trait method dispatch"
+    )
+    bootstrap_trait_method_example = run_program(
+        bootstrap, trait_method_example, "generic trait method dispatch"
+    )
+    if native_trait_method_example != (True, ()):
+        raise AssertionError(
+            "native constrained trait method dispatch must compile and run "
+            f"with exit 0; got {native_trait_method_example}"
+        )
+    if bootstrap_trait_method_example != (True, ()):
+        raise AssertionError(
+            "bootstrap constrained trait method dispatch must compile and run "
+            f"with exit 0; got {bootstrap_trait_method_example}"
+        )
+    print(
+        "Constrained trait method dispatch runtime passed: "
+        "native and bootstrap exit 0."
+    )
+
+    generic_pick_example = (
+        Path(__file__).resolve().parent / "generic_pick_runtime.vit"
+    )
+    native_generic_pick_example = run_program(
+        native, generic_pick_example, "generic pick runtime"
+    )
+    bootstrap_generic_pick_example = run_program(
+        bootstrap, generic_pick_example, "generic pick runtime"
+    )
+    if native_generic_pick_example != (True, ()):
+        raise AssertionError(
+            "native generic pick must compile and run with exit 0; "
+            f"got {native_generic_pick_example}"
+        )
+    if bootstrap_generic_pick_example != (True, ()):
+        raise AssertionError(
+            "bootstrap generic pick must compile and run with exit 0; "
+            f"got {bootstrap_generic_pick_example}"
+        )
+    print("Generic pick runtime passed: native and bootstrap exit 0.")
+
+    generic_multi_pick_example = (
+        Path(__file__).resolve().parent
+        / "generic_pick_multi_parameter_runtime.vit"
+    )
+    native_multi_pick = run_program(
+        native, generic_multi_pick_example, "multi-parameter generic pick"
+    )
+    bootstrap_multi_pick = run_program(
+        bootstrap, generic_multi_pick_example, "multi-parameter generic pick"
+    )
+    if native_multi_pick != (True, ()):
+        raise AssertionError(
+            "native multi-parameter generic pick must run with exit 0; "
+            f"got {native_multi_pick}"
+        )
+    if bootstrap_multi_pick != (True, ()):
+        raise AssertionError(
+            "bootstrap multi-parameter generic pick must run with exit 0; "
+            f"got {bootstrap_multi_pick}"
+        )
+    print("Multi-parameter generic pick runtime passed on both compilers.")
+
+    nullable_example = Path(__file__).resolve().parent / "nullable_runtime.vit"
+    native_nullable = run_program(native, nullable_example, "nullable value")
+    bootstrap_nullable = run_program(
+        bootstrap, nullable_example, "nullable value"
+    )
+    if native_nullable != (True, ()):
+        raise AssertionError(
+            "native nullable values must compile and run with exit 0; "
+            f"got {native_nullable}"
+        )
+    if bootstrap_nullable != (True, ()):
+        raise AssertionError(
+            "bootstrap nullable values must compile and run with exit 0; "
+            f"got {bootstrap_nullable}"
+        )
+    print("Nullable value runtime passed on both compilers.")
+
+    coalesce_example = (
+        Path(__file__).resolve().parent / "nullable_coalesce_runtime.vit"
+    )
+    native_coalesce = run_program(
+        native, coalesce_example, "nullable coalescing"
+    )
+    bootstrap_coalesce = run_program(
+        bootstrap, coalesce_example, "nullable coalescing"
+    )
+    if native_coalesce != (True, ()):
+        raise AssertionError(
+            "native nullable coalescing must evaluate the left once and the "
+            f"fallback lazily; got {native_coalesce}"
+        )
+    if bootstrap_coalesce != (True, ()):
+        raise AssertionError(
+            "bootstrap nullable coalescing must evaluate the left once and "
+            f"the fallback lazily; got {bootstrap_coalesce}"
+        )
+    for compiler in (native, bootstrap):
+        strict_result = run_strict_c17_emission(
+            compiler,
+            coalesce_example,
+            "nullable coalescing",
+        )
+        if strict_result.returncode != 0:
+            raise AssertionError(
+                f"{compiler.name}: strict C17 coalescing runtime exited "
+                f"{strict_result.returncode}; stderr={strict_result.stderr[:1000]!r}"
+            )
+    print("Nullable coalescing runtime passed on both compilers.")
+
+    assert_example = Path(__file__).resolve().parent / "assert_runtime.vit"
+    native_assert = run_program(native, assert_example, "assert statement")
+    bootstrap_assert = run_program(
+        bootstrap, assert_example, "assert statement"
+    )
+    if native_assert != (True, ()):
+        raise AssertionError(
+            "native assert statement must compile and run with exit 0; "
+            f"got {native_assert}"
+        )
+    if bootstrap_assert != (True, ()):
+        raise AssertionError(
+            "bootstrap assert statement must compile and run with exit 0; "
+            f"got {bootstrap_assert}"
+        )
+    with tempfile.TemporaryDirectory(prefix="vitte-assert-failure-") as value:
+        failing_assert_source = Path(value) / "assert_failure.vit"
+        failing_assert_source.write_text(
+            "proc main() -> i64 { assert(false); return 0; }\n",
+            encoding="utf-8",
+        )
+        for compiler in (native, bootstrap):
+            failed_assert = subprocess.run(
+                [
+                    str(compiler),
+                    "run",
+                    str(failing_assert_source),
+                    "--quiet",
+                    "--no-color",
+                    "--diagnostic=json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if failed_assert.returncode == 0 or "error[" in failed_assert.stderr:
+                raise AssertionError(
+                    f"{compiler.name} assert(false) must abort at runtime, "
+                    "not fail compilation: "
+                    f"exit={failed_assert.returncode}, "
+                    f"stderr={failed_assert.stderr[:1000]!r}"
+                )
+    print("Assert statement runtime passed on both compilers.")
+
+    with tempfile.TemporaryDirectory(prefix="vitte-test-declaration-") as value:
+        test_only_source = Path(value) / "test_only.vit"
+        test_only_source.write_text(
+            'test "must run" { assert(false); }\n',
+            encoding="utf-8",
+        )
+        test_with_main_source = Path(value) / "test_with_main.vit"
+        test_with_main_source.write_text(
+            'test "not part of normal main" { assert(false); }\n'
+            "proc main() -> i64 { return 0; }\n",
+            encoding="utf-8",
+        )
+        for compiler in (native, bootstrap):
+            failed_test = subprocess.run(
+                [
+                    str(compiler),
+                    "run",
+                    str(test_only_source),
+                    "--quiet",
+                    "--no-color",
+                    "--diagnostic=json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if (
+                failed_test.returncode == 0
+                or "VITTE_TYPE_E_CONDITION_NOT_BOOL" in failed_test.stderr
+            ):
+                raise AssertionError(
+                    f"{compiler.name} test-only source must execute its "
+                    "test body and fail at runtime; "
+                    f"exit={failed_test.returncode}, "
+                    f"stderr={failed_test.stderr[:1000]!r}"
+                )
+            normal_program = subprocess.run(
+                [
+                    str(compiler),
+                    "run",
+                    str(test_with_main_source),
+                    "--quiet",
+                    "--no-color",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if normal_program.returncode != 0:
+                raise AssertionError(
+                    f"{compiler.name} must not execute test declarations "
+                    "when running a source with main; "
+                    f"exit={normal_program.returncode}, "
+                    f"stderr={normal_program.stderr[:1000]!r}"
+                )
+    print("Test declarations run only as the test-only entry point on both compilers.")
+
+    with tempfile.TemporaryDirectory(prefix="vitte-modifier-rejection-") as value:
+        rejected_sources = {
+            "comptime": "comptime proc main() -> i64 { return 0; }\n",
+            "unknown_attribute": "#[not_supported] proc main() -> i64 { return 0; }\n",
+        }
+        for name, source in rejected_sources.items():
+            source_path = Path(value) / f"{name}.vit"
+            source_path.write_text(source, encoding="utf-8")
+            for compiler in (native, bootstrap):
+                rejected = subprocess.run(
+                    [
+                        str(compiler),
+                        "run",
+                        str(source_path),
+                        "--quiet",
+                        "--no-color",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if rejected.returncode == 0 or "E0902" not in rejected.stderr:
+                    raise AssertionError(
+                        f"{compiler.name} must reject unsupported {name} "
+                        "semantics at code generation; "
+                        f"exit={rejected.returncode}, "
+                        f"stderr={rejected.stderr[:1000]!r}"
+                    )
+
+        cold_source = Path(value) / "cold_attribute.vit"
+        cold_source.write_text(
+            "#[cold] proc main() -> i64 { return 0; }\n",
+            encoding="utf-8",
+        )
+        for compiler in (native, bootstrap):
+            accepted = subprocess.run(
+                [
+                    str(compiler),
+                    "run",
+                    str(cold_source),
+                    "--quiet",
+                    "--no-color",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if accepted.returncode != 0:
+                raise AssertionError(
+                    f"{compiler.name} must accept the supported #[cold] "
+                    "procedure attribute; "
+                    f"exit={accepted.returncode}, "
+                    f"stderr={accepted.stderr[:1000]!r}"
+                )
+
+        thread_local_source = (
+            Path(__file__).resolve().parent
+            / "thread_local_runtime.vit"
+        )
+        for compiler in (native, bootstrap):
+            accepted = subprocess.run(
+                [
+                    str(compiler),
+                    "run",
+                    str(thread_local_source),
+                    "--quiet",
+                    "--no-color",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if accepted.returncode != 0:
+                raise AssertionError(
+                    f"{compiler.name} must emit a thread-local static "
+                    "with C17 storage duration; "
+                    f"exit={accepted.returncode}, "
+                    f"stderr={accepted.stderr[:1000]!r}"
+                )
+
+        unsafe_source = Path(value) / "unsafe_procedure.vit"
+        unsafe_source.write_text(
+            "unsafe proc main() -> i64 { return 0; }\n",
+            encoding="utf-8",
+        )
+        for compiler in (native, bootstrap):
+            accepted = subprocess.run(
+                [
+                    str(compiler),
+                    "run",
+                    str(unsafe_source),
+                    "--quiet",
+                    "--no-color",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if accepted.returncode != 0:
+                raise AssertionError(
+                    f"{compiler.name} should preserve existing unsafe "
+                    "procedure declarations; "
+                    f"exit={accepted.returncode}, "
+                    f"stderr={accepted.stderr[:1000]!r}"
+                )
+    print("Comptime and unknown attributes are rejected; supported attributes compile on both compilers.")
+
+    defer_example = Path(__file__).resolve().parent / "defer_runtime.vit"
+    native_defer = run_program(native, defer_example, "defer statement")
+    bootstrap_defer = run_program(
+        bootstrap, defer_example, "defer statement"
+    )
+    if native_defer != (True, ()):
+        raise AssertionError(
+            "native deferred actions must run in LIFO order at scope exit; "
+            f"got {native_defer}"
+        )
+    if bootstrap_defer != (True, ()):
+        raise AssertionError(
+            "bootstrap deferred actions must run in LIFO order at scope exit; "
+            f"got {bootstrap_defer}"
+        )
+    print("Deferred actions run in LIFO order on both compilers.")
+
+    asm_example = Path(__file__).resolve().parent / "asm_runtime.vit"
+    native_asm = run_program(native, asm_example, "asm statement")
+    bootstrap_asm = run_program(bootstrap, asm_example, "asm statement")
+    if native_asm != (True, ()):
+        raise AssertionError(
+            "native asm template and operands must compile and run; "
+            f"got {native_asm}"
+        )
+    if bootstrap_asm != (True, ()):
+        raise AssertionError(
+            "bootstrap asm template and operands must compile and run; "
+            f"got {bootstrap_asm}"
+        )
+    print("Assembly templates and compiler-barrier operands passed on both compilers.")
+
+    extern_example = Path(__file__).resolve().parent / "extern_abs_runtime.vit"
+    native_extern = run_program(native, extern_example, "extern procedure")
+    bootstrap_extern = run_program(
+        bootstrap, extern_example, "extern procedure"
+    )
+    if native_extern != (True, ()):
+        raise AssertionError(
+            "native extern procedure must compile and run with exit 0; "
+            f"got {native_extern}"
+        )
+    if bootstrap_extern != (True, ()):
+        raise AssertionError(
+            "bootstrap extern procedure must compile and run with exit 0; "
+            f"got {bootstrap_extern}"
+        )
+    print("Extern procedure runtime passed on both compilers.")
+
+    intrinsic_example = Path(__file__).resolve().parent / "intrinsic_runtime.vit"
+    for compiler in (native, bootstrap):
+        intrinsic_result = subprocess.run(
+            [
+                str(compiler),
+                "run",
+                str(intrinsic_example),
+                "--quiet",
+                "--no-color",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if intrinsic_result.returncode != 0 or intrinsic_result.stdout != "42":
+            raise AssertionError(
+                f"{compiler.name} io_print_i64 intrinsic must print 42 and "
+                "exit successfully; "
+                f"exit={intrinsic_result.returncode}, "
+                f"stdout={intrinsic_result.stdout!r}, "
+                f"stderr={intrinsic_result.stderr[:1000]!r}"
+            )
+    print("C17 host intrinsic runtime passed on native and bootstrap.")
+
+    with tempfile.TemporaryDirectory(prefix="vitte-print-parity-") as value:
+        print_source = Path(value) / "print.vit"
+        print_source.write_text(
+            'proc main() -> int { print("Hello from Vitte!"); return 0; }\n',
+            encoding="utf-8",
+        )
+        for compiler in (native, bootstrap):
+            printed = subprocess.run(
+                [
+                    str(compiler),
+                    "run",
+                    str(print_source),
+                    "--quiet",
+                    "--no-color",
+                    "--diagnostic=json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if printed.returncode != 0 or printed.stdout != "Hello from Vitte!":
+                raise AssertionError(
+                    f"{compiler.name} print output mismatch: "
+                    f"exit={printed.returncode}, stdout={printed.stdout!r}, "
+                    f"stderr={printed.stderr!r}"
+                )
+    print("Builtin print output passed: native and bootstrap match.")
+
+    range_for_example = Path(__file__).resolve().parent / "range_for_runtime.vit"
+    native_range_for = run_program(native, range_for_example, "range for")
+    bootstrap_range_for = run_program(bootstrap, range_for_example, "range for")
+    if native_range_for != (True, ()):
+        raise AssertionError(
+            "native range iteration must compile and run with exit 0; "
+            f"got {native_range_for}"
+        )
+    if bootstrap_range_for != (True, ()):
+        raise AssertionError(
+            "bootstrap range iteration must compile and run with exit 0; "
+            f"got {bootstrap_range_for}"
+        )
+    print("Range iteration runtime passed: native and bootstrap exit 0.")
+
     print("Nested generic runtime parity passed: native and bootstrap exit 0.")
     print("Multi-parameter generic runtime parity passed: native and bootstrap exit 0.")
     print("Composed multi-parameter generic runtime parity passed: native and bootstrap exit 0.")

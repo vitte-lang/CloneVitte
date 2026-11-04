@@ -571,6 +571,12 @@ export proc context_diagnostics_mut(
 /// Initialization
 /// =========================================================================
 
+/// Return the zero-initialized context value used before `context_init` runs.
+/// Kept in this module so callers do not need to construct the imported form.
+export proc context_uninitialized() -> Context {
+    return Context {};
+}
+
 export proc context_init(
     context: &mut Context
 ) -> Status {

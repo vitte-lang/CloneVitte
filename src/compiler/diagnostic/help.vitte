@@ -350,7 +350,7 @@ form HelpExpectedTokens {
 }
 
 proc help_text_present(text: string) -> bool {
-    return text.length() != 0;
+    return text.len() != 0;
 }
 
 proc help_ascii_lower(value: u8) -> u8 {
@@ -682,7 +682,7 @@ proc help_detail(diagnostic_value: *const Diagnostic) -> string {
 
 proc help_trim(text: string) -> string {
     let mut begin: usize = 0;
-    let mut end: usize = text.length();
+    let mut end: usize = text.len();
     while begin < end and text[begin].is_space() {
         set begin += 1;
     }
@@ -740,8 +740,8 @@ proc help_extract_expected_token(reason: string) -> HelpExpectedTokens {
     let trimmed = help_trim(reason);
     let bytes: [u8] = trimmed.bytes();
     let prefix = "expected ";
-    if bytes.len() < prefix.bytes().len() or
-       trimmed.slice(0, prefix.bytes().len()) != prefix {
+    if bytes.len() < 9 or
+       trimmed.slice(0, 9) != prefix {
         return HelpExpectedTokens { valid: false, expected: "", found: "" };
     }
 
@@ -753,7 +753,7 @@ proc help_extract_expected_token(reason: string) -> HelpExpectedTokens {
         suffix_position
     };
     let expected = help_prefix_bytes(
-        help_trim(trimmed.slice(prefix.bytes().len(), expected_end)),
+        help_trim(trimmed.slice(9, expected_end)),
         HELP_EXPECTED_TOKEN_LIMIT - 1
     );
     if expected == "" {
@@ -764,7 +764,7 @@ proc help_extract_expected_token(reason: string) -> HelpExpectedTokens {
     if suffix_position != 18446744073709551615 as usize {
         found = help_prefix_bytes(
             help_trim(trimmed.slice(
-                suffix_position + ", found ".bytes().len(),
+                suffix_position + 8,
                 bytes.len()
             )),
             HELP_EXPECTED_TOKEN_LIMIT - 1
@@ -916,28 +916,28 @@ proc help_registry_entry(
     if diagnostic_value == null {
         return null;
     }
-    let mut entry: *const DiagnosticRegistryEntry = null;
+    let mut registry_value: *const DiagnosticRegistryEntry = null;
     if help_text_present(diagnostic_value.code) {
-        entry = vitte_diagnostic_registry_find_internal(diagnostic_value.code);
-        if entry == null {
-            entry = vitte_diagnostic_registry_find_public(diagnostic_value.code);
+        registry_value = vitte_diagnostic_registry_find_internal(diagnostic_value.code);
+        if registry_value == null {
+            registry_value = vitte_diagnostic_registry_find_public(diagnostic_value.code);
         }
     }
-    if entry == null and help_text_present(diagnostic_value.short_code) {
-        entry = vitte_diagnostic_registry_find_public(diagnostic_value.short_code);
-        if entry == null {
-            entry = vitte_diagnostic_registry_find_internal(diagnostic_value.short_code);
+    if registry_value == null and help_text_present(diagnostic_value.short_code) {
+        registry_value = vitte_diagnostic_registry_find_public(diagnostic_value.short_code);
+        if registry_value == null {
+            registry_value = vitte_diagnostic_registry_find_internal(diagnostic_value.short_code);
         }
     }
-    return entry;
+    return registry_value;
 }
 
 proc help_public_code(
     diagnostic_value: *const Diagnostic,
-    entry: *const DiagnosticRegistryEntry
+    registry_value: *const DiagnosticRegistryEntry
 ) -> string {
-    if entry != null and help_text_present(entry.public_code) {
-        return entry.public_code;
+    if registry_value != null and help_text_present(registry_value.public_code) {
+        return registry_value.public_code;
     }
     if diagnostic_value != null and help_text_present(diagnostic_value.short_code) {
         return diagnostic_value.short_code;
@@ -1065,8 +1065,8 @@ proc help_format_text(
         return "";
     }
 
-    let entry = help_registry_entry(diagnostic_value);
-    let public_code = help_public_code(diagnostic_value, entry);
+    let registry_value = help_registry_entry(diagnostic_value);
+    let public_code = help_public_code(diagnostic_value, registry_value);
     let policy = vitte_diagnostic_help_for_code(public_code);
     let reason = help_detail(diagnostic_value);
     let source_text = help_source_excerpt(diagnostic_value, sources);

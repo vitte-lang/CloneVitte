@@ -7,7 +7,7 @@ lead: Quand les programmes atteignent les limites du langage, ils peuvent appele
 takeaway: Une frontière bas niveau doit expliciter les types, les conventions et les invariants qui ne sont plus vérifiés automatiquement.
 part: "Aller plus loin"
 ---
-<div class="callout warning"><strong>Ces syntaxes ne sont pas des exemples exécutables confirmés</strong><p>Dans les suites et fixtures exécutées pour cette référence, aucun programme tutoriel avec <code>extern</code>, <code>intrinsic</code>, <code>defer</code>, <code>unsafe</code> ou <code>macro</code> n’a été confirmé en compilation et exécution. Les extraits ci-dessous montrent la forme décrite ; consultez <a href="{{ '/reference/support/' | relative_url }}">l’état du support</a> avant de les utiliser.</p></div>
+<div class="callout warning"><strong>La syntaxe ne garantit pas une sémantique complète</strong><p>Des fixtures exécutables couvrent désormais <code>extern</code>, l’intrinsèque <code>io_print_i64</code>, <code>defer</code> et les blocs <code>unsafe</code>. L’expansion des <code>macro</code>, l’évaluation <code>comptime</code> et la vérification des appels à des procédures <code>unsafe</code> restent indisponibles ; ces constructions sont rejetées ou signalées comme expérimentales selon le cas. Consultez <a href="{{ '/reference/support/' | relative_url }}">l’état du support</a> avant de les utiliser.</p></div>
 <h2>Déclarer une fonction externe</h2>
 <p>Un programme peut avoir besoin d’une procédure dont le corps est fourni par une bibliothèque ou une autre convention d’appel. La grammaire prévoit <code>extern</code>, suivi éventuellement du nom d’une bibliothèque, puis d’une signature sans corps :</p>
 <pre><code>extern "systeme" proc ecrire_code(code: i64) -&gt; void;</code></pre>

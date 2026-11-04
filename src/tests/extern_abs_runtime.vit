@@ -1,0 +1,5 @@
+extern proc llabs(value: i64) -> i64;
+
+proc main() -> i64 {
+    return llabs(-42) - 42;
+}

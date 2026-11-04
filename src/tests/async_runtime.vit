@@ -1,0 +1,38 @@
+form Counter {
+    value: i64,
+}
+
+async proc delayed_update(counter: &mut Counter) -> i64 {
+    set counter.value = counter.value + 1;
+    return counter.value;
+}
+
+async proc delayed_composition(counter: &mut Counter) -> i64 {
+    let child = delayed_update(counter);
+    let child_result: i64 = await child;
+    set counter.value = counter.value + 1;
+    return child_result + counter.value;
+}
+
+proc main() -> i64 {
+    let mut counter: Counter = Counter { value: 0 };
+    let task = delayed_update(&mut counter);
+    if counter.value != 0 {
+        return 1;
+    }
+    let first: i64 = await task;
+    let second: i64 = await task;
+    if counter.value != 1 or first != 1 or second != 1 {
+        return 2;
+    }
+    let composed = delayed_composition(&mut counter);
+    if counter.value != 1 {
+        return 3;
+    }
+    let composed_first: i64 = await composed;
+    let composed_second: i64 = await composed;
+    if counter.value != 3 or composed_first != 5 or composed_second != 5 {
+        return 4;
+    }
+    return 0;
+}

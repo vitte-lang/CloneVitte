@@ -3,7 +3,8 @@ space compiler::diagnostic::cli_bridge;
 
 use compiler::source::source::{SourceContext, SourceId};
 use compiler::diagnostic::registry::{vitte_diagnostic_registry_contains};
-use vitte::core::memory::{fill};
+use vitte::core::memory::{allocate, cstring_length, deallocate, fill};
+use vitte::core::pointer::{add_bytes};
 
 export const VITTE_CLI_DIAGNOSTIC_CODE_CAPACITY: usize = 128;
 export const VITTE_CLI_DIAGNOSTIC_SHORT_CODE_CAPACITY: usize = 16;
@@ -356,6 +357,304 @@ export form CliDiagnosticStatistics {
     machine_fix_count: usize
 }
 
+const CLI_TRANSPORT_MAGIC: u64 = 0x5649545445444941;
+const CLI_TRANSPORT_TEXT_SLOTS: usize = 11;
+
+form CliDiagnosticTransportHeader {
+    magic: u64,
+    count: usize,
+    owned_text: *mut *const char,
+    suggestions: *mut CliDiagnosticSuggestion,
+    related: *mut CliDiagnosticLocation
+}
+
+proc cli_transport_header(batch: *mut u8) -> *mut CliDiagnosticTransportHeader {
+    if batch == null or (batch as usize) < sizeof(CliDiagnosticTransportHeader) { return null; }
+    let header = ((batch as usize) - sizeof(CliDiagnosticTransportHeader)) as *mut CliDiagnosticTransportHeader;
+    if (*header).magic != CLI_TRANSPORT_MAGIC { return null; }
+    return header;
+}
+
+proc cli_transport_copy_text(
+    header: *mut CliDiagnosticTransportHeader,
+    index: usize,
+    slot: usize,
+    source: *const char,
+    output: *mut *const char
+) -> bool {
+    if header == null or output == null or index >= (*header).count or slot >= CLI_TRANSPORT_TEXT_SLOTS {
+        return false;
+    }
+    set *output = null;
+    if source == null { return true; }
+    let slot_index: usize = index * CLI_TRANSPORT_TEXT_SLOTS + slot;
+    let old_text = (*header).owned_text[slot_index];
+    set (*header).owned_text[slot_index] = null;
+    if old_text != null { deallocate(old_text as *mut u8); }
+    let source_length: usize = cstring_length(source as *const u8);
+    if source_length == usize.MAX { return false; }
+    let copied = allocate(source_length + 1);
+    if copied == null { return false; }
+    let mut byte_index: usize = 0;
+    while byte_index < source_length {
+        set copied[byte_index] = source[byte_index] as u8;
+        set byte_index += 1;
+    }
+    set copied[source_length] = 0;
+    set (*header).owned_text[slot_index] = copied as *const char;
+    set *output = copied as *const char;
+    return true;
+}
+
+proc cli_transport_cstr_equals(source: *const char, expected: string) -> bool {
+    if source == null { return false; }
+    let expected_bytes = expected.as_bytes();
+    let mut index: usize = 0;
+    while index < expected_bytes.len() {
+        if source[index] as u8 != expected_bytes[index] { return false; }
+        set index += 1;
+    }
+    return source[index] == 0;
+}
+
+proc cli_transport_cstr_starts_with(source: *const char, expected: string) -> bool {
+    if source == null { return false; }
+    let expected_bytes = expected.as_bytes();
+    let mut index: usize = 0;
+    while index < expected_bytes.len() {
+        if source[index] as u8 != expected_bytes[index] { return false; }
+        set index += 1;
+    }
+    return true;
+}
+
+export proc vitte_cli_diagnostic_transport_create(count: usize) -> *mut u8 {
+    if count == 0 or count > (usize.MAX - sizeof(CliDiagnosticTransportHeader)) / sizeof(CliDiagnostic) {
+        return null;
+    }
+    if count > usize.MAX / CLI_TRANSPORT_TEXT_SLOTS / sizeof(*const char) or
+       count > usize.MAX / sizeof(CliDiagnosticSuggestion) or
+       count > usize.MAX / sizeof(CliDiagnosticLocation) {
+        return null;
+    }
+    let block_size: usize = sizeof(CliDiagnosticTransportHeader) + count * sizeof(CliDiagnostic);
+    let block = allocate(block_size);
+    if block == null { return null; }
+    let header = block as *mut CliDiagnosticTransportHeader;
+    let diagnostics = add_bytes(block, sizeof(CliDiagnosticTransportHeader)) as *mut CliDiagnostic;
+    let text_slot_count: usize = count * CLI_TRANSPORT_TEXT_SLOTS;
+    let owned_text = allocate(text_slot_count * sizeof(*const char)) as *mut *const char;
+    let suggestions = allocate(count * sizeof(CliDiagnosticSuggestion)) as *mut CliDiagnosticSuggestion;
+    let related = allocate(count * sizeof(CliDiagnosticLocation)) as *mut CliDiagnosticLocation;
+    if owned_text == null or suggestions == null or related == null {
+        if owned_text != null { deallocate(owned_text as *mut u8); }
+        if suggestions != null { deallocate(suggestions as *mut u8); }
+        if related != null { deallocate(related as *mut u8); }
+        deallocate(block);
+        return null;
+    }
+    fill(block, 0, block_size);
+    fill(owned_text as *mut u8, 0, text_slot_count * sizeof(*const char));
+    fill(suggestions as *mut u8, 0, count * sizeof(CliDiagnosticSuggestion));
+    fill(related as *mut u8, 0, count * sizeof(CliDiagnosticLocation));
+    set (*header).magic = CLI_TRANSPORT_MAGIC;
+    set (*header).count = count;
+    set (*header).owned_text = owned_text;
+    set (*header).suggestions = suggestions;
+    set (*header).related = related;
+    let mut index: usize = 0;
+    while index < count {
+        vitte_cli_diagnostic_init(&mut diagnostics[index]);
+        set index += 1;
+    }
+    return diagnostics as *mut u8;
+}
+
+export proc vitte_cli_diagnostic_transport_set(
+    batch: *mut u8,
+    count: usize,
+    index: usize,
+    diagnostic_id: u64,
+    code: *const char,
+    severity: u32,
+    origin: u32,
+    message: *const char,
+    details: *const char,
+    help: *const char,
+    has_span: bool,
+    file_id: u32,
+    source_id: u64,
+    source_name: *const char,
+    start_offset: usize,
+    end_offset: usize,
+    start_line: usize,
+    start_column: usize,
+    end_line: usize,
+    end_column: usize,
+    expected: *const char,
+    found: *const char
+) -> bool {
+    let header = cli_transport_header(batch);
+    if header == null or count != (*header).count or index >= count or code == null or message == null or
+       severity > CliDiagnosticSeverity.Fatal as u32 or origin > CliDiagnosticOrigin.Internal as u32 or
+       (has_span and end_offset < start_offset) {
+        return false;
+    }
+    let mut owned_code: *const char = null;
+    let mut owned_message: *const char = null;
+    let mut owned_help: *const char = null;
+    let mut owned_expected: *const char = null;
+    let mut owned_found: *const char = null;
+    let mut owned_source_name: *const char = null;
+    if not cli_transport_copy_text(header, index, 0, code, &mut owned_code) or
+       not cli_transport_copy_text(header, index, 1, message, &mut owned_message) or
+       not cli_transport_copy_text(header, index, 2, help, &mut owned_help) or
+       not cli_transport_copy_text(header, index, 3, expected, &mut owned_expected) or
+       not cli_transport_copy_text(header, index, 4, found, &mut owned_found) or
+       not cli_transport_copy_text(header, index, 5, source_name, &mut owned_source_name) {
+        return false;
+    }
+
+    let diagnostics = add_bytes(batch, 0) as *mut CliDiagnostic;
+    let diag_entry = &mut diagnostics[index];
+    vitte_cli_diagnostic_init(diag_entry);
+    set (*diag_entry).diagnostic_id = diagnostic_id;
+    set (*diag_entry).code = owned_code;
+    set (*diag_entry).severity = severity as CliDiagnosticSeverity;
+    set (*diag_entry).origin = origin as CliDiagnosticOrigin;
+    set (*diag_entry).message = owned_message;
+    set (*diag_entry).help = owned_help;
+    set (*diag_entry).expected = owned_expected;
+    set (*diag_entry).found = owned_found;
+    set (*diag_entry).is_primary = true;
+    set (*diag_entry).poisons_analysis = severity == CliDiagnosticSeverity.Error as u32 or
+        severity == CliDiagnosticSeverity.Fatal as u32;
+    if details != null {
+        let details_length = cstring_length(details as *const u8);
+        let mut copy_length = details_length;
+        if copy_length >= sizeof((*diag_entry).details_storage) { set copy_length = sizeof((*diag_entry).details_storage) - 1; }
+        let mut detail_index: usize = 0;
+        while detail_index < copy_length {
+            set (*diag_entry).details_storage[detail_index] = details[detail_index] as u8;
+            set detail_index += 1;
+        }
+        set (*diag_entry).details_storage[copy_length] = 0;
+        if copy_length != 0 { set (*diag_entry).details = (&mut (*diag_entry).details_storage[0]) as *mut u8 as *const char; }
+    }
+    if has_span {
+        set (*diag_entry).has_span = true;
+        set (*diag_entry).file_id = file_id;
+        set (*diag_entry).source_id = source_id;
+        set (*diag_entry).source_name = owned_source_name;
+        set (*diag_entry).start_offset = start_offset;
+        set (*diag_entry).end_offset = end_offset;
+        set (*diag_entry).start_line = start_line;
+        set (*diag_entry).start_column = start_column;
+        set (*diag_entry).end_line = end_line;
+        set (*diag_entry).end_column = end_column;
+    }
+
+    if has_span and owned_source_name != null and origin == CliDiagnosticOrigin.Lexer as u32 and
+       cli_transport_cstr_equals(code, "VITTE_LEXER_E_INVALID_CHARACTER") and
+       cli_transport_cstr_starts_with(details, "invalid character `'" ) {
+        let suggestion = &mut (*header).suggestions[index];
+        set (*suggestion).message = "Insert the missing closing `'` here.".as_ptr() as *const char;
+        set (*suggestion).applicability = CliDiagnosticApplicability.Machine;
+        set (*suggestion).confidence = CliDiagnosticConfidence.High;
+        set (*suggestion).preferred = true;
+        set (*suggestion).suggestion_id = diagnostic_id;
+        set (*suggestion).has_span = true;
+        set (*suggestion).span = CliDiagnosticSpan {
+            valid: true, file_id: file_id, source_id: source_id, source_name: owned_source_name,
+            start_offset: start_offset, end_offset: end_offset, start_line: start_line,
+            start_column: start_column, end_line: end_line, end_column: end_column
+        };
+        set (*diag_entry).suggestions = suggestion as *const CliDiagnosticSuggestion;
+        set (*diag_entry).suggestion_count = 1;
+    }
+    return true;
+}
+
+export proc vitte_cli_diagnostic_transport_set_semantic(
+    batch: *mut u8,
+    count: usize,
+    index: usize,
+    symbol: *const char,
+    probable_cause: *const char,
+    context: *const char,
+    has_related: bool,
+    related_file_id: u32,
+    related_source_id: u64,
+    related_source_name: *const char,
+    related_start_offset: usize,
+    related_end_offset: usize,
+    related_start_line: usize,
+    related_start_column: usize,
+    related_end_line: usize,
+    related_end_column: usize,
+    related_label: *const char
+) -> bool {
+    let header = cli_transport_header(batch);
+    if header == null or count != (*header).count or index >= count or
+       (has_related and (related_end_offset < related_start_offset or related_source_name == null or related_label == null)) {
+        return false;
+    }
+    let mut owned_symbol: *const char = null;
+    let mut owned_cause: *const char = null;
+    let mut owned_context: *const char = null;
+    let mut owned_related_source: *const char = null;
+    let mut owned_related_label: *const char = null;
+    if not cli_transport_copy_text(header, index, 6, symbol, &mut owned_symbol) or
+       not cli_transport_copy_text(header, index, 7, probable_cause, &mut owned_cause) or
+       not cli_transport_copy_text(header, index, 8, context, &mut owned_context) or
+       not cli_transport_copy_text(header, index, 9, related_source_name, &mut owned_related_source) or
+       not cli_transport_copy_text(header, index, 10, related_label, &mut owned_related_label) {
+        return false;
+    }
+    let diagnostics = add_bytes(batch, 0) as *mut CliDiagnostic;
+    set diagnostics[index].symbol = owned_symbol;
+    set diagnostics[index].probable_cause = owned_cause;
+    set diagnostics[index].context = owned_context;
+    if not has_related { return true; }
+    let location = &mut (*header).related[index];
+    set (*location).kind = CliDiagnosticLocationKind.Related;
+    set (*location).label = owned_related_label;
+    set (*location).span = CliDiagnosticSpan {
+        valid: true, file_id: related_file_id, source_id: related_source_id,
+        source_name: owned_related_source, start_offset: related_start_offset,
+        end_offset: related_end_offset, start_line: related_start_line,
+        start_column: related_start_column, end_line: related_end_line,
+        end_column: related_end_column
+    };
+    set diagnostics[index].related = location as *const CliDiagnosticLocation;
+    set diagnostics[index].related_count = 1;
+    return true;
+}
+
+export proc vitte_cli_diagnostic_transport_destroy(batch: *mut u8) {
+    let header = cli_transport_header(batch);
+    if header == null { return; }
+    let mut index: usize = 0;
+    while index < (*header).count {
+        let mut slot: usize = 0;
+        while slot < CLI_TRANSPORT_TEXT_SLOTS {
+            let text_index: usize = index * CLI_TRANSPORT_TEXT_SLOTS + slot;
+            let text = (*header).owned_text[text_index];
+            if text != null { deallocate(text as *mut u8); }
+            set slot += 1;
+        }
+        set index += 1;
+    }
+    let owned_text = (*header).owned_text;
+    let suggestions = (*header).suggestions;
+    let related = (*header).related;
+    set (*header).magic = 0;
+    deallocate(owned_text as *mut u8);
+    deallocate(suggestions as *mut u8);
+    deallocate(related as *mut u8);
+    deallocate(header as *mut u8);
+}
+
 export proc vitte_cli_diagnostic_init(diagnostic_value: *mut CliDiagnostic) {
     if diagnostic_value == null {
         return;
@@ -594,14 +893,6 @@ export proc vitte_diagnostic_cli_code_exists(code: *const char) -> bool {
     if code == null { return false; }
     return vitte_diagnostic_registry_contains(cli_bridge_cstring(code));
 }
-
-/// Opaque host-side allocation and population boundary for CLI diagnostics.
-/// The Vitte compiler passes scalar fields only; the C adapter owns the
-/// bootstrap `vitte_cli_diagnostic_t` layout consumed by the renderers.
-export extern proc vitte_cli_diagnostic_transport_create(count: usize) -> *mut u8;
-export extern proc vitte_cli_diagnostic_transport_set(batch: *mut u8, count: usize, index: usize, diagnostic_id: u64, code: *const char, severity: u32, origin: u32, message: *const char, details: *const char, help: *const char, has_span: bool, file_id: u32, source_id: u64, source_name: *const char, start_offset: usize, end_offset: usize, start_line: usize, start_column: usize, end_line: usize, end_column: usize, expected: *const char, found: *const char) -> bool;
-export extern proc vitte_cli_diagnostic_transport_set_semantic(batch: *mut u8, count: usize, index: usize, symbol: *const char, probable_cause: *const char, context: *const char, has_related: bool, related_file_id: u32, related_source_id: u64, related_source_name: *const char, related_start_offset: usize, related_end_offset: usize, related_start_line: usize, related_start_column: usize, related_end_line: usize, related_end_column: usize, related_label: *const char) -> bool;
-export extern proc vitte_cli_diagnostic_transport_destroy(batch: *mut u8);
 
 export extern proc vitte_diagnostic_explain_cli(stream: *mut u8, code: *const char, json: bool) -> bool;
 

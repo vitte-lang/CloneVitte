@@ -24,6 +24,7 @@ enum {
     VITTE_CLI_DIAGNOSTIC_TRANSPORT_RELATED_LABEL
 };
 
+#ifndef VITTE_NATIVE_FRONTEND_LINKED
 static bool
 vitte_cli_diagnostic_transport_copy_text(
     void *batch,
@@ -233,6 +234,7 @@ vitte_cli_diagnostic_transport_add_parser_suggestion(
     diagnostic->suggestion_count = 1u;
     diagnostic->has_machine_fix = !replace_token;
 }
+#endif
 
 bool
 vitte_cli_diagnostic_format_is_valid(
@@ -274,6 +276,7 @@ vitte_cli_diagnostic_init(
     diagnostic->is_primary = true;
 }
 
+#ifndef VITTE_NATIVE_FRONTEND_LINKED
 void *
 vitte_cli_diagnostic_transport_create(
     size_t count
@@ -540,6 +543,7 @@ vitte_cli_diagnostic_transport_destroy(
     free(header->owned_suggestions);
     free(header);
 }
+#endif
 
 void
 vitte_cli_diagnostic_render_options_init(

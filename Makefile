@@ -80,6 +80,7 @@ DEP_DIR := $(BUILD)/dep
 BIN_DIR := $(BUILD)/bin
 TMP_DIR := $(BUILD)/tmp
 LOG_DIR := $(BUILD)/logs
+BOOTSTRAP_ARCHIVE := $(BUILD)/lib/libvitte-bootstrap.a
 
 TARGET_BIN := $(BIN_DIR)/$(TARGET)$(EXE_SUFFIX)
 BOOTSTRAP_TARGET_BIN := $(BIN_DIR)/$(TARGET)-bootstrap$(EXE_SUFFIX)
@@ -250,9 +251,9 @@ $(BUILD_CONFIG_STAMP):
 	@touch "$@"
 	@printf '%s\n' '$(BUILD_CONFIG_KEY)' > "$(ACTIVE_BUILD_CONFIG)"
 
-# The bootstrap binary compiles the Vitte API and its pipeline dependencies
-# into one native translation unit. The standard executable routes the public
-# API through it while retaining bootstrap objects for unmigrated stages.
+# The bootstrap binary emits the Vitte API translation unit. The standard
+# executable links that Vitte frontend with only OS and ABI boundary objects;
+# the historical C compiler remains isolated in the bootstrap target.
 NATIVE_FRONTEND_ENTRY := $(VITTE_ROOT)/compiler/api/api.vitte
 NATIVE_FRONTEND_SOURCES := $(shell find $(VITTE_ROOT)/compiler -type f -name '*.vitte' | LC_ALL=C sort)
 # The manifest defines the package prefix stripped by the source module loader.
@@ -262,10 +263,14 @@ NATIVE_FRONTEND_COMPILER ?= $(BOOTSTRAP_TARGET_BIN)
 NATIVE_FRONTEND_DIR := $(BUILD)/native-frontend
 NATIVE_FRONTEND_C := $(NATIVE_FRONTEND_DIR)/api-implementation.c
 NATIVE_FRONTEND_OBJECT := $(NATIVE_FRONTEND_DIR)/api-implementation.o
-NATIVE_CLI_PIPELINE_OBJECT := $(NATIVE_FRONTEND_DIR)/cli-pipeline.o
-NATIVE_CLI_PIPELINE_DEP := $(NATIVE_FRONTEND_DIR)/cli-pipeline.d
+NATIVE_HOST_OBJECT := $(NATIVE_FRONTEND_DIR)/native-host.o
+# C ABI bridge retained for the parity harness; never link it into vitte.
 NATIVE_API_OBJECT := $(NATIVE_FRONTEND_DIR)/api.o
 NATIVE_API_DEP := $(NATIVE_FRONTEND_DIR)/api.d
+NATIVE_MAIN_OBJECT := $(NATIVE_FRONTEND_DIR)/main.o
+NATIVE_IO_OBJECT := $(NATIVE_FRONTEND_DIR)/io.o
+NATIVE_PLATFORM_OBJECT := $(OBJ_DIR)/platform/platform.o
+NATIVE_FILESYSTEM_OBJECT := $(OBJ_DIR)/filesystem/filesystem.o
 NATIVE_FRONTEND_LIBRARY := $(NATIVE_FRONTEND_DIR)/libvitte-native-frontend.a
 SELFHOST_DIR := $(BUILD)/selfhost
 SELFHOST_STAGE1_C := $(SELFHOST_DIR)/stage1-api.c
@@ -292,9 +297,11 @@ SELFHOST_C_INPUTS := $(SOURCES) \
 SELFHOST_TEST_INPUTS := $(shell find $(TEST_DIR) -type f 2>/dev/null | LC_ALL=C sort) \
 	grammar/vitte.ebnf scripts/check-ebnf-frontend-sync.py
 NATIVE_LINK_OBJECTS := \
-	$(filter-out $(OBJ_DIR)/cli/pipeline.o $(OBJ_DIR)/pointer/pointer.o $(OBJ_DIR)/api/api.o,$(OBJECTS)) \
-	$(NATIVE_CLI_PIPELINE_OBJECT) \
-	$(NATIVE_API_OBJECT)
+	$(NATIVE_PLATFORM_OBJECT) \
+	$(NATIVE_FILESYSTEM_OBJECT) \
+	$(NATIVE_HOST_OBJECT) \
+	$(NATIVE_IO_OBJECT) \
+	$(NATIVE_MAIN_OBJECT)
 
 .PHONY: native-frontend
 native-frontend: $(NATIVE_FRONTEND_LIBRARY)
@@ -308,17 +315,29 @@ $(NATIVE_FRONTEND_OBJECT): $(NATIVE_FRONTEND_C) $(BUILD_CONFIG_STAMP)
 	@printf '[CC] %s\n' "$<"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c "$<" -o "$@"
 
-$(NATIVE_CLI_PIPELINE_OBJECT): $(SRC_ROOT)/cli/pipeline.c $(SRC_ROOT)/cli/internal.h $(BUILD_CONFIG_STAMP)
+$(NATIVE_HOST_OBJECT): $(VITTE_ROOT)/compiler/driver/native_host.c $(SRC_ROOT)/platform/platform.h $(BUILD_CONFIG_STAMP)
 	@mkdir -p $(NATIVE_FRONTEND_DIR)
-	@printf '[CC-NATIVE-DRIVER] %s\n' "$<"
+	@printf '[CC-NATIVE-HOST] %s\n' "$<"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
-		-MMD -MP -MF "$(NATIVE_CLI_PIPELINE_DEP)" -c "$<" -o "$@"
+		-MMD -MP -c "$<" -o "$@"
 
 $(NATIVE_API_OBJECT): $(SRC_ROOT)/api/api.c $(SRC_ROOT)/api/native_api_bridge.inc $(BUILD_CONFIG_STAMP)
 	@mkdir -p $(NATIVE_FRONTEND_DIR)
 	@printf '[CC-NATIVE-API] %s\n' "$<"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
 		-MMD -MP -MF "$(NATIVE_API_DEP)" -c "$<" -o "$@"
+
+$(NATIVE_MAIN_OBJECT): $(VITTE_ROOT)/compiler/driver/native_main.c $(BUILD_CONFIG_STAMP)
+	@mkdir -p $(NATIVE_FRONTEND_DIR)
+	@printf '[CC-NATIVE-MAIN] %s\n' "$<"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
+		-MMD -MP -c "$<" -o "$@"
+
+$(NATIVE_IO_OBJECT): $(VITTE_ROOT)/compiler/driver/native_io.c $(BUILD_CONFIG_STAMP)
+	@mkdir -p $(NATIVE_FRONTEND_DIR)
+	@printf '[CC-NATIVE-IO] %s\n' "$<"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
+		-MMD -MP -c "$<" -o "$@"
 
 $(NATIVE_FRONTEND_LIBRARY): $(NATIVE_FRONTEND_OBJECT) Makefile
 	@printf '[AR] %s\n' "$@"
@@ -335,6 +354,16 @@ $(BOOTSTRAP_TARGET_BIN): $(OBJECTS) $(BUILD_CONFIG_STAMP)
 		-o $@
 	@printf '\nBuilt Vitte bootstrap compiler:\n'
 	@printf '  %s\n\n' "$@"
+
+.PHONY: bootstrap-archive
+bootstrap-archive: $(BOOTSTRAP_ARCHIVE)
+
+$(BOOTSTRAP_ARCHIVE): $(LIB_OBJECTS)
+	@mkdir -p $(dir $@)
+	@printf '[AR-BOOTSTRAP] %s\n' "$@"
+	@rm -f "$@"
+	$(AR) rcs "$@" $(LIB_OBJECTS)
+	$(RANLIB) "$@"
 
 $(TARGET_BIN): $(NATIVE_LINK_OBJECTS) $(NATIVE_FRONTEND_LIBRARY) $(BUILD_CONFIG_STAMP)
 	@mkdir -p $(dir $@)
@@ -604,13 +633,13 @@ test-diagnostic-parity: $(TARGET_BIN)
 .PHONY: test-native-bootstrap-parity
 NATIVE_BOOTSTRAP_PARITY_TEST_BIN := $(BIN_DIR)/native_bootstrap_parity_test
 
-$(NATIVE_BOOTSTRAP_PARITY_TEST_BIN): $(TEST_DIR)/native_parser_parity_test.c $(NATIVE_LINK_OBJECTS) $(NATIVE_FRONTEND_LIBRARY)
+$(NATIVE_BOOTSTRAP_PARITY_TEST_BIN): $(TEST_DIR)/native_parser_parity_test.c $(NATIVE_LINK_OBJECTS) $(NATIVE_API_OBJECT) $(NATIVE_FRONTEND_LIBRARY) $(BOOTSTRAP_ARCHIVE) Makefile
 	@mkdir -p $(BIN_DIR)
 	@printf '[TEST-CC] native_parser_parity_test\n'
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
 		$(TEST_DIR)/native_parser_parity_test.c \
-		$(filter-out $(MAIN_OBJECT),$(NATIVE_LINK_OBJECTS)) \
-		$(NATIVE_FRONTEND_LIBRARY) $(LDFLAGS) $(LDLIBS) -o $@
+		$(filter-out $(MAIN_OBJECT) $(NATIVE_MAIN_OBJECT),$(NATIVE_LINK_OBJECTS)) \
+		$(NATIVE_API_OBJECT) $(NATIVE_FRONTEND_LIBRARY) $(BOOTSTRAP_ARCHIVE) $(LDFLAGS) $(LDLIBS) -o $@
 
 test-native-bootstrap-parity: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN) $(NATIVE_BOOTSTRAP_PARITY_TEST_BIN)
 	$(PYTHON) $(TEST_DIR)/native_bootstrap_parity_test.py \
@@ -1071,6 +1100,8 @@ test-frontend: $(TARGET_BIN)
 RUNTIME_CANDIDATES := \
 	$(TEST_DIR)/aggregate_runtime.vit \
 	$(TEST_DIR)/contracts_ok.vit \
+	$(TEST_DIR)/generic_trait_method_dispatch_runtime.vit \
+	$(TEST_DIR)/generic_pick_runtime.vit \
 	$(TEST_DIR)/ir_declaration_runtime.vit \
 	$(TEST_DIR)/native_fixed_array_runtime.vit \
 	$(TEST_DIR)/llvm_array_runtime.vit \
@@ -1651,6 +1682,7 @@ help:
 		'Build:' \
 		'  make                         Build debug compiler' \
 		'  make bootstrap               Build only the C seed compiler' \
+		'  make bootstrap-archive       Archive the historical C seed modules' \
 		'  make debug                   Build debug compiler' \
 		'  make release                 Build optimized compiler' \
 		'  make asan                    Build with ASan + UBSan' \
