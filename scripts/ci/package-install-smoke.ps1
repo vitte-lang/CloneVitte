@@ -1,10 +1,12 @@
 param(
   [string]$VitteBin = $(if ($env:VITTE_BIN) { $env:VITTE_BIN } else { "vitte" }),
+  [string]$VitteBootstrap = $(if ($env:VITTE_BOOTSTRAP_BIN) { $env:VITTE_BOOTSTRAP_BIN } else { Join-Path $PSScriptRoot "../../build/bin/vitte-bootstrap.exe" }),
   [string]$WorkDir = $env:WORKDIR
 )
 
 $ErrorActionPreference = "Stop"
 $VitteBin = (Get-Command $VitteBin -ErrorAction Stop).Source
+$VitteBootstrap = (Get-Command $VitteBootstrap -ErrorAction Stop).Source
 $temporaryWorkDir = [string]::IsNullOrWhiteSpace($WorkDir)
 if ($temporaryWorkDir) {
   $WorkDir = Join-Path ([System.IO.Path]::GetTempPath()) ("vitte-package-install-smoke-" + [guid]::NewGuid().ToString("N"))
@@ -46,8 +48,10 @@ try {
   }
 
   $env:VITTE_MODULE_PATH = Join-Path $WorkDir ".vitte/modules"
-  Invoke-Vitte -CommandArgs @("check", "package-smoke.vit")
-  Invoke-Vitte -CommandArgs @("compile", "package-smoke.vit", "--emit-c", "-o", "package-smoke.c")
+  & $VitteBootstrap "check" "package-smoke.vit"
+  if ($LASTEXITCODE -ne 0) { throw "Bootstrap check failed with exit code $LASTEXITCODE" }
+  & $VitteBootstrap "compile" "package-smoke.vit" "--emit-c" "-o" "package-smoke.c"
+  if ($LASTEXITCODE -ne 0) { throw "Bootstrap compile failed with exit code $LASTEXITCODE" }
   & gcc -std=c17 package-smoke.c -o package-smoke.exe
   if ($LASTEXITCODE -ne 0) { throw "C compiler failed with exit code $LASTEXITCODE" }
   & .\package-smoke.exe
