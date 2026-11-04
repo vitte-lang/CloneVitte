@@ -5734,7 +5734,21 @@ proc ast_emit_statement(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
                 ast_write(emitter, " ");
                 ast_write(emitter, return_name);
                 ast_write(emitter, " = ");
-                ast_emit_expression(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
+                let return_expression = ast_child(emitter, node, 0);
+                if return_expression != null and
+                   return_expression?.kind == ASTNodeKind.ArrayExpr and
+                   (return_type?.kind == ASTNodeKind.ArrayType or
+                    return_type?.kind == ASTNodeKind.TypeExpr) {
+                    ast_emit_array_literal(
+                        emitter,
+                        return_expression?,
+                        namespace,
+                        depth + 1,
+                        return_type
+                    );
+                } else {
+                    ast_emit_expression(emitter, return_expression, namespace, depth + 1);
+                }
                 ast_write(emitter, ";\n");
             }
             ast_emit_deferred_actions(emitter, 0, namespace, depth);
@@ -6509,10 +6523,103 @@ proc ast_emit_match(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: stri
             ast_write(emitter, ":\n");
         }
         let body = ast_child(emitter, arm, 1);
+        let body_is_statement = body != null and (
+            body?.kind == ASTNodeKind.LetStmt or
+            body?.kind == ASTNodeKind.ReturnStmt or
+            body?.kind == ASTNodeKind.DeferStmt or
+            body?.kind == ASTNodeKind.IfStmt or
+            body?.kind == ASTNodeKind.WhileStmt or
+            body?.kind == ASTNodeKind.LoopStmt or
+            body?.kind == ASTNodeKind.ForStmt or
+            body?.kind == ASTNodeKind.BreakStmt or
+            body?.kind == ASTNodeKind.ContinueStmt or
+            body?.kind == ASTNodeKind.MatchStmt or
+            body?.kind == ASTNodeKind.UnsafeBlock or
+            body?.kind == ASTNodeKind.AsmStmt or
+            body?.kind == ASTNodeKind.AssertStmt or
+            body?.kind == ASTNodeKind.ExprStmt
+        );
         if body != null and body.kind == ASTNodeKind.Block {
             ast_emit_indent(emitter, depth + 2);
             ast_write(emitter, "{\n");
             ast_emit_block_contents(emitter, body, namespace, depth + 3);
+            ast_emit_indent(emitter, depth + 3);
+            ast_write(emitter, "break;\n");
+            ast_emit_indent(emitter, depth + 2);
+            ast_write(emitter, "}\n");
+        } elif body_is_statement {
+            ast_emit_indent(emitter, depth + 2);
+            ast_write(emitter, "{\n");
+            ast_emit_statement(emitter, body, namespace, depth + 3);
+            ast_emit_indent(emitter, depth + 3);
+            ast_write(emitter, "break;\n");
+            ast_emit_indent(emitter, depth + 2);
+            ast_write(emitter, "}\n");
+        } elif body != null and body?.kind == ASTNodeKind.BlockExpr {
+            let saved_local_count = emitter.local_count;
+            let saved_deferred_count = emitter.deferred_count;
+            ast_emit_indent(emitter, depth + 2);
+            ast_write(emitter, "{\n");
+            let mut body_index: usize = 0;
+            while body_index < body?.child_count and not emitter.failed {
+                let body_item = ast_child(emitter, body, body_index);
+                if body_item == null {
+                    ast_fail(emitter, "match block expression contains an invalid node");
+                    break;
+                }
+                let is_statement = body_item?.kind == ASTNodeKind.Block or
+                    body_item?.kind == ASTNodeKind.LetStmt or
+                    body_item?.kind == ASTNodeKind.ReturnStmt or
+                    body_item?.kind == ASTNodeKind.DeferStmt or
+                    body_item?.kind == ASTNodeKind.IfStmt or
+                    body_item?.kind == ASTNodeKind.WhileStmt or
+                    body_item?.kind == ASTNodeKind.LoopStmt or
+                    body_item?.kind == ASTNodeKind.ForStmt or
+                    body_item?.kind == ASTNodeKind.BreakStmt or
+                    body_item?.kind == ASTNodeKind.ContinueStmt or
+                    body_item?.kind == ASTNodeKind.MatchStmt or
+                    body_item?.kind == ASTNodeKind.UnsafeBlock or
+                    body_item?.kind == ASTNodeKind.AsmStmt or
+                    body_item?.kind == ASTNodeKind.AssertStmt or
+                    body_item?.kind == ASTNodeKind.ExprStmt;
+                if is_statement {
+                    ast_emit_statement(emitter, body_item, namespace, depth + 3);
+                } elif body_index + 1 == body?.child_count {
+                    ast_emit_indent(emitter, depth + 3);
+                    if emitter.return_void {
+                        ast_emit_expression(emitter, body_item, namespace, depth + 1);
+                        ast_write(emitter, ";\n");
+                        ast_emit_indent(emitter, depth + 3);
+                        ast_write(emitter, "return;\n");
+                    } else {
+                        ast_write(emitter, "return ");
+                        if body_item?.kind == ASTNodeKind.ArrayExpr and
+                           emitter.current_return_type != null {
+                            ast_emit_array_literal(
+                                emitter,
+                                body_item?,
+                                namespace,
+                                depth + 1,
+                                emitter.current_return_type
+                            );
+                        } else {
+                            ast_emit_expression(emitter, body_item, namespace, depth + 1);
+                        }
+                        ast_write(emitter, ";\n");
+                    }
+                } else {
+                    ast_fail(emitter, "match block expression has a non-final value");
+                }
+                set body_index += 1;
+            }
+            ast_emit_deferred_actions(
+                emitter,
+                saved_deferred_count,
+                namespace,
+                depth + 3
+            );
+            set emitter.deferred_count = saved_deferred_count;
+            set emitter.local_count = saved_local_count;
             ast_emit_indent(emitter, depth + 3);
             ast_write(emitter, "break;\n");
             ast_emit_indent(emitter, depth + 2);
@@ -7902,7 +8009,19 @@ proc ast_emit_function_definition(emitter: &mut C17AstEmitter, function: &ASTNod
             ast_write(emitter, " ");
             ast_write(emitter, return_name);
             ast_write(emitter, " = ");
-            ast_emit_expression(emitter, statement, namespace, 1);
+            if statement?.kind == ASTNodeKind.ArrayExpr and
+               (return_type?.kind == ASTNodeKind.ArrayType or
+                return_type?.kind == ASTNodeKind.TypeExpr) {
+                ast_emit_array_literal(
+                    emitter,
+                    statement?,
+                    namespace,
+                    1,
+                    return_type
+                );
+            } else {
+                ast_emit_expression(emitter, statement, namespace, 1);
+            }
             ast_write(emitter, ";\n");
             ast_emit_deferred_actions(emitter, 0, namespace, 1);
             ast_emit_indent(emitter, 1);
