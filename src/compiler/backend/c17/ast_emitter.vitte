@@ -31,6 +31,7 @@ use compiler::parser::parser::{
     PARSER_AST_FLAG_COMPTIME,
     PARSER_AST_FLAG_FUNCTION_TYPE_HAS_RETURN,
     PARSER_AST_FLAG_GLOB_IMPORT,
+    PARSER_AST_FLAG_TYPE_QUERY_TYPE_OPERAND,
     vitte_parser_node_is_async,
     vitte_parser_get_node,
     vitte_parser_token_at,
@@ -4002,6 +4003,32 @@ proc ast_pick_type_name(emitter: &C17AstEmitter, left: ?&ASTNode, namespace: str
     return "";
 }
 
+proc ast_builtin_limit_constant(
+    emitter: &C17AstEmitter,
+    left: ?&ASTNode,
+    member_name: string
+) -> ?string {
+    if left == null {
+        return null;
+    }
+    let type_path = if left?.kind == ASTNodeKind.TypeExpr and left?.child_count == 1 {
+        ast_child(emitter, left, 0)
+    } else {
+        left
+    };
+    if type_path == null or
+       (type_path?.kind != ASTNodeKind.Path and
+        type_path?.kind != ASTNodeKind.Identifier) {
+        return null;
+    }
+    let type_name = ast_path_text(emitter, type_path);
+    if member_name == "MAX" {
+        if type_name == "usize" or type_name == "size_t" { return "SIZE_MAX"; }
+        if type_name == "uintptr" { return "UINTPTR_MAX"; }
+    }
+    return null;
+}
+
 proc ast_pick_variant_symbol(
     emitter: &C17AstEmitter,
     pick_qualified_name: string,
@@ -4212,6 +4239,29 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
             let token = ast_token(emitter, node);
             if token != null and token.kind == TokenKind.KwTrue { ast_write(emitter, "true"); }
             else { ast_write(emitter, "false"); }
+        },
+        case ASTNodeKind.SizeofExpr => {
+            if node.child_count != 1 {
+                ast_fail(emitter, "sizeof expression is malformed");
+                return;
+            }
+            ast_write(emitter, "sizeof(");
+            let operand = ast_child(emitter, node, 0);
+            if (node.node_flags & PARSER_AST_FLAG_TYPE_QUERY_TYPE_OPERAND) != 0 {
+                ast_emit_type(emitter, operand, namespace);
+            } else {
+                ast_emit_expression(emitter, operand, namespace, depth + 1);
+            }
+            ast_write(emitter, ")");
+        },
+        case ASTNodeKind.AlignofExpr => {
+            if node.child_count != 1 {
+                ast_fail(emitter, "alignof expression is malformed");
+                return;
+            }
+            ast_write(emitter, "_Alignof(");
+            ast_emit_type(emitter, ast_child(emitter, node, 0), namespace);
+            ast_write(emitter, ")");
         },
         case ASTNodeKind.NullLiteral => ast_write(emitter, "NULL"),
         case ASTNodeKind.GroupExpr => {
@@ -5505,6 +5555,11 @@ proc ast_emit_member(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: str
         return;
     }
     let member_name = ast_token_text(emitter, right);
+    let builtin_limit = ast_builtin_limit_constant(emitter, left, member_name);
+    if builtin_limit != null {
+        ast_write(emitter, builtin_limit?);
+        return;
+    }
     if member_name == "length" {
         let left_type = ast_infer_type_text(emitter, left, namespace, 0);
         if left_type != null and left_type? == "const char *" {
@@ -7488,6 +7543,32 @@ proc ast_is_static_initializer(emitter: &mut C17AstEmitter, node: ?&ASTNode, nam
     if node.kind == ASTNodeKind.GroupExpr or node.kind == ASTNodeKind.CastExpr {
         return ast_is_static_initializer(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
     }
+    if node.kind == ASTNodeKind.AlignofExpr {
+        return node.child_count == 1;
+    }
+    if node.kind == ASTNodeKind.SizeofExpr {
+        return node.child_count == 1 and
+            (node.node_flags & PARSER_AST_FLAG_TYPE_QUERY_TYPE_OPERAND) != 0;
+    }
+    if node.kind == ASTNodeKind.FormExpr {
+        if node.child_count == 0 { return false; }
+        let mut field_index: usize = 1;
+        while field_index < node.child_count {
+            let field = ast_child(emitter, node, field_index);
+            if field == null or field?.kind != ASTNodeKind.FieldInit or
+               field?.child_count != 2 or
+               not ast_is_static_initializer(
+                   emitter,
+                   ast_child(emitter, field, 1),
+                   namespace,
+                   depth + 1
+               ) {
+                return false;
+            }
+            set field_index += 1;
+        }
+        return true;
+    }
     if node.kind == ASTNodeKind.UnaryExpr {
         if node.operator_kind == TokenKind.Amp or node.operator_kind == TokenKind.Star { return false; }
         return ast_is_static_initializer(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
@@ -7502,6 +7583,14 @@ proc ast_is_static_initializer(emitter: &mut C17AstEmitter, node: ?&ASTNode, nam
             ast_is_static_initializer(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
     }
     if node.kind == ASTNodeKind.MemberExpr {
+        let member_name = ast_token_text(emitter, ast_child(emitter, node, 1));
+        if ast_builtin_limit_constant(
+            emitter,
+            ast_child(emitter, node, 0),
+            member_name
+        ) != null {
+            return true;
+        }
         let pick_name = ast_pick_type_name(emitter, ast_child(emitter, node, 0), namespace);
         return pick_name.len() != 0 and
             ast_pick_variant_symbol(emitter, pick_name, ast_token_text(emitter, ast_child(emitter, node, 1))) != null;

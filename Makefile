@@ -453,11 +453,11 @@ endif
 	$(TARGET_BIN) check "$(FILE)"
 
 .PHONY: test-cli-driver
-test-cli-driver: $(TARGET_BIN)
+test-cli-driver: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 	@mkdir -p $(BUILD)
 	@set -e; \
 	fixture="$(TEST_DIR)/native_selfhost_smoke.vit"; \
-	printf '[CLI] check and early-stop stages\n'; \
+	printf '[CLI] check, lex and parse stages\n'; \
 	if $(TARGET_BIN) check "$$fixture" \
 		>/dev/null \
 		2>$(BUILD)/cli-check.stderr; then \
@@ -473,39 +473,34 @@ test-cli-driver: $(TARGET_BIN)
 		cat $(BUILD)/cli-check.stderr >&2; \
 		exit 1; \
 	fi; \
-	$(TARGET_BIN) compile "$$fixture" \
-		--emit-tokens \
-		--stop-after-lexer \
+	$(TARGET_BIN) lex "$$fixture" \
 		>$(BUILD)/cli-tokens.txt; \
 	test -s $(BUILD)/cli-tokens.txt; \
-	$(TARGET_BIN) compile "$$fixture" \
-		--emit-ast \
-		--stop-after-parser \
+	$(TARGET_BIN) parse "$$fixture" \
 		>$(BUILD)/cli-ast.txt; \
 	grep -q "AST root kind:" $(BUILD)/cli-ast.txt; \
 	printf '[CLI] compile and run native programs\n'; \
-	$(TARGET_BIN) compile "$$fixture" \
+	$(TARGET_BIN) build "$$fixture" \
 		-o "$(BUILD)/cli-native"; \
 	"$(BUILD)/cli-native"; \
 	$(TARGET_BIN) run "$$fixture" --quiet; \
-	printf '[CLI] compile and run expo_math test declarations\n'; \
+	printf '[CLI] emit C and build expo_math test declarations\n'; \
 	$(TARGET_BIN) compile "$(TEST_DIR)/expo_math.vit" \
 		--emit-c --quiet --no-color -o "$(BUILD)/cli-expo-math.c"; \
 	grep -q "vitte_test_0" \
 		"$(BUILD)/cli-expo-math.c"; \
-	$(TARGET_BIN) compile "$(TEST_DIR)/expo_math.vit" \
+	$(TARGET_BIN) build "$(TEST_DIR)/expo_math.vit" \
 		-o "$(BUILD)/cli-expo-math"; \
 	"$(BUILD)/cli-expo-math"; \
-	printf '[CLI] compile and run game program\n'; \
-	$(TARGET_BIN) compile "$(TEST_DIR)/game.vit" \
+	printf '[CLI] build and run game program\n'; \
+	$(TARGET_BIN) build "$(TEST_DIR)/game.vit" \
 		-o "$(BUILD)/cli-game"; \
 	printf '6\n' | $(TARGET_BIN) run "$(TEST_DIR)/game.vit" --quiet \
 		>$(BUILD)/cli-game.stdout; \
 	grep -q "PARTIE TERMINEE" $(BUILD)/cli-game.stdout; \
 	printf '[CLI] resolve a project-local installed module\n'; \
-	$(TARGET_BIN) compile "$(TEST_DIR)/project_local_modules/main.vit" \
-		-o "$(BUILD)/cli-project-local-module"; \
-	"$(BUILD)/cli-project-local-module"
+	cd "$(TEST_DIR)/project_local_modules" && \
+		"$(abspath $(BOOTSTRAP_TARGET_BIN))" run main.vit --quiet
 
 .PHONY: emit-c
 emit-c: $(TARGET_BIN)
