@@ -81,6 +81,9 @@ jobs:
     name: Native package install (${{ matrix.os }})
     needs:
       - compiler-selfhost
+    # Package checks still provide useful platform evidence when a separate
+    # self-host gate fails; release-readiness continues to require both.
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:

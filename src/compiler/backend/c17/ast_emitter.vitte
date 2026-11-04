@@ -7748,8 +7748,16 @@ proc ast_emit_globals(emitter: &mut C17AstEmitter, scope: &ASTNode, namespace: s
             let type_text: ?string = if type_node != null { ast_type_text(emitter, type_node, active_space, 0) } else {
                 ast_infer_type_text(emitter, initializer, active_space, 0)
             };
-            if type_text == null or initializer == null or not ast_is_static_initializer(emitter, initializer, active_space, 0) {
-                ast_fail(emitter, "global declaration needs a type and a constant initializer");
+            if type_text == null {
+                ast_fail(emitter, "global declaration " + name + " has an unsupported type");
+                return;
+            }
+            if initializer == null {
+                ast_fail(emitter, "global declaration " + name + " has no initializer");
+                return;
+            }
+            if not ast_is_static_initializer(emitter, initializer, active_space, 0) {
+                ast_fail(emitter, "global declaration " + name + " has a non-constant initializer");
                 return;
             }
             let global_name = ast_mangle(ast_qualified_name(name, active_space), "vitte_global_");
