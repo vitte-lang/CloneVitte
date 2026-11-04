@@ -78,6 +78,8 @@ form C17AstProcSymbol {
 form C17AstGlobalSymbol {
     name: string,
     qualified_name: string,
+    namespace: string,
+    node_id: ASTNodeId,
 }
 
 form C17AstAliasSymbol {
@@ -555,6 +557,8 @@ proc ast_collect_symbols(
             set emitter.globals[emitter.global_count] = C17AstGlobalSymbol {
                 name: name,
                 qualified_name: ast_qualified_name(name, active_space),
+                namespace: active_space,
+                node_id: declaration_node.id,
             };
             set emitter.global_count += 1;
         } elif declaration_node.kind == ASTNodeKind.FormDecl {
@@ -4559,7 +4563,103 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
     }
 }
 
-proc ast_emit_generic_form_field_declarator(
+proc ast_emit_array_bound(
+    emitter: &mut C17AstEmitter,
+    node: ?&ASTNode,
+    namespace: string,
+    depth: usize
+) -> bool {
+    if node == null or depth > AST_EMIT_MAX_DEPTH {
+        return false;
+    }
+    if node?.kind == ASTNodeKind.IntegerLiteral {
+        ast_emit_integer_literal(emitter, node);
+        return not emitter.failed;
+    }
+    if node?.kind == ASTNodeKind.GroupExpr and node?.child_count == 1 {
+        return ast_emit_array_bound(
+            emitter, ast_child(emitter, node, 0), namespace, depth + 1
+        );
+    }
+    if node?.kind == ASTNodeKind.UnaryExpr and node?.child_count == 1 and
+       (node?.operator_kind == TokenKind.Plus or
+        node?.operator_kind == TokenKind.Minus or
+        node?.operator_kind == TokenKind.Tilde) {
+        let operator = ast_operator_text(node?.operator_kind);
+        if operator == null { return false; }
+        ast_write(emitter, operator? + "(");
+        if not ast_emit_array_bound(
+            emitter, ast_child(emitter, node, 0), namespace, depth + 1
+        ) { return false; }
+        ast_write(emitter, ")");
+        return not emitter.failed;
+    }
+    if node?.kind == ASTNodeKind.BinaryExpr and node?.child_count == 2 and
+       (node?.operator_kind == TokenKind.Plus or
+        node?.operator_kind == TokenKind.Minus or
+        node?.operator_kind == TokenKind.Star or
+        node?.operator_kind == TokenKind.Slash or
+        node?.operator_kind == TokenKind.Percent or
+        node?.operator_kind == TokenKind.ShiftLeft or
+        node?.operator_kind == TokenKind.ShiftRight or
+        node?.operator_kind == TokenKind.Amp or
+        node?.operator_kind == TokenKind.Pipe or
+        node?.operator_kind == TokenKind.Caret) {
+        let operator = ast_operator_text(node?.operator_kind);
+        if operator == null { return false; }
+        ast_write(emitter, "(");
+        if not ast_emit_array_bound(
+            emitter, ast_child(emitter, node, 0), namespace, depth + 1
+        ) { return false; }
+        ast_write(emitter, " " + operator? + " ");
+        if not ast_emit_array_bound(
+            emitter, ast_child(emitter, node, 1), namespace, depth + 1
+        ) { return false; }
+        ast_write(emitter, ")");
+        return not emitter.failed;
+    }
+    if node?.kind == ASTNodeKind.Identifier or node?.kind == ASTNodeKind.Path {
+        let name = if node?.kind == ASTNodeKind.Path {
+            ast_path_text(emitter, node)
+        } else {
+            ast_token_text(emitter, node)
+        };
+        let global_index = if node?.kind == ASTNodeKind.Path and node?.child_count > 1 {
+            ast_global_path_index(emitter, name)
+        } else {
+            ast_global_index(emitter, name, namespace)
+        };
+        if global_index == usize.MAX {
+            return false;
+        }
+        let declaration = ast_node(emitter, emitter.globals[global_index].node_id);
+        if declaration == null or declaration?.kind != ASTNodeKind.ConstDecl {
+            return false;
+        }
+        let mut initializer: ?&ASTNode = null;
+        let mut child_index: usize = 1;
+        while child_index < declaration?.child_count {
+            let child = ast_child(emitter, declaration, child_index);
+            if child != null and child?.kind != ASTNodeKind.TypeExpr and
+               child?.kind != ASTNodeKind.PointerType and
+               child?.kind != ASTNodeKind.ReferenceType and
+               child?.kind != ASTNodeKind.ArrayType and
+               child?.kind != ASTNodeKind.OptionalType {
+                set initializer = child;
+            }
+            set child_index += 1;
+        }
+        return ast_emit_array_bound(
+            emitter,
+            initializer,
+            emitter.globals[global_index].namespace,
+            depth + 1
+        );
+    }
+    return false;
+}
+
+proc ast_emit_form_field_declarator(
     emitter: &mut C17AstEmitter,
     type_node: ?&ASTNode,
     field_name: string,
@@ -4572,14 +4672,16 @@ proc ast_emit_generic_form_field_declarator(
     if type_node?.kind == ASTNodeKind.ArrayType and type_node?.child_count == 2 {
         let length = ast_child(emitter, type_node, 0);
         let element_type = ast_child(emitter, type_node, 1);
-        if length == null or length?.kind != ASTNodeKind.IntegerLiteral or
-           element_type == null {
-            ast_fail(emitter, "fixed generic form array field is malformed");
+        if length == null or element_type == null {
+            ast_fail(emitter, "fixed form array field is malformed");
             return;
         }
         ast_emit_type(emitter, element_type, namespace);
         ast_write(emitter, " " + field_name + "[");
-        ast_emit_integer_literal(emitter, length);
+        if not ast_emit_array_bound(emitter, length, namespace, 0) {
+            ast_fail(emitter, "fixed form array length is not a supported constant expression");
+            return;
+        }
         ast_write(emitter, "]");
         return;
     }
@@ -7150,8 +7252,13 @@ proc ast_emit_form_definition(
         let field = ast_child(emitter, declaration, field_index);
         if field != null and field?.kind == ASTNodeKind.FieldDecl {
             ast_write(emitter, "    ");
-            ast_emit_type(emitter, ast_child(emitter, field, 1), namespace);
-            ast_write(emitter, " " + ast_mangle(ast_token_text(emitter, ast_child(emitter, field, 0)), "vitte_field_") + ";\n");
+            ast_emit_form_field_declarator(
+                emitter,
+                ast_child(emitter, field, 1),
+                ast_mangle(ast_token_text(emitter, ast_child(emitter, field, 0)), "vitte_field_"),
+                namespace
+            );
+            ast_write(emitter, ";\n");
         }
         set field_index += 1;
     }
@@ -7315,7 +7422,7 @@ proc ast_emit_generic_form_layout_ordered(
         let field = ast_child(emitter, declaration, field_index);
         if field != null and field?.kind == ASTNodeKind.FieldDecl {
             ast_write(emitter, "    ");
-            ast_emit_generic_form_field_declarator(
+            ast_emit_form_field_declarator(
                 emitter,
                 ast_child(emitter, field, 1),
                 ast_mangle(ast_token_text(emitter, ast_child(emitter, field, 0)), "vitte_field_"),

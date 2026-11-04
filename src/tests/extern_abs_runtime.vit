@@ -1,5 +1,5 @@
-extern proc llabs(value: i64) -> i64;
+extern proc abs(value: i32) -> i32;
 
 proc main() -> i64 {
-    return llabs(-42) - 42;
+    return (abs(-42) - 42) as i64;
 }

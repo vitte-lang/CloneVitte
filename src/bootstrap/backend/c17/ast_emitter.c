@@ -15,12 +15,73 @@
 
 #if defined(__APPLE__) || defined(__unix__)
 #include <unistd.h>
+#elif defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#include <windows.h>
 #endif
 
 #include "../../platform/platform.h"
 
 #define VITTE_C17_AST_GENERIC_FORM_ARGUMENT_NAME_MAX 512u
 #define VITTE_C17_AST_GENERIC_FORM_TYPE_DEPTH_MAX 512u
+
+#if defined(_WIN32)
+static int
+vitte_c17_ast_mkstemp(char *path)
+{
+    char temporary_directory[MAX_PATH];
+    char temporary_path[MAX_PATH];
+    DWORD directory_length;
+    size_t path_length;
+    int descriptor;
+
+    if (path == NULL) {
+        return -1;
+    }
+    directory_length = GetTempPathA(
+        (DWORD)sizeof(temporary_directory), temporary_directory);
+    if (directory_length == 0u ||
+        directory_length >= (DWORD)sizeof(temporary_directory) ||
+        GetTempFileNameA(
+            temporary_directory, "vit", 0u, temporary_path) == 0u) {
+        return -1;
+    }
+    path_length = strlen(temporary_path);
+    if (path_length >= 4096u) {
+        (void)DeleteFileA(temporary_path);
+        return -1;
+    }
+    memcpy(path, temporary_path, path_length + 1u);
+    descriptor = _open(path, _O_BINARY | _O_RDWR);
+    if (descriptor < 0) {
+        (void)DeleteFileA(path);
+    }
+    return descriptor;
+}
+
+static bool
+vitte_c17_ast_set_executable_extension(char *path)
+{
+    size_t length;
+
+    if (path == NULL) {
+        return false;
+    }
+    length = strlen(path);
+    if (length < 4u || strcmp(path + length - 4u, ".tmp") != 0 ||
+        length >= 4096u) {
+        return false;
+    }
+    memcpy(path + length - 4u, ".exe", 5u);
+    return true;
+}
+
+#define mkstemp vitte_c17_ast_mkstemp
+#define fdopen _fdopen
+#define close _close
+#define unlink _unlink
+#endif
 
 typedef struct vitte_c17_ast_generic_form_instance {
     const vitte_ast_node_t *declaration;
@@ -15154,11 +15215,11 @@ vitte_c17_compile_ast_result_with_options(
             : VITTE_C17_COMPILE_EMIT_FAILED;
     }
 
-#if defined(__APPLE__) || defined(__unix__)
+#if defined(__APPLE__) || defined(__unix__) || defined(_WIN32)
     {
-        char source_path[] = "/tmp/vitte-source-XXXXXX";
-        char object_path[] = "/tmp/vitte-object-XXXXXX";
-        char executable_path[] = "/tmp/vitte-program-XXXXXX";
+        char source_path[4096] = "/tmp/vitte-source-XXXXXX";
+        char object_path[4096] = "/tmp/vitte-object-XXXXXX";
+        char executable_path[4096] = "/tmp/vitte-program-XXXXXX";
         int source_descriptor;
         int object_descriptor;
         int executable_descriptor;
@@ -15220,6 +15281,13 @@ vitte_c17_compile_ast_result_with_options(
                 (void)unlink(executable_path);
                 return result;
             }
+#if defined(_WIN32)
+            if (!vitte_c17_ast_set_executable_extension(executable_path)) {
+                (void)unlink(source_path);
+                (void)unlink(object_path);
+                return result;
+            }
+#endif
         } else {
             if (output_path == NULL) {
                 output_path = "a.out";
@@ -15361,10 +15429,10 @@ vitte_c17_compile_source_result_with_options(
             : VITTE_C17_COMPILE_OUTPUT_FAILED;
     }
 
-#if defined(__APPLE__) || defined(__unix__)
+#if defined(__APPLE__) || defined(__unix__) || defined(_WIN32)
     {
-        char source_path[] = "/tmp/vitte-native-source-XXXXXX";
-        char executable_path[] = "/tmp/vitte-native-program-XXXXXX";
+        char source_path[4096] = "/tmp/vitte-native-source-XXXXXX";
+        char executable_path[4096] = "/tmp/vitte-native-program-XXXXXX";
         int source_descriptor;
         FILE *source_file;
         const char *compile_arguments[18];
@@ -15406,6 +15474,12 @@ vitte_c17_compile_source_result_with_options(
                 (void)unlink(executable_path);
                 return VITTE_C17_COMPILE_OUTPUT_FAILED;
             }
+#if defined(_WIN32)
+            if (!vitte_c17_ast_set_executable_extension(executable_path)) {
+                (void)unlink(source_path);
+                return VITTE_C17_COMPILE_OUTPUT_FAILED;
+            }
+#endif
             compile_output_path = executable_path;
         } else if (compile_output_path == NULL) {
             if (emit_object) {
@@ -15540,8 +15614,8 @@ vitte_c17_compile_ast_object_result_with_options(
     const char *output_path,
     const vitte_c17_compile_options_t *options)
 {
-#if defined(__APPLE__) || defined(__unix__)
-    char source_path[] = "/tmp/vitte-object-source-XXXXXX";
+#if defined(__APPLE__) || defined(__unix__) || defined(_WIN32)
+    char source_path[4096] = "/tmp/vitte-object-source-XXXXXX";
     int source_descriptor;
     FILE *source_file;
     const char *compile_arguments[14];
