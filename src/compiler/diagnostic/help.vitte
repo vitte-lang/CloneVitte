@@ -680,9 +680,8 @@ proc help_detail(diagnostic_value: *const Diagnostic) -> string {
     return help_first_cause(diagnostic_value);
 }
 
-proc help_byte_is_space(value: u8) -> bool {
-    return value == 9 as u8 or value == 10 as u8 or value == 11 as u8 or
-        value == 12 as u8 or value == 13 as u8 or value == 32 as u8;
+proc help_byte_is_space(value: char) -> bool {
+    return value == ' ' or value == '\t' or value == '\n' or value == '\r';
 }
 
 proc help_trim(text: string) -> string {
