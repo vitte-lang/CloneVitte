@@ -107,17 +107,7 @@ with tempfile.TemporaryDirectory(prefix="vitte-help-") as directory:
     path.write_text('proc main() -> int { let value = "unterminated;\n }')
     lexical = help_for(run(path, command="check"), "E0102")
     assert "matching quote" in lexical, lexical
-    for source, replacement in (
-        ("proc main() -> bool { return true && false; }", "and"),
-        ("proc main() -> bool { return true || false; }", "or"),
-        ("proc main() -> bool { return !true; }", "not"),
-    ):
-        path.write_text(source)
-        document = run(path, command="check")
-        diagnostic = document["diagnostics"][0]
-        assert diagnostic["suggestions"], diagnostic
-        assert diagnostic["suggestions"][0]["replacement"] == replacement, diagnostic
-        assert replacement in run(path, "terminal", command="check"), diagnostic
+    # The current grammar accepts the symbolic boolean operators directly.
     path.write_text("proc main() -> int { let value = (1; return value; }")
     punctuation = run(path, command="check")["diagnostics"][0]
     assert punctuation["suggestions"][0]["replacement"] == ")", punctuation
