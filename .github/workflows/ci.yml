@@ -80,7 +80,6 @@ jobs:
   native-package-install:
     name: Native package install (${{ matrix.os }})
     needs:
-      - compiler-runtime
       - compiler-selfhost
     strategy:
       fail-fast: false
