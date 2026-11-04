@@ -2416,7 +2416,7 @@ def main() -> int:
         )
     print("Assembly templates and compiler-barrier operands passed on both compilers.")
 
-    extern_example = Path(__file__).resolve().parent / "extern_abs_runtime.vit"
+    extern_example = Path(__file__).resolve().parent / "extern_runtime.vit"
     native_extern = run_program(native, extern_example, "extern procedure")
     bootstrap_extern = run_program(
         bootstrap, extern_example, "extern procedure"
