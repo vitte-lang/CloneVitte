@@ -11767,6 +11767,9 @@ vitte_c17_ast_emit_function_signature(
     if (emitter->async_signature_mode != 0u) {
         vitte_c17_ast_write(emitter, "static ");
     }
+    if (vitte_c17_ast_node_has_cold_attribute(emitter, function)) {
+        vitte_c17_ast_write(emitter, "VITTE_C17_AST_COLD ");
+    }
     if (emitter->async_signature_mode == 1u) {
         vitte_c17_ast_write_async_task_type_name(emitter, function);
         vitte_c17_ast_write(emitter, " ");
@@ -11799,9 +11802,6 @@ vitte_c17_ast_emit_function_signature(
     vitte_c17_ast_write(emitter, "(");
     vitte_c17_ast_emit_parameter_list(emitter, function);
     vitte_c17_ast_write(emitter, ")");
-    if (vitte_c17_ast_node_has_cold_attribute(emitter, function)) {
-        vitte_c17_ast_write(emitter, " VITTE_C17_AST_COLD");
-    }
     vitte_c17_ast_write(
         emitter,
         prototype ? ";\n" : " {\n");
