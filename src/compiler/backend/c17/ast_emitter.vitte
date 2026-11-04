@@ -29,6 +29,7 @@ use compiler::parser::parser::{
     PARSER_AST_FLAG_MUTABLE,
     PARSER_AST_FLAG_ASYNC,
     PARSER_AST_FLAG_COMPTIME,
+    PARSER_AST_FLAG_FUNCTION_TYPE_HAS_RETURN,
     PARSER_AST_FLAG_GLOB_IMPORT,
     vitte_parser_node_is_async,
     vitte_parser_get_node,
@@ -3255,6 +3256,50 @@ proc ast_emit_type(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace: stri
         return;
     }
     ast_write(emitter, text?);
+}
+
+proc ast_emit_function_type_alias(
+    emitter: &mut C17AstEmitter,
+    name: string,
+    function_type: &ASTNode,
+    namespace: string
+) {
+    let has_return = (function_type.node_flags &
+        PARSER_AST_FLAG_FUNCTION_TYPE_HAS_RETURN) != 0;
+    if function_type.kind != ASTNodeKind.TypeExpr or
+       function_type.operator_kind != TokenKind.KwProc or
+       (has_return and function_type.child_count == 0) {
+        ast_fail(emitter, "function type alias is malformed");
+        return;
+    }
+    let parameter_count = function_type.child_count -
+        (if has_return { 1 as usize } else { 0 as usize });
+    ast_write(emitter, "typedef ");
+    if has_return {
+        ast_emit_type(
+            emitter,
+            ast_child(emitter, function_type, function_type.child_count - 1),
+            namespace
+        );
+    } else {
+        ast_write(emitter, "void");
+    }
+    ast_write(emitter, " (*" + name + ")(");
+    if parameter_count == 0 {
+        ast_write(emitter, "void");
+    } else {
+        let mut index: usize = 0;
+        while index < parameter_count and not emitter.failed {
+            if index != 0 { ast_write(emitter, ", "); }
+            ast_emit_type(
+                emitter,
+                ast_child(emitter, function_type, index),
+                namespace
+            );
+            set index += 1;
+        }
+    }
+    ast_write(emitter, ");\n");
 }
 
 proc ast_infer_type_text(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace: string, depth: usize) -> ?string {
@@ -7036,9 +7081,23 @@ proc ast_emit_aliases(emitter: &mut C17AstEmitter, scope: &ASTNode, namespace: s
                 ast_fail(emitter, "type alias has no target type");
                 return;
             }
-            ast_write(emitter, "#define " + ast_mangle(ast_qualified_name(name, active_space), "vitte_type_") + " ");
-            ast_emit_type(emitter, target, active_space);
-            ast_write(emitter, "\n");
+            let alias_name = ast_mangle(
+                ast_qualified_name(name, active_space),
+                "vitte_type_"
+            );
+            if target?.kind == ASTNodeKind.TypeExpr and
+               target?.operator_kind == TokenKind.KwProc {
+                ast_emit_function_type_alias(
+                    emitter,
+                    alias_name,
+                    target?,
+                    active_space
+                );
+            } else {
+                ast_write(emitter, "#define " + alias_name + " ");
+                ast_emit_type(emitter, target, active_space);
+                ast_write(emitter, "\n");
+            }
         } elif declaration.kind == ASTNodeKind.SpaceDecl {
             let path = ast_child(emitter, declaration, 0);
             let body = ast_child(emitter, declaration, 1);
