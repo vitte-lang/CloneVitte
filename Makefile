@@ -662,10 +662,10 @@ bootstrap-check: $(BOOTSTRAP_TARGET_BIN)
 # -----------------------------------------------------------------------------
 
 .PHONY: test-diagnostic-golden
-test-diagnostic-golden: $(TARGET_BIN)
+test-diagnostic-golden: $(BOOTSTRAP_TARGET_BIN)
 	@mkdir -p $(TMP_DIR)
 	@set +e; \
-	$(TARGET_BIN) compile \
+	$(BOOTSTRAP_TARGET_BIN) compile \
 		$(TEST_DIR)/golden/unknown_symbol.input \
 		--stop-after-sema --quiet --no-color \
 		>$(TMP_DIR)/diagnostic_unknown_symbol.stdout \
@@ -679,7 +679,7 @@ test-diagnostic-golden: $(TARGET_BIN)
 	diff -u $(TEST_DIR)/golden/diagnostic_unknown_symbol.stderr \
 		$(TMP_DIR)/diagnostic_unknown_symbol.normalized
 	@set +e; \
-	$(TARGET_BIN) compile \
+	$(BOOTSTRAP_TARGET_BIN) compile \
 		$(TEST_DIR)/sema_calls/local_param_mismatch.vit \
 		--stop-after-sema --quiet --no-color \
 		>$(TMP_DIR)/diagnostic_type_mismatch.stdout \
@@ -693,7 +693,7 @@ test-diagnostic-golden: $(TARGET_BIN)
 	diff -u $(TEST_DIR)/golden/diagnostic_type_mismatch.stderr \
 		$(TMP_DIR)/diagnostic_type_mismatch.normalized
 	@set +e; \
-	$(TARGET_BIN) lex \
+	$(BOOTSTRAP_TARGET_BIN) lex \
 		$(TEST_DIR)/diagnostic_lexer_invalid.vit \
 		--quiet --no-color \
 		>$(TMP_DIR)/diagnostic_lexer_invalid.stdout \
@@ -712,9 +712,9 @@ test-diagnostic-golden: $(TARGET_BIN)
 # -----------------------------------------------------------------------------
 
 .PHONY: test-diagnostic-formats
-test-diagnostic-formats: $(TARGET_BIN)
+test-diagnostic-formats: $(BOOTSTRAP_TARGET_BIN)
 	@set +e; \
-	output=`$(TARGET_BIN) check \
+	output=`$(BOOTSTRAP_TARGET_BIN) check \
 		$(TEST_DIR)/diagnostic_parser_invalid.vit \
 		--diagnostic=json 2>&1`; \
 	status=$$?; \
@@ -724,7 +724,7 @@ test-diagnostic-formats: $(TARGET_BIN)
 	printf '%s\n' "$$output" | grep -F '"kind": "help"' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
-	output=`$(TARGET_BIN) compile \
+	output=`$(BOOTSTRAP_TARGET_BIN) compile \
 		$(TEST_DIR)/diagnostic_sema_multiple_invalid.vit \
 		--stop-after-sema --quiet --no-color \
 		--diagnostic=json 2>&1`; \
@@ -735,7 +735,7 @@ test-diagnostic-formats: $(TARGET_BIN)
 	printf '%s\n' "$$output" | grep -F '"kind": "help"' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
-	output=`$(TARGET_BIN) check \
+	output=`$(BOOTSTRAP_TARGET_BIN) check \
 		$(TEST_DIR)/diagnostic_parser_invalid.vit \
 		--diagnostic=sarif 2>&1`; \
 	status=$$?; \
@@ -744,7 +744,7 @@ test-diagnostic-formats: $(TARGET_BIN)
 	printf '%s\n' "$$output" | grep -F '"ruleId": "E0203"' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
-	output=`$(TARGET_BIN) compile \
+	output=`$(BOOTSTRAP_TARGET_BIN) compile \
 		$(TEST_DIR)/diagnostic_sema_multiple_invalid.vit \
 		--stop-after-sema --quiet --no-color \
 		--diagnostic=sarif 2>&1`; \
@@ -753,7 +753,7 @@ test-diagnostic-formats: $(TARGET_BIN)
 	test "$$(printf '%s\n' "$$output" | grep -Fc '"ruleId": "E0602"')" -eq 2 && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
-	output=`$(TARGET_BIN) --diagnostic=json --not-a-valid-option 2>&1`; \
+	output=`$(BOOTSTRAP_TARGET_BIN) --diagnostic=json --not-a-valid-option 2>&1`; \
 	status=$$?; \
 	test "$$status" -eq 2 && \
 	printf '%s\n' "$$output" | grep -F '"code": "E0011"' >/dev/null && \
@@ -761,7 +761,7 @@ test-diagnostic-formats: $(TARGET_BIN)
 	! printf '%s\n' "$$output" | grep -F 'Usage:' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
-	output=`$(TARGET_BIN) check \
+	output=`$(BOOTSTRAP_TARGET_BIN) check \
 		$(TEST_DIR)/diagnostic_missing_source.vit \
 		--diagnostic=json 2>&1`; \
 	status=$$?; \
