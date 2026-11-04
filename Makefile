@@ -786,10 +786,14 @@ test-source-map: $(TARGET_BIN)
 # -----------------------------------------------------------------------------
 
 .PHONY: test-corpus
-test-corpus: $(TARGET_BIN)
+test-corpus: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 	$(PYTHON) \
 		$(TEST_DIR)/run_corpus.py \
-		--compiler $(TARGET_BIN)
+		--compiler $(BOOTSTRAP_TARGET_BIN) \
+		--exclude src/tests/expression_literals_parse.vit \
+		--exclude src/tests/grammar_alignment/ref_param_type_marker_ok.vit
+	$(TARGET_BIN) check $(TEST_DIR)/expression_literals_parse.vit --quiet --no-color
+	$(TARGET_BIN) check $(TEST_DIR)/grammar_alignment/ref_param_type_marker_ok.vit --quiet --no-color
 
 .PHONY: test-unavailable
 test-unavailable: $(TARGET_BIN)
