@@ -558,7 +558,7 @@ test-source:
 DIAGNOSTIC_RENDER_TEST_BIN := $(BIN_DIR)/diagnostic_render_test
 
 .PHONY: test-diagnostic
-test-diagnostic: $(TARGET_BIN) $(LIB_OBJECTS)
+test-diagnostic: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN) $(LIB_OBJECTS)
 	@mkdir -p $(BIN_DIR)
 	@printf '[TEST-CC] diagnostic_render_test\n'
 	$(CC) \
@@ -571,7 +571,7 @@ test-diagnostic: $(TARGET_BIN) $(LIB_OBJECTS)
 		-o $(DIAGNOSTIC_RENDER_TEST_BIN)
 	$(DIAGNOSTIC_RENDER_TEST_BIN)
 	@set +e; \
-	output=`$(TARGET_BIN) parse \
+	output=`$(BOOTSTRAP_TARGET_BIN) parse \
 		$(TEST_DIR)/diagnostic_parser_invalid.vit \
 		--quiet --no-color 2>&1`; \
 	status=$$?; \
@@ -580,7 +580,7 @@ test-diagnostic: $(TARGET_BIN) $(LIB_OBJECTS)
 	printf '%s\n' "$$output" | grep -F 'phase: parser' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'help: Provide a valid expression' >/dev/null
 	@set +e; \
-	output=`$(TARGET_BIN) lex \
+	output=`$(BOOTSTRAP_TARGET_BIN) lex \
 		$(TEST_DIR)/diagnostic_lexer_invalid.vit \
 		--quiet --no-color 2>&1`; \
 	status=$$?; \
@@ -589,7 +589,7 @@ test-diagnostic: $(TARGET_BIN) $(LIB_OBJECTS)
 	printf '%s\n' "$$output" | grep -F 'phase: lexer' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'help: Close the string' >/dev/null
 	@set +e; \
-	output=`$(TARGET_BIN) --not-a-valid-option 2>&1`; \
+	output=`$(BOOTSTRAP_TARGET_BIN) --not-a-valid-option 2>&1`; \
 	status=$$?; \
 	test "$$status" -eq 2 && \
 	printf '%s\n' "$$output" | grep -F 'E0011' >/dev/null && \
