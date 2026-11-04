@@ -622,8 +622,8 @@ test-diagnostic-help: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 	$(PYTHON) $(TEST_DIR)/diagnostic_help_test.py $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 
 .PHONY: test-diagnostic-parity
-test-diagnostic-parity: $(TARGET_BIN)
-	$(PYTHON) $(TEST_DIR)/diagnostic_parity_test.py $(TARGET_BIN)
+test-diagnostic-parity: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
+	$(PYTHON) $(TEST_DIR)/diagnostic_parity_test.py $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 
 .PHONY: test-native-bootstrap-parity
 NATIVE_BOOTSTRAP_PARITY_TEST_BIN := $(BIN_DIR)/native_bootstrap_parity_test
