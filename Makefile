@@ -646,8 +646,8 @@ test-native-frontend-subset: $(TARGET_BIN)
 
 # Targeted bootstrap import and diagnostic regressions.
 .PHONY: test-bootstrap-regressions
-test-bootstrap-regressions: $(TARGET_BIN)
-	$(PYTHON) $(TEST_DIR)/bootstrap_regression_test.py $(TARGET_BIN)
+test-bootstrap-regressions: $(BOOTSTRAP_TARGET_BIN)
+	$(PYTHON) $(TEST_DIR)/bootstrap_regression_test.py $(BOOTSTRAP_TARGET_BIN)
 
 # Check the seed directly without first building the native frontend.
 .PHONY: bootstrap-check
