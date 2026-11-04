@@ -680,13 +680,18 @@ proc help_detail(diagnostic_value: *const Diagnostic) -> string {
     return help_first_cause(diagnostic_value);
 }
 
+proc help_byte_is_space(value: u8) -> bool {
+    return value == 9 as u8 or value == 10 as u8 or value == 11 as u8 or
+        value == 12 as u8 or value == 13 as u8 or value == 32 as u8;
+}
+
 proc help_trim(text: string) -> string {
     let mut begin: usize = 0;
     let mut end: usize = text.len();
-    while begin < end and text[begin].is_space() {
+    while begin < end and help_byte_is_space(text[begin]) {
         set begin += 1;
     }
-    while end > begin and text[end - 1].is_space() {
+    while end > begin and help_byte_is_space(text[end - 1]) {
         set end -= 1;
     }
     if begin == end {
