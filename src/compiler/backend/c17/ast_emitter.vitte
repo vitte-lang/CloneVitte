@@ -7550,6 +7550,21 @@ proc ast_is_static_initializer(emitter: &mut C17AstEmitter, node: ?&ASTNode, nam
         return node.child_count == 1 and
             (node.node_flags & PARSER_AST_FLAG_TYPE_QUERY_TYPE_OPERAND) != 0;
     }
+    if node.kind == ASTNodeKind.ArrayExpr {
+        let mut item_index: usize = 0;
+        while item_index < node.child_count {
+            if not ast_is_static_initializer(
+                emitter,
+                ast_child(emitter, node, item_index),
+                namespace,
+                depth + 1
+            ) {
+                return false;
+            }
+            set item_index += 1;
+        }
+        return true;
+    }
     if node.kind == ASTNodeKind.FormExpr {
         if node.child_count == 0 { return false; }
         let mut field_index: usize = 1;
@@ -7630,6 +7645,57 @@ proc ast_emit_globals(emitter: &mut C17AstEmitter, scope: &ASTNode, namespace: s
                 ast_fail(emitter, "global declaration needs a type and a constant initializer");
                 return;
             }
+            let global_name = ast_mangle(ast_qualified_name(name, active_space), "vitte_global_");
+            let static_dynamic_array = initializer?.kind == ASTNodeKind.ArrayExpr and
+                type_node != null and type_node?.kind == ASTNodeKind.ArrayType and
+                type_node?.child_count == 1;
+            if static_dynamic_array {
+                let element_type = ast_type_text(
+                    emitter,
+                    ast_child(emitter, type_node, 0),
+                    active_space,
+                    0
+                );
+                if element_type == null {
+                    ast_fail(emitter, "global array has an unsupported element type");
+                    return;
+                }
+                if initializer?.child_count != 0 {
+                    ast_write(emitter, "static ");
+                    ast_write(emitter, element_type?);
+                    ast_write(emitter, " const " + global_name + "_data[] VITTE_C17_AST_UNUSED = {");
+                    let mut item_index: usize = 0;
+                    while item_index < initializer?.child_count and not emitter.failed {
+                        if item_index != 0 { ast_write(emitter, ", "); }
+                        ast_emit_expression(
+                            emitter,
+                            ast_child(emitter, initializer, item_index),
+                            active_space,
+                            0
+                        );
+                        set item_index += 1;
+                    }
+                    ast_write(emitter, "};\n");
+                }
+                ast_write(emitter, "static ");
+                if declaration.kind == ASTNodeKind.StaticDecl and
+                   ast_node_has_thread_local_attribute(emitter, declaration?) {
+                    ast_write(emitter, "_Thread_local ");
+                }
+                if declaration.kind == ASTNodeKind.ConstDecl or
+                   (declaration.node_flags & PARSER_AST_FLAG_MUTABLE) == 0 {
+                    ast_write(emitter, "const ");
+                }
+                ast_write(emitter, type_text? + " " + global_name + " VITTE_C17_AST_UNUSED = { ");
+                if initializer?.child_count != 0 {
+                    ast_write(emitter, "(void *)" + global_name + "_data, ");
+                } else {
+                    ast_write(emitter, "NULL, ");
+                }
+                ast_write(emitter, initializer?.child_count.to_string() + " };\n");
+                set index += 1;
+                continue;
+            }
             if declaration.kind == ASTNodeKind.ConstDecl {
                 if type_text? == "const char *" {
                     ast_write(emitter, "static ");
@@ -7645,7 +7711,7 @@ proc ast_emit_globals(emitter: &mut C17AstEmitter, scope: &ASTNode, namespace: s
                     ast_write(emitter, "const ");
                 }
             }
-            ast_write(emitter, type_text? + " " + ast_mangle(ast_qualified_name(name, active_space), "vitte_global_") + " VITTE_C17_AST_UNUSED = ");
+            ast_write(emitter, type_text? + " " + global_name + " VITTE_C17_AST_UNUSED = ");
             if initializer?.kind == ASTNodeKind.ArrayExpr and type_node != null and type_node?.kind == ASTNodeKind.ArrayType {
                 ast_emit_array_literal(emitter, initializer?, active_space, 0, type_node);
             } else {
