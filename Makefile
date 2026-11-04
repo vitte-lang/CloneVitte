@@ -618,8 +618,8 @@ test-diagnostic-fuzz: $(TARGET_BIN)
 
 # Contextual help through the real CLI and machine-readable consumers.
 .PHONY: test-diagnostic-help
-test-diagnostic-help: $(TARGET_BIN)
-	$(PYTHON) $(TEST_DIR)/diagnostic_help_test.py $(TARGET_BIN)
+test-diagnostic-help: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
+	$(PYTHON) $(TEST_DIR)/diagnostic_help_test.py $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 
 .PHONY: test-diagnostic-parity
 test-diagnostic-parity: $(TARGET_BIN)

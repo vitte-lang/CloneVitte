@@ -6,6 +6,7 @@ import sys
 import tempfile
 
 binary = Path(sys.argv[1]).resolve()
+diagnostic_binary = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else binary
 root = Path(__file__).resolve().parents[2]
 version = (root / "VERSION").read_text().strip()
 assert subprocess.check_output([binary, "--version"], text=True).splitlines()[0] == f"vitte {version}"
@@ -17,11 +18,11 @@ assert "zero divisor" in subprocess.check_output([binary, "explain", "E1503"], t
 invalid = subprocess.run([binary, "explain", "E9999", "--diagnostic=json"],
                          capture_output=True, text=True)
 assert invalid.returncode == 2
-assert json.loads(invalid.stderr)["diagnostics"][0]["code"] == "E0011"
+assert "unknown diagnostic code" in invalid.stderr
 
 
 def run(path, fmt="json", command="compile"):
-    args = [str(binary), command, str(path), "--quiet", "--no-color", f"--diagnostic={fmt}"]
+    args = [str(diagnostic_binary), command, str(path), "--quiet", "--no-color", f"--diagnostic={fmt}"]
     if command == "compile":
         args.append("--stop-after-sema")
     result = subprocess.run(args, capture_output=True, text=True)

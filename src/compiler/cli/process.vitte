@@ -4,6 +4,7 @@ space compiler::cli::process;
 use compiler::api::version::{version_string};
 use compiler::diagnostic::diagnostic::{origin_name, severity_name};
 use compiler::diagnostic::registry::{DiagnosticRegistryEntry, diagnostic_registry_find};
+use compiler::diagnostic::help::{diagnostic_help_for_code};
 use compiler::package::installer::{vitte_package_install};
 use compiler::cli::cli::{
     Cli,
@@ -66,24 +67,26 @@ proc cli_entry_write_error(text: string) {
     vitte_native_write_stderr(text.as_ptr() as *const char, text.len());
 }
 
+proc cli_entry_normalize_diagnostic_code(code: string) -> string {
+    if code.len() == 0 { return code; }
+    if code[0] == 'e' { return "E" + code.slice(1, code.len()); }
+    if code[0] == 'w' { return "W" + code.slice(1, code.len()); }
+    if code[0] == 'n' { return "N" + code.slice(1, code.len()); }
+    if code[0] == 'h' { return "H" + code.slice(1, code.len()); }
+    return code;
+}
+
 proc cli_entry_json_string(text: string) -> string {
     let mut output = "\"";
     let mut index: usize = 0;
     while index < text.len() {
         let character = text[index];
-        if character == '"' {
-            set output += "\\\"";
-        } else if character == '\\' {
-            set output += "\\\\";
-        } else if character == '\n' {
-            set output += "\\n";
-        } else if character == '\r' {
-            set output += "\\r";
-        } else if character == '\t' {
-            set output += "\\t";
-        } else {
-            set output += text.slice(index, index + 1);
-        }
+        if character == '"' { set output += "\\\""; }
+        else if character == '\\' { set output += "\\\\"; }
+        else if character == '\n' { set output += "\\n"; }
+        else if character == '\r' { set output += "\\r"; }
+        else if character == '\t' { set output += "\\t"; }
+        else { set output += text.slice(index, index + 1); }
         set index += 1;
     }
     set output += "\"";
@@ -91,13 +94,12 @@ proc cli_entry_json_string(text: string) -> string {
 }
 
 proc cli_entry_explain(registry_value: *const DiagnosticRegistryEntry, json: bool) -> string {
-    if registry_value == null {
-        return "";
-    }
+    if registry_value == null { return ""; }
+    let guidance = diagnostic_help_for_code((*registry_value).public_code);
     if json {
-        let mut output = "{\"code\":";
+        let mut output = "{\"version\":1,\"diagnostic\":{\"code\":";
         set output += cli_entry_json_string((*registry_value).public_code);
-        set output += ",\"internal_code\":";
+        set output += ",\"internal\":";
         set output += cli_entry_json_string((*registry_value).internal_code);
         set output += ",\"title\":";
         set output += cli_entry_json_string((*registry_value).title);
@@ -109,37 +111,21 @@ proc cli_entry_explain(registry_value: *const DiagnosticRegistryEntry, json: boo
         set output += cli_entry_json_string(severity_name((*registry_value).default_severity));
         set output += ",\"phase\":";
         set output += cli_entry_json_string(origin_name((*registry_value).origin));
+        set output += ",\"guidance\":";
+        set output += cli_entry_json_string(guidance);
         set output += ",\"deprecated\":";
         set output += if (*registry_value).deprecated { "true" } else { "false" };
-        set output += "}\n";
+        set output += "}}\n";
         return output;
     }
-    let mut output = (*registry_value).public_code;
-    set output += ": ";
-    set output += (*registry_value).title;
-    set output += "\n\n";
-    set output += (*registry_value).explanation;
-    set output += "\n\nDiagnostic information\n----------------------\nCode:       ";
-    set output += (*registry_value).public_code;
-    set output += "\nInternal:   ";
-    set output += (*registry_value).internal_code;
-    set output += "\nSeverity:   ";
-    set output += severity_name((*registry_value).default_severity);
-    set output += "\nPhase:      ";
-    set output += origin_name((*registry_value).origin);
-    set output += "\nCategory:   ";
-    set output += (*registry_value).category;
-    set output += "\n";
+    let mut output = (*registry_value).public_code + ": " + (*registry_value).title +
+        "\n\n" + (*registry_value).explanation + "\n\nGuidance: " + guidance +
+        "\n\nDiagnostic information\n----------------------\nCode:       " +
+        (*registry_value).public_code + "\nInternal:   " + (*registry_value).internal_code +
+        "\nSeverity:   " + severity_name((*registry_value).default_severity) +
+        "\nPhase:      " + origin_name((*registry_value).origin) +
+        "\nCategory:   " + (*registry_value).category + "\n";
     return output;
-}
-
-proc cli_entry_normalize_diagnostic_code(code: string) -> string {
-    if code.len() == 0 { return code; }
-    if code[0] == 'e' { return "E" + code.slice(1, code.len()); }
-    if code[0] == 'w' { return "W" + code.slice(1, code.len()); }
-    if code[0] == 'n' { return "N" + code.slice(1, code.len()); }
-    if code[0] == 'h' { return "H" + code.slice(1, code.len()); }
-    return code;
 }
 
 proc cli_entry_argument(argv: *const string, index: usize) -> string {
