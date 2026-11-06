@@ -8,7 +8,7 @@ const CLI_MAGIC: u64 = 0x5649545445434C49;
 const CLI_DEAD_MAGIC: u64 = 0x44454144434C4921;
 const CLI_FNV_OFFSET: u64 = 14695981039346656037;
 const CLI_FNV_PRIME: u64 = 1099511628211;
-const CLI_FINGERPRINT_VERSION: u64 = 2;
+const CLI_FINGERPRINT_VERSION: u64 = 3;
 const CLI_DEFAULT_MAX_INPUTS: usize = 65536;
 const CLI_DEFAULT_MAX_FORWARD_ARGS: usize = 65536;
 const CLI_DEFAULT_MAX_ERRORS: usize = 100;
@@ -51,6 +51,10 @@ export const VITTE_CLI_SEEN_FMT_CHECK: u64 = (1 as u64) << 32;
 export const VITTE_CLI_SEEN_FMT_WRITE: u64 = (1 as u64) << 33;
 export const VITTE_CLI_SEEN_HELP: u64 = (1 as u64) << 34;
 export const VITTE_CLI_SEEN_VERSION: u64 = (1 as u64) << 35;
+export const VITTE_CLI_SEEN_EMIT_C: u64 = (1 as u64) << 36;
+export const VITTE_CLI_SEEN_EMIT_IR: u64 = (1 as u64) << 37;
+export const VITTE_CLI_SEEN_PACKAGE_VERSION: u64 = (1 as u64) << 38;
+export const VITTE_CLI_SEEN_GLOBAL: u64 = (1 as u64) << 39;
 
 export pick CliError {
     None,
@@ -98,8 +102,12 @@ export pick CliCommand {
     Uninstall,
     Update,
     Clean,
+    Lex,
+    Parse,
+    Completion,
     Version,
     Help,
+    Explain,
     Count
 }
 
@@ -171,6 +179,7 @@ export form CliConfig {
     output: ?string,
     manifest_path: ?string,
     package: ?string,
+    package_version: ?string,
     test_filter: ?string,
     jobs: usize,
     max_errors: usize,
@@ -192,6 +201,7 @@ export form CliConfig {
     locked: bool,
     frozen: bool,
     force: bool,
+    global_install: bool,
     check_format: bool,
     write_format: bool,
     show_help: bool,
@@ -226,7 +236,7 @@ proc cli_string_has_suffix(text: string, suffix: string) -> bool {
         text.slice(text.len() - suffix.len(), text.len()) == suffix;
 }
 
-proc cli_fail(cli: *Cli, error: CliError, argument_index: i32, argument: ?string, detail: ?string) -> bool {
+proc cli_fail(cli: *mut Cli, error: CliError, argument_index: i32, argument: ?string, detail: ?string) -> bool {
     if cli == null { return false; }
     set (*cli).last_error = error;
     set (*cli).state = CliState.Failed;
@@ -235,11 +245,11 @@ proc cli_fail(cli: *Cli, error: CliError, argument_index: i32, argument: ?string
 }
 
 proc cli_slot(values: *string, index: usize) -> *mut string {
-    return pointer.add_bytes(values as *mut u8, index * sizeof(string)) as *mut string;
+    return pointer.add_bytes(values as *mut u8, index * sizeof(string)) as *mut void as *mut string;
 }
 
 proc cli_argv_slot(argv: *const string, index: usize) -> *const string {
-    return pointer.add_bytes_const(argv as *const u8, index * sizeof(string)) as *const string;
+    return pointer.add_bytes_const(argv as *const u8, index * sizeof(string)) as *const void as *const string;
 }
 
 proc cli_read_slot(values: *string, index: usize) -> ?string {
@@ -247,13 +257,13 @@ proc cli_read_slot(values: *string, index: usize) -> ?string {
     return pointer.read(cli_slot(values, index));
 }
 
-proc cli_size_add(left: usize, right: usize, result: &mut usize) -> bool {
+proc cli_size_add(left: usize, right: usize, result: *mut usize) -> bool {
     if result == null or left > usize.MAX - right { return false; }
     set *result = left + right;
     return true;
 }
 
-proc cli_reserve_inputs(cli: *Cli, forward: bool, required: usize, argument_index: i32, argument: string) -> bool {
+proc cli_reserve_inputs(cli: *mut Cli, forward: bool, required: usize, argument_index: i32, argument: string) -> bool {
     let mut capacity = if forward { (*cli).forward_arg_capacity } else { (*cli).input_capacity };
     let maximum = if forward { (*cli).max_forward_args } else { (*cli).max_inputs };
     if required <= capacity { return true; }
@@ -277,7 +287,7 @@ proc cli_reserve_inputs(cli: *Cli, forward: bool, required: usize, argument_inde
     if capacity > usize.MAX / sizeof(string) { return cli_fail(cli, CliError.Overflow, argument_index, argument, "argument storage allocation overflow"); }
     let old_values = if forward { (*cli).forward_args } else { (*cli).inputs };
     let old_count = if forward { (*cli).forward_arg_count } else { (*cli).input_count };
-    let new_storage = allocate(capacity * sizeof(string));
+    let new_storage: *mut u8 = allocate(capacity * sizeof(string));
     if new_storage == null { return cli_fail(cli, CliError.OutOfMemory, argument_index, argument, "unable to grow CLI argument storage"); }
     let new_values = new_storage as *string;
     let mut index: usize = 0;
@@ -296,7 +306,7 @@ proc cli_reserve_inputs(cli: *Cli, forward: bool, required: usize, argument_inde
     return true;
 }
 
-proc cli_add_input(cli: *Cli, value: string, index: i32) -> bool {
+proc cli_add_input(cli: *mut Cli, value: string, index: i32) -> bool {
     if value.len() == 0 { return cli_fail(cli, CliError.InvalidArgument, index, value, "empty input argument"); }
     let mut required: usize = 0;
     if not cli_size_add((*cli).input_count, 1, &mut required) { return cli_fail(cli, CliError.Overflow, index, value, "input count overflow"); }
@@ -307,7 +317,7 @@ proc cli_add_input(cli: *Cli, value: string, index: i32) -> bool {
     return true;
 }
 
-proc cli_add_forward_arg(cli: *Cli, value: string, index: i32) -> bool {
+proc cli_add_forward_arg(cli: *mut Cli, value: string, index: i32) -> bool {
     let mut required: usize = 0;
     if not cli_size_add((*cli).forward_arg_count, 1, &mut required) { return cli_fail(cli, CliError.Overflow, index, value, "forward argument count overflow"); }
     if not cli_reserve_inputs(cli, true, required, index, value) { return false; }
@@ -316,13 +326,13 @@ proc cli_add_forward_arg(cli: *Cli, value: string, index: i32) -> bool {
     return true;
 }
 
-proc cli_mark_seen(cli: *Cli, flag: u64, index: i32, argument: string) -> bool {
+proc cli_mark_seen(cli: *mut Cli, flag: u64, index: i32, argument: string) -> bool {
     if ((*cli).seen_options & flag) != 0 { return cli_fail(cli, CliError.DuplicateOption, index, argument, "option specified more than once"); }
     set (*cli).seen_options |= flag;
     return true;
 }
 
-proc cli_mark_boolean(cli: *Cli, flag: u64, conflict: u64, index: i32, argument: string) -> bool {
+proc cli_mark_boolean(cli: *mut Cli, flag: u64, conflict: u64, index: i32, argument: string) -> bool {
     if ((*cli).seen_options & flag) != 0 { return cli_fail(cli, CliError.DuplicateOption, index, argument, "option specified more than once"); }
     if ((*cli).seen_options & conflict) != 0 { return cli_fail(cli, CliError.ConflictingOptions, index, argument, "option conflicts with an earlier option"); }
     set (*cli).seen_options |= flag;
@@ -334,16 +344,16 @@ proc cli_option_value(argument: string, option: string) -> ?string {
     return argument.slice(option.len() + 1, argument.len());
 }
 
-proc cli_read_option_value(cli: *Cli, argv: [string], argc: usize, index: &mut usize, argument: string, inline: ?string) -> ?string {
-    if inline != null {
-        let inline_value = inline?;
+proc cli_read_option_value(cli: *mut Cli, argv: [string], argc: usize, index: &mut usize, argument: string, inline_option_value: ?string) -> ?string {
+    if inline_option_value != null {
+        let inline_value = inline_option_value?;
         if inline_value.len() == 0 { cli_fail(cli, CliError.MissingOptionValue, (*index) as i32, argument, "option value is empty"); return null; }
         return inline_value;
     }
     if *index + 1 >= argc { cli_fail(cli, CliError.MissingOptionValue, (*index) as i32, argument, "option requires a value"); return null; }
     set *index += 1;
     set (*cli).stats.consumed_value_count += 1;
-    let value = argv[*index];
+    let value: string = argv[*index];
     if value.len() == 0 { cli_fail(cli, CliError.MissingOptionValue, (*index) as i32, value, "option value is empty"); return null; }
     return value;
 }
@@ -392,12 +402,14 @@ export proc vitte_cli_config_default() -> CliConfig {
     return CliConfig {
         command: CliCommand.None, backend: CliBackend.Default, optimization: CliOptimization.Default,
         diagnostic_format: CliDiagnosticFormat.Default, color: CliColorMode.Auto,
-        target: null, output: null, manifest_path: null, package: null, test_filter: null,
+        target: null, output: null, manifest_path: null, package: null,
+        package_version: null, test_filter: null,
         jobs: CLI_DEFAULT_JOBS, max_errors: CLI_DEFAULT_MAX_ERRORS,
         verbose: false, quiet: false, release: false, debug: false, emit_debug_info: false,
         emit_source_map: false, emit_comments: false, runtime_checks: true, bounds_checks: true,
         null_checks: true, overflow_checks: true, warnings_as_errors: false, deterministic: true,
         incremental: true, offline: false, locked: false, frozen: false, force: false,
+        global_install: false,
         check_format: false, write_format: false, show_help: false, show_version: false
     };
 }
@@ -430,7 +442,7 @@ export proc vitte_cli_is_valid(cli: *Cli) -> bool {
     return true;
 }
 
-export proc vitte_cli_init(cli: *Cli) -> bool {
+export proc vitte_cli_init(cli: *mut Cli) -> bool {
     if cli == null { return false; }
     set *cli = Cli {
         magic: CLI_MAGIC, state: CliState.Ready, last_error: CliError.None,
@@ -443,7 +455,7 @@ export proc vitte_cli_init(cli: *Cli) -> bool {
     return true;
 }
 
-export proc vitte_cli_reset(cli: *Cli) -> bool {
+export proc vitte_cli_reset(cli: *mut Cli) -> bool {
     if cli == null or (*cli).magic != CLI_MAGIC or (*cli).state == CliState.Parsing { return false; }
     let inputs = (*cli).inputs;
     let input_capacity = (*cli).input_capacity;
@@ -458,7 +470,7 @@ export proc vitte_cli_reset(cli: *Cli) -> bool {
     return true;
 }
 
-export proc vitte_cli_destroy(cli: *Cli) {
+export proc vitte_cli_destroy(cli: *mut Cli) {
     if cli == null or (*cli).magic != CLI_MAGIC { return; }
     if (*cli).inputs != null { deallocate((*cli).inputs as *mut u8); }
     if (*cli).forward_args != null { deallocate((*cli).forward_args as *mut u8); }
@@ -477,7 +489,7 @@ export proc vitte_cli_input_at(cli: *Cli, index: usize) -> ?string { if not vitt
 export proc vitte_cli_forward_arg_count(cli: *Cli) -> usize { if not vitte_cli_is_valid(cli) { return 0; } return (*cli).forward_arg_count; }
 export proc vitte_cli_forward_arg_at(cli: *Cli, index: usize) -> ?string { if not vitte_cli_is_valid(cli) or index >= (*cli).forward_arg_count { return null; } return cli_read_slot((*cli).forward_args, index); }
 
-export proc vitte_cli_set_limits(cli: *Cli, max_inputs: usize, max_forward_args: usize) -> bool {
+export proc vitte_cli_set_limits(cli: *mut Cli, max_inputs: usize, max_forward_args: usize) -> bool {
     if not vitte_cli_is_valid(cli) or (*cli).state != CliState.Ready or max_inputs == 0 or max_forward_args == 0 or
        max_inputs < (*cli).input_capacity or max_forward_args < (*cli).forward_arg_capacity { return false; }
     set (*cli).max_inputs = max_inputs; set (*cli).max_forward_args = max_forward_args;
@@ -498,6 +510,7 @@ export proc vitte_cli_has_forward_args(cli: *Cli) -> bool { return vitte_cli_for
 export proc vitte_cli_wants_help(cli: *Cli) -> bool { return vitte_cli_is_valid(cli) and (*cli).config.show_help; }
 export proc vitte_cli_wants_version(cli: *Cli) -> bool { return vitte_cli_is_valid(cli) and (*cli).config.show_version; }
 export proc vitte_cli_selected_command(cli: *Cli) -> CliCommand { if not vitte_cli_is_valid(cli) { return CliCommand.None; } return (*cli).config.command; }
+export proc vitte_cli_selected_output(cli: *Cli) -> ?string { if not vitte_cli_is_valid(cli) { return null; } return (*cli).config.output; }
 export proc vitte_cli_selected_backend(cli: *Cli) -> CliBackend { if not vitte_cli_is_valid(cli) { return CliBackend.Default; } return (*cli).config.backend; }
 export proc vitte_cli_selected_optimization(cli: *Cli) -> CliOptimization { if not vitte_cli_is_valid(cli) { return CliOptimization.Default; } return (*cli).config.optimization; }
 export proc vitte_cli_selected_diagnostic_format(cli: *Cli) -> CliDiagnosticFormat { if not vitte_cli_is_valid(cli) { return CliDiagnosticFormat.Default; } return (*cli).config.diagnostic_format; }
@@ -549,8 +562,12 @@ export proc vitte_cli_command_name(command: CliCommand) -> string {
     if command == CliCommand.Uninstall { return "uninstall"; }
     if command == CliCommand.Update { return "update"; }
     if command == CliCommand.Clean { return "clean"; }
+    if command == CliCommand.Lex { return "lex"; }
+    if command == CliCommand.Parse { return "parse"; }
+    if command == CliCommand.Completion { return "completion"; }
     if command == CliCommand.Version { return "version"; }
     if command == CliCommand.Help { return "help"; }
+    if command == CliCommand.Explain { return "explain"; }
     return "invalid";
 }
 
@@ -591,7 +608,7 @@ export proc vitte_cli_color_name(color: CliColorMode) -> string {
 }
 
 proc cli_parse_command(value: string, command: &mut CliCommand) -> bool {
-    if value == "build" { set *command = CliCommand.Build; return true; }
+    if value == "build" or value == "compile" { set *command = CliCommand.Build; return true; }
     if value == "run" { set *command = CliCommand.Run; return true; }
     if value == "check" { set *command = CliCommand.Check; return true; }
     if value == "test" { set *command = CliCommand.Test; return true; }
@@ -600,8 +617,12 @@ proc cli_parse_command(value: string, command: &mut CliCommand) -> bool {
     if value == "uninstall" { set *command = CliCommand.Uninstall; return true; }
     if value == "update" { set *command = CliCommand.Update; return true; }
     if value == "clean" { set *command = CliCommand.Clean; return true; }
+    if value == "lex" { set *command = CliCommand.Lex; return true; }
+    if value == "parse" { set *command = CliCommand.Parse; return true; }
+    if value == "completion" { set *command = CliCommand.Completion; return true; }
     if value == "version" { set *command = CliCommand.Version; return true; }
     if value == "help" { set *command = CliCommand.Help; return true; }
+    if value == "explain" { set *command = CliCommand.Explain; return true; }
     return false;
 }
 
@@ -656,13 +677,14 @@ proc cli_has_project_target(cli: *Cli) -> bool {
     return (*cli).input_count != 0 or (*cli).config.manifest_path != null or (*cli).config.package != null;
 }
 
-proc cli_validate_command_options(cli: *Cli) -> bool {
+proc cli_validate_command_options(cli: *mut Cli) -> bool {
     let command = (*cli).config.command;
     let seen = (*cli).seen_options;
-    let compile_flags = VITTE_CLI_SEEN_BACKEND | VITTE_CLI_SEEN_OPTIMIZATION | VITTE_CLI_SEEN_TARGET | VITTE_CLI_SEEN_JOBS |
+    let compile_flags: u64 = VITTE_CLI_SEEN_BACKEND | VITTE_CLI_SEEN_OPTIMIZATION | VITTE_CLI_SEEN_TARGET | VITTE_CLI_SEEN_JOBS |
         VITTE_CLI_SEEN_MAX_ERRORS | VITTE_CLI_SEEN_DEBUG_INFO | VITTE_CLI_SEEN_SOURCE_MAP | VITTE_CLI_SEEN_NO_SOURCE_MAP |
         VITTE_CLI_SEEN_EMIT_COMMENTS | VITTE_CLI_SEEN_NO_RUNTIME | VITTE_CLI_SEEN_NO_BOUNDS | VITTE_CLI_SEEN_NO_NULL |
-        VITTE_CLI_SEEN_NO_OVERFLOW | VITTE_CLI_SEEN_WERROR | VITTE_CLI_SEEN_RELEASE | VITTE_CLI_SEEN_DEBUG;
+        VITTE_CLI_SEEN_NO_OVERFLOW | VITTE_CLI_SEEN_WERROR | VITTE_CLI_SEEN_RELEASE | VITTE_CLI_SEEN_DEBUG |
+        VITTE_CLI_SEEN_EMIT_C | VITTE_CLI_SEEN_EMIT_IR;
     if not vitte_cli_command_is_compilation(command) and (seen & compile_flags) != 0 {
         return cli_fail(cli, CliError.OptionNotAllowed, -1, null, "compilation option used with a non-compilation command");
     }
@@ -688,7 +710,7 @@ proc cli_validate_command_options(cli: *Cli) -> bool {
     return true;
 }
 
-proc cli_finalize(cli: *Cli) -> bool {
+proc cli_finalize(cli: *mut Cli) -> bool {
     let seen = (*cli).seen_options;
     if (*cli).config.command == CliCommand.None {
         set (*cli).config.command = CliCommand.Help;
@@ -702,6 +724,9 @@ proc cli_finalize(cli: *Cli) -> bool {
     }
     if (seen & VITTE_CLI_SEEN_FMT_CHECK) != 0 and (seen & VITTE_CLI_SEEN_FMT_WRITE) != 0 {
         return cli_fail(cli, CliError.ConflictingOptions, -1, null, "--check and --write cannot be used together");
+    }
+    if (seen & VITTE_CLI_SEEN_EMIT_C) != 0 and (seen & VITTE_CLI_SEEN_EMIT_IR) != 0 {
+        return cli_fail(cli, CliError.ConflictingOptions, -1, null, "--emit-c and --emit-ir cannot be used together");
     }
     if (seen & VITTE_CLI_SEEN_RELEASE) != 0 {
         if (seen & VITTE_CLI_SEEN_OPTIMIZATION) != 0 and (*cli).config.optimization == CliOptimization.Debug {
@@ -718,7 +743,9 @@ proc cli_finalize(cli: *Cli) -> bool {
     if (*cli).config.frozen { set (*cli).config.locked = true; set (*cli).config.offline = true; }
     if not cli_validate_command_options(cli) { return false; }
     let command = (*cli).config.command;
-    if (command == CliCommand.Build or command == CliCommand.Run or command == CliCommand.Check) and
+    if (command == CliCommand.Build or command == CliCommand.Run or command == CliCommand.Check or
+        command == CliCommand.Lex or command == CliCommand.Parse or command == CliCommand.Completion or
+        command == CliCommand.Explain or command == CliCommand.Install) and
        not cli_has_project_target(cli) and not (*cli).config.show_help {
         return cli_fail(cli, CliError.MissingInput, -1, null, "command requires an input, package, or manifest");
     }
@@ -754,6 +781,7 @@ export proc vitte_cli_fingerprint(cli: *Cli) -> u64 {
     set hash = cli_hash_string(hash, config.output);
     set hash = cli_hash_string(hash, config.manifest_path);
     set hash = cli_hash_string(hash, config.package);
+    set hash = cli_hash_string(hash, config.package_version);
     set hash = cli_hash_string(hash, config.test_filter);
     set hash = cli_hash_u64(hash, config.jobs as u64);
     set hash = cli_hash_u64(hash, config.max_errors as u64);
@@ -775,6 +803,7 @@ export proc vitte_cli_fingerprint(cli: *Cli) -> u64 {
     set hash = cli_hash_bool(hash, config.locked);
     set hash = cli_hash_bool(hash, config.frozen);
     set hash = cli_hash_bool(hash, config.force);
+    set hash = cli_hash_bool(hash, config.global_install);
     set hash = cli_hash_bool(hash, config.check_format);
     set hash = cli_hash_bool(hash, config.write_format);
     set hash = cli_hash_bool(hash, config.show_help);
@@ -796,9 +825,9 @@ export proc vitte_cli_suggested_exit_status(cli: *Cli) -> i32 {
 /// Parses a native Vitte slice without copying its strings. The caller must
 /// keep the argument strings alive while this CLI uses its inputs, forwarded
 /// arguments, config, or error message; reset or destroy ends that use.
-export proc vitte_cli_parse_slice(cli: *Cli, argv: [string]) -> bool {
+export proc vitte_cli_parse_slice(cli: *mut Cli, argv: [string]) -> bool {
     if cli == null or not vitte_cli_is_valid(cli) { return false; }
-    let argc = argv.len();
+    let argc: usize = argv.len();
     if (*cli).state != CliState.Ready { return cli_fail(cli, CliError.InvalidState, -1, null, "CLI parser is not in ready state"); }
     set (*cli).state = CliState.Parsing;
     set (*cli).stats.argument_count = if argc > 0 { argc - (1 as usize) } else { 0 as usize };
@@ -807,7 +836,7 @@ export proc vitte_cli_parse_slice(cli: *Cli, argv: [string]) -> bool {
     let mut options_enabled = true;
     let mut index: usize = if argc > 0 { 1 as usize } else { 0 as usize };
     while index < argc {
-        let argument = argv[index];
+        let argument: string = argv[index];
         set (*cli).stats.parsed_argument_count += 1;
         if forward_mode {
             if not cli_add_forward_arg(cli, argument, index as i32) { return false; }
@@ -848,7 +877,8 @@ export proc vitte_cli_parse_slice(cli: *Cli, argv: [string]) -> bool {
             if not cli_mark_seen(cli, VITTE_CLI_SEEN_HELP, index as i32, argument) { return false; }
             set (*cli).config.show_help = true; set (*cli).stats.option_count += 1; set index += 1; continue;
         }
-        if argument == "-V" or argument == "--version" {
+        if argument == "-V" or (argument == "--version" and
+           (not command_seen or (*cli).config.command != CliCommand.Install)) {
             if not cli_mark_seen(cli, VITTE_CLI_SEEN_VERSION, index as i32, argument) { return false; }
             set (*cli).config.show_version = true;
             if not command_seen { set (*cli).config.command = CliCommand.Version; set command_seen = true; }
@@ -868,12 +898,16 @@ export proc vitte_cli_parse_slice(cli: *Cli, argv: [string]) -> bool {
         if value_kind == 0 { let v = cli_option_value(argument, "--output"); if v != null { set value_opt = v; set value_kind = 4; set seen_flag = VITTE_CLI_SEEN_OUTPUT; } }
         if value_kind == 0 and argument == "--manifest-path" { set value_kind = 5; set seen_flag = VITTE_CLI_SEEN_MANIFEST; }
         if value_kind == 0 { let v = cli_option_value(argument, "--manifest-path"); if v != null { set value_opt = v; set value_kind = 5; set seen_flag = VITTE_CLI_SEEN_MANIFEST; } }
+        if value_kind == 0 and command_seen and (*cli).config.command == CliCommand.Install and argument == "--version" { set value_kind = 12; set seen_flag = VITTE_CLI_SEEN_PACKAGE_VERSION; }
+        if value_kind == 0 and command_seen and (*cli).config.command == CliCommand.Install { let v = cli_option_value(argument, "--version"); if v != null { set value_opt = v; set value_kind = 12; set seen_flag = VITTE_CLI_SEEN_PACKAGE_VERSION; } }
         if value_kind == 0 and (argument == "-j" or argument == "--jobs") { set value_kind = 6; set seen_flag = VITTE_CLI_SEEN_JOBS; }
         if value_kind == 0 { let v = cli_option_value(argument, "--jobs"); if v != null { set value_opt = v; set value_kind = 6; set seen_flag = VITTE_CLI_SEEN_JOBS; } }
         if value_kind == 0 and argument == "--max-errors" { set value_kind = 7; set seen_flag = VITTE_CLI_SEEN_MAX_ERRORS; }
         if value_kind == 0 { let v = cli_option_value(argument, "--max-errors"); if v != null { set value_opt = v; set value_kind = 7; set seen_flag = VITTE_CLI_SEEN_MAX_ERRORS; } }
-        if value_kind == 0 and argument == "--diagnostics" { set value_kind = 8; set seen_flag = VITTE_CLI_SEEN_DIAGNOSTICS; }
+        if value_kind == 0 and (argument == "--diagnostics" or argument == "--diagnostic" or argument == "--diagnostic-format") { set value_kind = 8; set seen_flag = VITTE_CLI_SEEN_DIAGNOSTICS; }
         if value_kind == 0 { let v = cli_option_value(argument, "--diagnostics"); if v != null { set value_opt = v; set value_kind = 8; set seen_flag = VITTE_CLI_SEEN_DIAGNOSTICS; } }
+        if value_kind == 0 { let v = cli_option_value(argument, "--diagnostic"); if v != null { set value_opt = v; set value_kind = 8; set seen_flag = VITTE_CLI_SEEN_DIAGNOSTICS; } }
+        if value_kind == 0 { let v = cli_option_value(argument, "--diagnostic-format"); if v != null { set value_opt = v; set value_kind = 8; set seen_flag = VITTE_CLI_SEEN_DIAGNOSTICS; } }
         if value_kind == 0 and argument == "--color" { set value_kind = 9; set seen_flag = VITTE_CLI_SEEN_COLOR; }
         if value_kind == 0 { let v = cli_option_value(argument, "--color"); if v != null { set value_opt = v; set value_kind = 9; set seen_flag = VITTE_CLI_SEEN_COLOR; } }
         if value_kind == 0 and (argument == "-p" or argument == "--package") { set value_kind = 10; set seen_flag = VITTE_CLI_SEEN_PACKAGE; }
@@ -923,6 +957,7 @@ export proc vitte_cli_parse_slice(cli: *Cli, argv: [string]) -> bool {
             }
             else if value_kind == 10 { set (*cli).config.package = text; }
             else if value_kind == 11 { set (*cli).config.test_filter = text; }
+            else if value_kind == 12 { set (*cli).config.package_version = text; }
             set (*cli).stats.option_count += 1;
             set index += 1;
             continue;
@@ -935,6 +970,13 @@ export proc vitte_cli_parse_slice(cli: *Cli, argv: [string]) -> bool {
             if not cli_mark_boolean(cli, VITTE_CLI_SEEN_QUIET, VITTE_CLI_SEEN_VERBOSE, index as i32, argument) { return false; }
             set (*cli).config.quiet = true; set (*cli).stats.option_count += 1; set index += 1; continue;
         }
+        if argument == "--no-color" {
+            if not cli_mark_seen(cli, VITTE_CLI_SEEN_COLOR, index as i32, argument) { return false; }
+            set (*cli).config.color = CliColorMode.Never;
+            set (*cli).stats.option_count += 1;
+            set index += 1;
+            continue;
+        }
         if argument == "--release" {
             if not cli_mark_boolean(cli, VITTE_CLI_SEEN_RELEASE, VITTE_CLI_SEEN_DEBUG, index as i32, argument) { return false; }
             set (*cli).config.release = true; set (*cli).stats.option_count += 1; set index += 1; continue;
@@ -946,6 +988,18 @@ export proc vitte_cli_parse_slice(cli: *Cli, argv: [string]) -> bool {
         if argument == "--debug-info" {
             if not cli_mark_seen(cli, VITTE_CLI_SEEN_DEBUG_INFO, index as i32, argument) { return false; }
             set (*cli).config.emit_debug_info = true; set (*cli).stats.option_count += 1; set index += 1; continue;
+        }
+        if argument == "--emit-c" {
+            if not cli_mark_seen(cli, VITTE_CLI_SEEN_EMIT_C, index as i32, argument) { return false; }
+            set (*cli).stats.option_count += 1;
+            set index += 1;
+            continue;
+        }
+        if argument == "--emit-ir" {
+            if not cli_mark_seen(cli, VITTE_CLI_SEEN_EMIT_IR, index as i32, argument) { return false; }
+            set (*cli).stats.option_count += 1;
+            set index += 1;
+            continue;
         }
         if argument == "--source-map" {
             if not cli_mark_boolean(cli, VITTE_CLI_SEEN_SOURCE_MAP, VITTE_CLI_SEEN_NO_SOURCE_MAP, index as i32, argument) { return false; }
@@ -1011,6 +1065,13 @@ export proc vitte_cli_parse_slice(cli: *Cli, argv: [string]) -> bool {
             if not cli_mark_seen(cli, VITTE_CLI_SEEN_FORCE, index as i32, argument) { return false; }
             set (*cli).config.force = true; set (*cli).stats.option_count += 1; set index += 1; continue;
         }
+        if argument == "--global" {
+            if (*cli).config.command != CliCommand.Install {
+                return cli_fail(cli, CliError.OptionNotAllowed, index as i32, argument, "--global is only valid for install");
+            }
+            if not cli_mark_seen(cli, VITTE_CLI_SEEN_GLOBAL, index as i32, argument) { return false; }
+            set (*cli).config.global_install = true; set (*cli).stats.option_count += 1; set index += 1; continue;
+        }
         if argument == "--check" {
             if not cli_mark_boolean(cli, VITTE_CLI_SEEN_FMT_CHECK, VITTE_CLI_SEEN_FMT_WRITE, index as i32, argument) { return false; }
             set (*cli).config.check_format = true; set (*cli).stats.option_count += 1; set index += 1; continue;
@@ -1031,7 +1092,7 @@ export proc vitte_cli_parse_slice(cli: *Cli, argv: [string]) -> bool {
 /// a length-bearing Vitte slice and is not ABI-compatible with `char **argv`.
 /// This boundary copies only the `argc` string pointers into a temporary
 /// native slice; the argument bytes remain borrowed from the caller.
-export proc vitte_cli_parse(cli: *Cli, argc: i32, argv: *const string) -> bool {
+export proc vitte_cli_parse(cli: *mut Cli, argc: i32, argv: *const string) -> bool {
     if cli == null or not vitte_cli_is_valid(cli) { return false; }
     if argc < 0 or (argc > 0 and argv == null) { return false; }
     if (*cli).state != CliState.Ready {
@@ -1041,7 +1102,7 @@ export proc vitte_cli_parse(cli: *Cli, argc: i32, argv: *const string) -> bool {
     let mut arguments: [string] = [];
     let mut index: usize = 0;
     while index < argc as usize {
-        let argument = pointer.read(cli_argv_slot(argv, index));
+        let argument: string = pointer.read(cli_argv_slot(argv, index));
         if not arguments.push(argument) {
             return cli_fail(cli, CliError.OutOfMemory, index as i32, argument, "unable to adapt C argv to a Vitte argument slice");
         }

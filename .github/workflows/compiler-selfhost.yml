@@ -69,6 +69,7 @@ jobs:
         shell: bash
         run: |
           ulimit -s unlimited || true
+          make MODE=release test-native-bootstrap-parity test-corpus
           make MODE=release bootstrap-selfhost
 
       - name: Preserve self-host evidence

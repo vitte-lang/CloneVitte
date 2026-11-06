@@ -1,0 +1,16 @@
+pick Maybe<T> {
+    None,
+    Some(T)
+}
+
+proc unwrap(value: Maybe<i64>) -> i64 {
+    match value {
+        Maybe<i64>::Some(item) => { return item; },
+        Maybe<i64>::None => { return 0; },
+    }
+}
+
+proc main() -> i64 {
+    let value: Maybe<i64> = Maybe<i64>::Some(7);
+    return unwrap(value) - 7;
+}

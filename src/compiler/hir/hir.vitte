@@ -1087,34 +1087,46 @@ export proc vitte_hir_validate(hir: *mut HIR) -> bool {
         let value = &(*hir).strings[index];
         let data: string = value.data;
         if value.id != index as u64 + 1 or
-           value.hash != hir_string_hash(data.as_bytes().as_ptr() as *const u8, value.length) { set valid = false; }
+           value.hash != hir_string_hash(data.as_bytes().as_ptr() as *const u8, (*value).length) { set valid = false; }
         else { set index += 1; }
     }
     set index = 0;
     while index < (*hir).type_count and valid {
-        if (*hir).types[index].id != index as u64 + 1 or not hir_validate_type(hir, &(*hir).types[index]) { set valid = false; }
+        if (*hir).types[index].id != index as u64 + 1 or not hir_validate_type(hir, &(*hir).types[index]) {
+            set valid = false;
+        }
         else { set index += 1; }
     }
     set index = 0;
     while index < (*hir).symbol_count and valid {
-        if (*hir).symbols[index].id != index as u64 + 1 or not hir_validate_symbol(hir, &(*hir).symbols[index]) { set valid = false; }
+        if (*hir).symbols[index].id != index as u64 + 1 or not hir_validate_symbol(hir, &(*hir).symbols[index]) {
+            set valid = false;
+        }
         else { set index += 1; }
     }
     set index = 0;
     while index < (*hir).scope_count and valid {
-        if (*hir).scopes[index].id != index as u64 + 1 or not hir_validate_scope(hir, &(*hir).scopes[index]) { set valid = false; }
+        if (*hir).scopes[index].id != index as u64 + 1 or not hir_validate_scope(hir, &(*hir).scopes[index]) {
+            set valid = false;
+        }
         else { set index += 1; }
     }
     set index = 0;
     while index < (*hir).node_count and valid {
-        if (*hir).nodes[index].id != index as u64 + 1 or not hir_validate_node(hir, &(*hir).nodes[index]) { set valid = false; }
+        if (*hir).nodes[index].id != index as u64 + 1 or not hir_validate_node(hir, &(*hir).nodes[index]) {
+            set valid = false;
+        }
         else { set index += 1; }
     }
     if (*hir).roots.count > (*hir).roots.capacity or
-       ((*hir).roots.count != 0 and (*hir).roots.items == null) { set valid = false; }
+       ((*hir).roots.count != 0 and (*hir).roots.items == null) {
+        set valid = false;
+    }
     set index = 0;
     while index < (*hir).roots.count and valid {
-        if not hir_validate_node_id(hir, (*hir).roots.items[index], false) { set valid = false; }
+        if not hir_validate_node_id(hir, (*hir).roots.items[index], false) {
+            set valid = false;
+        }
         else { set index += 1; }
     }
     if not valid {
@@ -1485,9 +1497,9 @@ export proc vitte_hir_fingerprint(hir: *mut HIR) -> u64 {
         let value = &(*hir).strings[index];
         let data: string = value.data;
         set hash = hir_hash_u64(hash, value.id);
-        set hash = hir_hash_u64(hash, value.length as u64);
+        set hash = hir_hash_u64(hash, (*value).length as u64);
         let mut byte_index: usize = 0;
-        while byte_index < value.length {
+        while byte_index < (*value).length {
             set hash = hir_hash_byte(hash, data.as_bytes()[byte_index]);
             set byte_index += 1;
         }

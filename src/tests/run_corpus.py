@@ -39,12 +39,24 @@ def load_expectations():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--compiler", type=Path, required=True)
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help="fixture checked separately by another compiler",
+    )
     parser.add_argument("--include-unavailable", action="store_true")
     args = parser.parse_args()
     compiler = args.compiler.resolve()
     expectations = load_expectations()
     files = sorted(path.relative_to(ROOT).as_posix() for path in TESTS.rglob("*.vit"))
     present = set(files)
+    excluded = set(args.exclude)
+    unknown_excluded = excluded - present
+    if unknown_excluded:
+        raise ValueError(
+            "excluded fixtures do not exist: " + ", ".join(sorted(unknown_excluded))
+        )
     missing = set(expectations) - present
     stale = {
         path
@@ -54,9 +66,12 @@ def main():
     if stale:
         raise ValueError(f"expectations refer to missing fixtures: {', '.join(sorted(stale))}")
 
+    files = [path for path in files if path not in excluded]
     checked = negative = known_gaps = failed = 0
     unavailable_missing = sorted(missing - stale)
-    skipped = len(unavailable_missing)
+    skipped = len(unavailable_missing) + len(excluded)
+    for path in sorted(excluded):
+        print(f"[SKIP] {path}: checked separately by the native compiler")
     for path in unavailable_missing:
         _, reason = expectations[path]
         print(

@@ -253,7 +253,7 @@ proc ir_value_text(context: &IRContext, value_id: u64) -> ?string {
         case IRValueKind.Function => {
             let function = ir_function(context, value?.function);
             if function == null { return null; }
-            return ir_symbol(context, function?.name, "vitte_fn_");
+            return ir_emit_function_name(context, function?);
         }
         case IRValueKind.Invalid | IRValueKind.Count => return null;
     }
@@ -393,7 +393,7 @@ proc ir_instruction_text(context: &IRContext, instruction: &IRInstruction) -> ?s
         let mut callee: ?string = null;
         if callee_value?.kind == IRValueKind.Function {
             let function = ir_function(context, callee_value?.function);
-            if function != null { set callee = ir_symbol(context, function?.name, "vitte_fn_"); }
+            if function != null { set callee = ir_emit_function_name(context, function?); }
         } else { set callee = ir_value_text(context, callee_id); }
         if callee == null { return null; }
         let result_type = ir_type(context, instruction.result_type);
@@ -602,6 +602,9 @@ proc ir_instruction_text(context: &IRContext, instruction: &IRInstruction) -> ?s
 }
 
 proc ir_emit_function_name(context: &IRContext, function: &IRFunction) -> ?string {
+    if function.linkage == IRLinkage.External {
+        return ir_string(context, function.name);
+    }
     return ir_symbol(context, function.name, "vitte_fn_");
 }
 

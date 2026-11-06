@@ -1,0 +1,8 @@
+proc main() -> i64 {
+    assert(40 + 2 == 42);
+    unsafe {
+        let value: i64 = 40;
+        assert(value + 2 == 42);
+    }
+    return 0;
+}

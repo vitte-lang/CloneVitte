@@ -102,9 +102,10 @@ declaration_block ::= "{" { declaration } "}" ;
 generic_parameters ::= [ "<" [ generic_parameter
                                { "," generic_parameter } ] ">" ] ;
 
-generic_parameter ::= identifier [ ":" type ] ;
+generic_parameter ::= identifier [ ":" type { "+" type } ] ;
 
-where_clause ::= "where" type ":" type { "," type ":" type } ;
+where_clause ::= "where" type ":" type { "+" type }
+                 { "," type ":" type { "+" type } } ;
 
 parameter_list ::= "(" [ parameter { "," parameter } [ "," ] ] ")" ;
 
@@ -115,6 +116,7 @@ parameter ::= identifier ":" type ;
 type ::= reference_type
        | pointer_type
        | array_type
+       | optional_type
        | path_type
        ;
 
@@ -123,6 +125,8 @@ reference_type ::= ( "&" | "ref" ) [ "mut" ] type ;
 pointer_type ::= "*" type ;
 
 array_type ::= "[" expression "]" type ;
+
+optional_type ::= "?" type ;
 
 path_type ::= path
               [ ( "<" [ type { "," type } ] ">"
@@ -251,11 +255,15 @@ postfix_expression ::= primary_expression
 
 primary_expression ::= literal
                       | path
+                      | generic_variant_path
                       | "self"
                       | "[" [ expression { "," expression } [ "," ] ] "]"
                       | "(" expression ")"
                       | block
                       ;
+
+generic_variant_path ::= path "<" [ type { "," type } ] ">"
+                         "::" identifier ;
 
 literal ::= integer_literal
           | float_literal

@@ -1,0 +1,9 @@
+proc main() -> i64 {
+    let missing: ?i64 = null;
+    if missing != null { return 1; }
+
+    let value: i64 = 42;
+    let present: ?i64 = &value;
+    if present == null { return 2; }
+    return present? - 42;
+}

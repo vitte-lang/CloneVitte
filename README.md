@@ -2,8 +2,9 @@
 
 [![Vitte CI](https://github.com/vitte-lang/vitte/actions/workflows/ci.yml/badge.svg)](https://github.com/vitte-lang/vitte/actions/workflows/ci.yml)
 
-Ce dépôt contient le compilateur officiel de Vitte, écrit en C17. Son pipeline
-est conservé en place :
+Ce dépôt contient le compilateur officiel de Vitte. Le seed est en C17 ; le
+binaire principal utilise un frontend écrit en Vitte et quelques adaptateurs C
+pour l’OS et les outils hôtes. Le pipeline du compilateur est :
 
 ```text
 source -> lexer -> parser/AST -> semantic analysis -> HIR -> IR -> C17
@@ -101,6 +102,40 @@ réussite attendus incluent :
 [SELFHOST] stage1 and stage2 API output match
 Native compiler self-host gate passed through stage3.
 ```
+
+### Critère de fin : compilateur autonome écrit en Vitte
+
+Le gate stage 0–3 prouve que le frontend Vitte se compile de façon stable ; à
+lui seul, il ne prouve pas que le binaire principal a cessé d’utiliser le
+compilateur C historique. La migration sera terminée quand toutes les
+conditions suivantes seront réunies :
+
+1. `build/bin/vitte` entre dans le dispatcher Vitte et retourne son résultat
+   sans appeler `vitte_main_entry` ni aucun autre pilote CLI de secours.
+2. Toutes les commandes promises par la CLI sont dispatchées et exécutées par
+   des modules Vitte. Une commande non disponible doit produire un diagnostic
+   Vitte explicite, jamais basculer vers le compilateur historique.
+3. Le lien du binaire principal ne contient aucun objet qui implémente le
+   lexer, le parseur, l’analyse sémantique, les imports, les diagnostics, le
+   backend ou le pilote du compilateur sous `src/bootstrap/`.
+4. Le C restant est limité à une liste documentée d’adaptateurs système
+   minimaux : entrée du processus, allocation, fichiers et chemins, sortie,
+   environnement et lancement des outils hôtes. Ces adaptateurs ne prennent
+   aucune décision de compilation.
+5. Un audit du lien confirme l’absence des symboles du pilote C historique ;
+   la parité CLI, les corpus du langage et les stages de self-host passent sur
+   Linux, macOS et Windows.
+
+Le bootstrap peut servir de compilateur seed pendant la construction et rester
+archivé pour cette étape. Il ne peut ni participer au lien de `vitte`, ni
+prendre en charge une commande à l’exécution. Le travail en cours a déjà
+raccordé l’entrée du processus au dispatcher Vitte et limité les objets
+sélectionnés par le lien principal aux adaptateurs de frontière. La compilation
+release du frontend natif et la génération C17 de l’API passent désormais.
+`vitte install` est maintenant dispatché vers un module Vitte avec vérification
+SHA-256 et mise à jour transactionnelle des fichiers du projet. L’audit détaillé
+des symboles et les gates de parité/self-host sur Linux, macOS et Windows restent
+à confirmer.
 
 Les stages vérifiés sont mémorisés sous `build/selfhost/`. Pour reprendre après
 un échec, relancez directement la cible du stage concerné :

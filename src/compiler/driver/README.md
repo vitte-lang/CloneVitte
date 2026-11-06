@@ -7,32 +7,36 @@ analyzer, HIR/IR lowering, and C17 emission. Compile, check, run, and `--emit-ir
 share the native pipeline; check stops after semantic analysis, while
 `--emit-ir` serializes the validated native IR.
 
-The root `make` target links this archive into the normal executable. The
-archive contains C generated from the Vitte pipeline. HIR and IR storage and
-lowering APIs still bind to bootstrap C implementations, and the final
-executable links those objects. Native `compile` and `run` pass generated C17
-to the host-tool contract declared in `host_tools.vitte`. The Vitte driver
-orders C compilation, linking, and optional execution, and returns the failed
-stage as a scalar result. The C host adapter owns temporary files and process
-creation behind opaque workspace handles. The CLI renders stage-specific
-diagnostics for C compilation (E0904), linking (E0907), and program execution
-(E0908), plus preparation and output failures (E0906). Native failures stop
-with their diagnostics instead of retrying through the compatibility analyzer.
-The current temporary-file adapter supports Unix-like hosts; other hosts return
-the driver's unsupported-host result until their filesystem/process adapter is
-implemented.
+The root `make` target links this Vitte-generated frontend with a small set of
+C boundary objects for the public ABI, file and process APIs, and OS entry
+point. The filesystem object supplies only the public file and path ABI; it
+contains no compiler phases or CLI dispatch. The link omits the historical C
+compiler objects. The C bootstrap is
+still used as the seed that translates the Vitte sources into the frontend
+archive, but that seed is a separate executable. Native `compile` and `run`
+pass generated C17 to the host-tool contract declared in `host_tools.vitte`.
+Vitte owns temporary-file lifecycle, compiler argument construction, stage
+ordering, and failure classification. A small C host adapter reserves OS
+temporary paths and launches the host compiler or generated executable. The
+adapter uses native temporary-directory and process APIs on Windows and
+Unix-like hosts.
+
+The Vitte CLI dispatches commands directly. `install` is implemented by
+`compiler::package::installer`: it selects a compatible stable release,
+verifies the archive SHA-256, stages extraction, and updates project records
+with rollback on failure. `curl` and `tar` are host tools; the package policy
+and hash implementation are Vitte code. Unsupported commands and option
+combinations report an error; the process entry does not fall back to the
+historical C driver.
 `check` returns after native semantic analysis. `--emit-ir` writes the native
 IR dump; inspection, diagnostic rendering, and host system calls remain behind
 their respective interfaces.
 
 `api_compile_source` is implemented by `compiler/api/api.vitte`; its
-`ApiResult` owns the generated C17 bytes and formatted diagnostics. The CLI
-host driver uses the bootstrap C17 result API only for source-only C emission
-and the compatibility AST path. On the native path, object generation,
-linking, and `run` are sequenced by the Vitte driver contract. The CLI selects
-the native frontend for its implemented subset and keeps unsupported language
-features on the bootstrap compatibility path; a selected native invocation's
-diagnostics remain authoritative.
+`ApiResult` owns the generated C17 bytes and formatted diagnostics. Object
+generation, linking, and execution are sequenced by the Vitte driver. The
+historical C compiler remains available as a separate bootstrap executable and
+is not part of the normal `make` link.
 
 ## Remaining C bootstrap contract
 

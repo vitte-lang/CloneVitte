@@ -1,0 +1,437 @@
+VITTEFOUNDATION PUBLIC LICENSE
+Version 1.0 — 2026
+
+Copyright (C) 2026 VitteFoundation
+https://vitte-lang.org/
+
+======================================================================
+PREAMBLE
+
+The VitteFoundation Public License (“VFPL”) is a free software license
+designed to preserve the freedom to use, study, modify, compile, and
+redistribute software while ensuring that distributed derivative works
+remain available under the same terms.
+
+The purpose of this License is to protect the long-term openness of
+software developed by VitteFoundation and its contributors.
+
+Every recipient of software distributed under this License receives the
+rights described below, subject to the corresponding obligations.
+
+======================================================================
+
+1. DEFINITIONS
+======================================================================
+
+“License” means the VitteFoundation Public License, Version 1.0.
+
+“VitteFoundation” means the organization responsible for publishing and
+maintaining this License.
+
+“Software” means any source code, object code, executable code,
+documentation, build scripts, interfaces, resources, or other material
+distributed under this License.
+
+“Source Code” means the preferred form of the Software for making
+modifications.
+
+“Object Code” means any non-source representation of the Software,
+including compiled binaries.
+
+“Modification” means any change, adaptation, extension, translation,
+correction, transformation, or other alteration of the Software.
+
+“Modified Work” means a work containing or derived from the Software or
+from a Modification of the Software.
+
+“Contributor” means any person or organization that intentionally
+provides copyrightable material for inclusion in the Software.
+
+“Recipient” means any person or organization receiving the Software or a
+copy of it.
+
+“Distribution” means providing a copy of the Software or a Modified Work
+to another party.
+
+======================================================================
+2. GRANT OF RIGHTS
+
+Subject to the terms of this License, each Recipient is granted a
+worldwide, royalty-free, non-exclusive license to:
+
+a. use the Software for any purpose;
+
+b. execute the Software;
+
+c. study the Software and its Source Code;
+
+d. copy the Software;
+
+e. modify the Software;
+
+f. compile the Software;
+
+g. create Modified Works;
+
+h. distribute the Software;
+
+i. distribute Modified Works; and
+
+j. distribute Object Code produced from the Software.
+
+These permissions apply to personal, educational, academic, scientific,
+non-profit, governmental, and commercial use.
+
+======================================================================
+3. SOURCE CODE
+
+The Source Code is the preferred form of the Software for making
+modifications.
+
+When distributing the Software in Source Code form, the distributor must
+retain:
+
+a. this License;
+
+b. applicable copyright notices;
+
+c. attribution notices;
+
+d. notices identifying VitteFoundation as the original project publisher,
+when applicable; and
+
+e. notices describing significant modifications, when applicable.
+
+A distributor may add its own copyright notices for its original
+contributions.
+
+======================================================================
+4. DISTRIBUTION OF OBJECT CODE
+
+A Recipient may distribute the Software or a Modified Work in Object Code
+or executable form.
+
+When doing so, the distributor must also provide the Corresponding Source
+Code or provide a clear and effective method by which recipients can
+obtain the Corresponding Source Code without unreasonable restriction.
+
+The Corresponding Source Code must contain the source material reasonably
+necessary to build, modify, and reproduce the distributed version of the
+Software.
+
+======================================================================
+5. COPYLEFT
+
+A Modified Work distributed to another party must be licensed as a whole
+under this License.
+
+The distributor may not impose additional contractual restrictions that
+prevent recipients from exercising the rights granted by this License.
+
+Every lawful Recipient of a distributed Modified Work must receive the
+same fundamental rights to use, study, modify, compile, and redistribute
+that work.
+
+This requirement applies only when a Modified Work is distributed.
+
+Private modifications that are not distributed do not need to be
+published.
+
+======================================================================
+6. MODIFICATIONS
+
+Modified Works are permitted.
+
+A distributed Modified Work must clearly indicate that it has been
+modified.
+
+Where reasonably practical, the following information should be
+provided:
+
+a. the name of the modified project;
+
+b. the date of significant modifications;
+
+c. the identity or pseudonym of the modifying party; and
+
+d. a description of significant changes.
+
+A Modified Work must not falsely claim to be an official VitteFoundation
+release.
+
+======================================================================
+7. COMMERCIAL USE
+
+Commercial use of the Software is permitted.
+
+The Software may be used to develop, compile, operate, host, or provide
+commercial products and services.
+
+The Software and Modified Works may also be commercially distributed,
+provided that the requirements of this License are respected.
+
+No royalty is owed to VitteFoundation merely because the Software is
+used commercially.
+
+======================================================================
+8. COMBINED WORKS
+
+Independent works that merely communicate with the Software through
+documented interfaces, processes, files, protocols, command-line
+interfaces, or other ordinary mechanisms are not automatically Modified
+Works.
+
+Mere aggregation of the Software with independent software on the same
+storage medium, distribution archive, operating system, package
+repository, or device does not cause the independent software to become
+subject to this License.
+
+Whether a particular work constitutes a derivative work remains subject
+to applicable copyright law.
+
+======================================================================
+9. LIBRARIES AND LINKING
+
+If a work incorporates or derives from VFPL-covered Source Code in a
+manner that creates a derivative work under applicable copyright law,
+distribution of that derivative work must comply with this License.
+
+Mere interaction with an unmodified VFPL-covered program does not by
+itself place the interacting program under this License.
+
+This License does not attempt to expand the definition of derivative work
+beyond applicable copyright law.
+
+======================================================================
+10. COMPILER OUTPUT
+
+Output produced by a compiler, interpreter, assembler, linker, generator,
+or other development tool licensed under the VFPL is not automatically
+covered by this License merely because it was produced by that tool.
+
+For example, source code compiled by the CloneVitte compiler does not
+become VFPL-licensed solely because CloneVitte compiled it.
+
+However, portions of VFPL-covered code copied into generated output remain
+subject to this License when copyright law makes those portions part of
+the resulting work.
+
+======================================================================
+11. RUNTIME AND STANDARD LIBRARY
+
+A compiler runtime, standard library, support library, or other component
+may contain an additional license exception.
+
+Such an exception must be stated explicitly in the corresponding
+component.
+
+In the absence of an explicit exception, that component remains governed
+by this License.
+
+======================================================================
+12. ATTRIBUTION
+
+Copyright and attribution notices contained in the Source Code must not be
+intentionally removed or falsified when the covered material is
+redistributed.
+
+Modified versions may add their own attribution notices.
+
+Attribution requirements must not be interpreted as requiring advertising
+or endorsement of VitteFoundation.
+
+======================================================================
+13. PROJECT IDENTITY AND TRADEMARKS
+
+This License grants copyright permissions.
+
+It does not grant trademark rights in:
+
+VitteFoundation;
+Vitte;
+CloneVitte;
+Vitte Language;
+associated logos;
+official project branding; or
+other protected identifiers.
+
+Recipients may make truthful statements describing the origin of the
+Software.
+
+Modified distributions must not imply that they are official,
+certified, approved, sponsored, or endorsed by VitteFoundation unless
+such authorization has been granted separately.
+
+======================================================================
+14. PATENTS
+
+Each Contributor grants Recipients a worldwide, royalty-free,
+non-exclusive patent license under patent claims controlled by that
+Contributor that are necessarily infringed by the Contributor’s
+contribution alone or by its combination with the Software as submitted.
+
+If a Recipient initiates patent litigation alleging that the Software or
+a contribution covered by this License infringes a patent, patent rights
+granted to that Recipient under this section terminate to the extent
+permitted by applicable law.
+
+======================================================================
+15. NO ADDITIONAL RESTRICTIONS
+
+A distributor may not impose legal or technological restrictions that
+materially prevent recipients from exercising the rights granted under
+this License with respect to the covered Software.
+
+Separate terms may apply to independent services, trademarks, data, or
+works that are not governed by this License.
+
+======================================================================
+16. LICENSE NOTICES
+
+A Source Code file may indicate that it is governed by this License using
+the following notice:
+
+Copyright (C) YEAR COPYRIGHT HOLDER
+Licensed under the VitteFoundation Public License, Version 1.0.
+You may use, modify, and redistribute this file under the terms
+of the VitteFoundation Public License.
+SPDX-License-Identifier: LicenseRef-VFPL-1.0
+
+A repository may identify its license using:
+
+License: VitteFoundation Public License 1.0
+Identifier: LicenseRef-VFPL-1.0
+License URI: https://vitte-lang.org/license/vfpl-1.0
+
+“LicenseRef-VFPL-1.0” is a project-defined license identifier and must
+not be represented as an SPDX-approved license identifier unless it is
+accepted by the SPDX project.
+
+======================================================================
+17. ACCEPTANCE
+
+You are not required to accept this License merely to receive or run a
+copy of the Software where applicable law permits those activities
+without a license.
+
+However, modification or distribution of copyrighted material requires
+permission.
+
+By exercising permissions granted only by this License, you agree to
+comply with its terms.
+
+======================================================================
+18. TERMINATION
+
+Rights granted under this License terminate automatically if a Recipient
+materially violates its conditions.
+
+Rights may be reinstated when the violation is corrected within a
+reasonable period after discovery or notification, unless the relevant
+copyright holder expressly provides otherwise where legally permitted.
+
+Termination does not terminate licenses already validly granted by that
+Recipient to other parties before termination.
+
+======================================================================
+19. DISCLAIMER OF WARRANTY
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING, WITHOUT LIMITATION, WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE SOFTWARE IS WITH
+THE USER.
+
+SHOULD THE SOFTWARE PROVE DEFECTIVE, THE USER ASSUMES THE COST OF ALL
+NECESSARY SERVICING, REPAIR, OR CORRECTION.
+
+======================================================================
+20. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, NO COPYRIGHT HOLDER,
+CONTRIBUTOR, OR VITTEFOUNDATION SHALL BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES ARISING FROM
+THE USE OR INABILITY TO USE THE SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGES.
+
+======================================================================
+21. THIRD-PARTY COMPONENTS
+
+The Software may contain or interact with third-party components.
+
+Those components may be governed by separate licenses.
+
+Nothing in this License changes the license applicable to independently
+licensed third-party material.
+
+======================================================================
+22. CONTRIBUTIONS
+
+Unless otherwise agreed in writing, a contribution intentionally
+submitted for inclusion in a VFPL-covered project may be distributed
+under the version of the VFPL governing that project.
+
+A Contributor retains copyright in the Contributor’s original work unless
+those rights are separately assigned.
+
+The Contributor represents that the contribution is submitted under terms
+the Contributor is legally entitled to grant.
+
+======================================================================
+23. LATER VERSIONS
+
+VitteFoundation may publish revised or new versions of the
+VitteFoundation Public License.
+
+A project may specify:
+
+VFPL-1.0-only
+
+to require Version 1.0 only, or:
+
+VFPL-1.0-or-later
+
+to permit Version 1.0 or a later version published by VitteFoundation.
+
+A later version does not automatically replace Version 1.0 for software
+licensed specifically under VFPL-1.0-only.
+
+======================================================================
+24. GOVERNING LAW
+
+This License is intended to operate within applicable copyright,
+contract, patent, and other relevant laws.
+
+If a provision is found unenforceable in a particular jurisdiction, the
+remaining provisions should continue to operate to the maximum extent
+permitted by law.
+
+Nothing in this License is intended to restrict rights that users already
+possess under applicable law.
+
+======================================================================
+25. LICENSE STEWARDSHIP
+
+The steward of the VitteFoundation Public License is:
+
+VitteFoundation
+https://vitte-lang.org/
+
+VitteFoundation may publish clarifications, translations, FAQs, and new
+versions of this License.
+
+Translations are informational unless VitteFoundation explicitly
+designates a translation as legally authoritative.
+
+======================================================================
+END OF TERMS AND CONDITIONS
+
+VitteFoundation Public License
+VFPL Version 1.0 — 2026
+
+Official project:
+https://vitte-lang.org/
+
+Project-defined identifier:
+LicenseRef-VFPL-1.0

@@ -1,0 +1,14 @@
+static mut OPERAND_COUNT: i64 = 0;
+
+proc next_operand() -> i64 {
+    set OPERAND_COUNT = OPERAND_COUNT + 1;
+    return OPERAND_COUNT;
+}
+
+proc main() -> i64 {
+    asm "nop";
+    asm(next_operand());
+    if OPERAND_COUNT != 1 { return 1; }
+    asm();
+    return 0;
+}
