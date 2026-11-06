@@ -1006,6 +1006,7 @@ class CompilerScaleTests(unittest.TestCase):
                     b"*/\n"
                     b"export proc main() -> int {\n"
                     b"    return 0\n"
+                    b"    invalid_tail\n"
                     b"}\n"
                 )
 

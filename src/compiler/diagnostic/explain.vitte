@@ -581,7 +581,7 @@ proc json_escape(text: string) -> string {
     let mut index: usize = 0;
 
     while index < text.length() {
-        let character = text[index];
+        let character: char = text[index];
         let segment = text.slice(index, index + 1);
 
         if character == '"' {
@@ -626,7 +626,7 @@ proc markdown_inline(text: string) -> string {
     let mut index: usize = 0;
 
     while index < text.length() {
-        let character = text[index];
+        let character: char = text[index];
 
         if character == '|'  or 
            character == '\\'  or 

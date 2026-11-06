@@ -718,9 +718,10 @@ export proc vitte_cli_diagnostic_statistics_init(statistics: *mut CliDiagnosticS
 
 proc cli_bridge_cstring(text: *const char) -> string {
     if text == null { return ""; }
+    let text_bytes = text as *const u8;
     let mut length: usize = 0;
-    while text[length] != 0 { set length += 1; }
-    return string.from_bytes(text as *mut u8, length);
+    while text_bytes[length] != 0 { set length += 1; }
+    return string.from_bytes(text_bytes as *mut u8, length);
 }
 
 proc cli_bridge_array_is_valid(items: *const char, count: usize, maximum: usize) -> bool {
@@ -753,7 +754,7 @@ export proc vitte_cli_diagnostic_validate(diagnostic_value: *const CliDiagnostic
        (*diagnostic_value).message == null or
        cli_bridge_cstring((*diagnostic_value).message).len() == 0 { return false; }
     if (*diagnostic_value).has_span {
-        let span = CliDiagnosticSpan {
+        let span: CliDiagnosticSpan = CliDiagnosticSpan {
             valid: true,
             file_id: (*diagnostic_value).file_id,
             source_id: (*diagnostic_value).source_id,

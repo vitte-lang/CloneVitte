@@ -211,11 +211,33 @@ et le job agrégé `Release readiness` échoue si les tests compilateur, self-ho
 ou paquets échouent ou sont ignorés. Les preuves self-host sont publiées comme
 artefacts Actions par système.
 
-La branche `main` exige maintenant le statut `Release readiness`, avec les
-vérifications à jour et sans contournement administrateur. Les règles de
-protection GitHub sont une configuration du dépôt distincte des fichiers du
-workflow ; publiez une version depuis `main` seulement après la réussite de ce
-statut.
+#### Résultats observés au 6 novembre 2026
+
+Le [run CI 42292113000](https://github.com/vitte-lang/vitte/actions/runs/42292113000), sur le commit [`874e2e6`](https://github.com/vitte-lang/vitte/commit/874e2e6d3163ccec042d9c5bacc6bba457c5bf07), a terminé avec succès :
+
+| Gate | Résultat observé |
+| --- | --- |
+| Tests compilateur et runtime | Réussi : `make test` (16 tests de charge inclus), `make test-runtime`, critères de release, invalidation incrémentale et inventaire des paquets. |
+| Self-host, parité native, corpus et stages 0–3 | Réussi sous Linux, macOS et Windows (3/3). |
+| Construction et installation des paquets natifs | Réussi sous Linux (`.deb`), macOS (`.pkg`/`.dmg`) et Windows (NSIS), avec vérification des manifestes, installation réelle et smoke `vitte install` (3/3). |
+| Extension et DAP natif | Réussi. |
+| Matrice multiplateforme demandée | **100 % : 6/6 jobs** (3 self-host et 3 installations de paquets). |
+| Gate agrégé `Release readiness` | **Réussi ; statut global du gate : 100 %.** |
+
+Le job compilateur a exécuté les 16 tests de charge en 389,6 s sur le runner
+Linux, avec une entrée de 2 Mio en profil debug et un délai maximal de 180 s
+par processus. Le profil release conserve les entrées de 48 Mio. Sur le poste
+macOS local, `make MODE=release SHELL=/bin/zsh compiler-max-gate-fast` et
+`make MODE=release SHELL=/bin/zsh bootstrap-selfhost` ont également réussi ; le
+corpus a vérifié 93 cas positifs, 18 cas négatifs, zéro écart connu et zéro
+échec (2 cas ignorés). Les stages self-host 0–3 ainsi que les commandes CLI
+`help`, `version`, `explain` et `install`, y compris le rollback d’installation,
+ont été vérifiés.
+
+La branche `main` exige le statut `Release readiness`, avec les vérifications à
+jour et sans contournement administrateur. Les règles de protection GitHub sont
+une configuration du dépôt distincte des fichiers du workflow ; publiez une
+version depuis `main` seulement après la réussite de ce statut.
 
 Pour la comparaison rapide du parseur, de l’AST et de l’analyse sémantique entre
 le seed et le frontend natif, utilisez :

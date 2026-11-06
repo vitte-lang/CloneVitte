@@ -78,7 +78,7 @@ export form FilesystemDirectoryList {
 
 export form FilesystemResult {
     error: FilesystemError,
-    system_error: i64
+    system_error: i32
 }
 
 export form FilesystemStats {
@@ -393,14 +393,14 @@ export proc vitte_filesystem_path_is_absolute(path: string) -> bool {
     if bytes.len() == 0 { return false; }
     if filesystem_path_separator(bytes[0]) { return true; }
     if bytes.len() < 3 { return false; }
-    let drive = bytes[0];
+    let drive: u8 = bytes[0];
     let has_drive = (drive >= 65 and drive <= 90) or (drive >= 97 and drive <= 122);
     return has_drive and bytes[1] == 58 and filesystem_path_separator(bytes[2]);
 }
 
 export proc vitte_filesystem_path_hash(path: string) -> u64 {
     let bytes = path.as_bytes();
-    let mut hash = FILESYSTEM_FNV_OFFSET;
+    let mut hash: u64 = FILESYSTEM_FNV_OFFSET;
     let mut index: usize = 0;
     while index < bytes.len() {
         set hash = (hash ^ (bytes[index] as u64)).wrapping_mul(FILESYSTEM_FNV_PRIME);

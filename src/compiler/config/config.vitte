@@ -1052,7 +1052,7 @@ export proc vitte_config_clone(destination: *mut Config, source: *const Config) 
         let mut index: usize = 0;
         while index < (*destination).entry_count {
             if (*destination).entries[index].value.type_ == ConfigValueType.String {
-                let text = (*destination).entries[index].value.as_ as usize as *const char;
+                let text: *const char = (*destination).entries[index].value.as_ as usize as *const char;
                 let remapped = config_remap_clone_string(destination as *const Config, source, text);
                 set (*destination).entries[index].value.as_ = remapped as usize as u64;
             }
@@ -1200,7 +1200,7 @@ proc config_hash_value(hash_value: u64, value: &ConfigValue) -> u64 {
 
 export proc vitte_config_fingerprint(config: *const Config) -> u64 {
     if not vitte_config_is_valid(config) { return 0; }
-    let mut hash = VITTE_CONFIG_FNV_OFFSET;
+    let mut hash: u64 = VITTE_CONFIG_FNV_OFFSET;
     let mut key_value: usize = 1;
     while key_value < ConfigKey.Count as usize {
         let key = key_value as ConfigKey;

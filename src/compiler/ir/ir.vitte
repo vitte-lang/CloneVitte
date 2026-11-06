@@ -1136,37 +1136,37 @@ export proc vitte_ir_add_value(context: *mut IRContext, description: *IRValueDes
 }
 
 export proc vitte_ir_const_bool(context: *mut IRContext, type_: IRTypeId, value: bool) -> IRValueId {
-    let mut description = IRValueDesc {}; set description.kind = IRValueKind.ConstantBool; set description.type_ = type_; set description.bool_value = value;
+    let mut description: IRValueDesc = IRValueDesc {}; set description.kind = IRValueKind.ConstantBool; set description.type_ = type_; set description.bool_value = value;
     return vitte_ir_add_value(context, &description);
 }
 
 export proc vitte_ir_const_integer(context: *mut IRContext, type_: IRTypeId, value: u64) -> IRValueId {
-    let mut description = IRValueDesc {}; set description.kind = IRValueKind.ConstantInteger; set description.type_ = type_; set description.integer_value = value;
+    let mut description: IRValueDesc = IRValueDesc {}; set description.kind = IRValueKind.ConstantInteger; set description.type_ = type_; set description.integer_value = value;
     return vitte_ir_add_value(context, &description);
 }
 
 export proc vitte_ir_const_float(context: *mut IRContext, type_: IRTypeId, value: f64) -> IRValueId {
-    let mut description = IRValueDesc {}; set description.kind = IRValueKind.ConstantFloat; set description.type_ = type_; set description.float_value = value;
+    let mut description: IRValueDesc = IRValueDesc {}; set description.kind = IRValueKind.ConstantFloat; set description.type_ = type_; set description.float_value = value;
     return vitte_ir_add_value(context, &description);
 }
 
 export proc vitte_ir_const_string(context: *mut IRContext, type_: IRTypeId, value: IRStringId) -> IRValueId {
-    let mut description = IRValueDesc {}; set description.kind = IRValueKind.ConstantString; set description.type_ = type_; set description.string_value = value;
+    let mut description: IRValueDesc = IRValueDesc {}; set description.kind = IRValueKind.ConstantString; set description.type_ = type_; set description.string_value = value;
     return vitte_ir_add_value(context, &description);
 }
 
 export proc vitte_ir_null(context: *mut IRContext, type_: IRTypeId) -> IRValueId {
-    let mut description = IRValueDesc {}; set description.kind = IRValueKind.Null; set description.type_ = type_;
+    let mut description: IRValueDesc = IRValueDesc {}; set description.kind = IRValueKind.Null; set description.type_ = type_;
     return vitte_ir_add_value(context, &description);
 }
 
 export proc vitte_ir_undef(context: *mut IRContext, type_: IRTypeId) -> IRValueId {
-    let mut description = IRValueDesc {}; set description.kind = IRValueKind.Undef; set description.type_ = type_;
+    let mut description: IRValueDesc = IRValueDesc {}; set description.kind = IRValueKind.Undef; set description.type_ = type_;
     return vitte_ir_add_value(context, &description);
 }
 
 export proc vitte_ir_poison(context: *mut IRContext, type_: IRTypeId) -> IRValueId {
-    let mut description = IRValueDesc {}; set description.kind = IRValueKind.Poison; set description.type_ = type_;
+    let mut description: IRValueDesc = IRValueDesc {}; set description.kind = IRValueKind.Poison; set description.type_ = type_;
     return vitte_ir_add_value(context, &description);
 }
 
@@ -1242,7 +1242,7 @@ export proc vitte_ir_add_parameter(context: *mut IRContext, function: IRFunction
        (*signature).parameter_types[(*function_value).parameter_count] != type_ {
         return ir_fail_id(context, IRError.TypeMismatch);
     }
-    let mut description = IRValueDesc {};
+    let mut description: IRValueDesc = IRValueDesc {};
     set description.kind = IRValueKind.Parameter;
     set description.type_ = type_;
     set description.name = name;
@@ -1384,7 +1384,7 @@ export proc vitte_ir_add_instruction(context: *mut IRContext, description: *IRIn
         set operand_index += 1;
     }
     if produces {
-        let mut value_description = IRValueDesc {};
+        let mut value_description: IRValueDesc = IRValueDesc {};
         set value_description.kind = IRValueKind.Instruction;
         set value_description.type_ = (*description).result_type;
         set value_description.name = (*description).result_name;
@@ -1475,7 +1475,7 @@ export proc vitte_ir_phi_add_incoming(context: *mut IRContext, instruction_id: I
 
 export proc vitte_ir_build_unary(context: *mut IRContext, opcode: IROpcode, block: IRBlockId, result_type: IRTypeId, operand: IRValueId, span: IRSpan) -> IRInstructionId {
     let mut operands: [IRValueId; 1] = [operand];
-    let mut description = IRInstructionDesc {};
+    let mut description: IRInstructionDesc = IRInstructionDesc {};
     set description.opcode = opcode; set description.block = block; set description.result_type = result_type;
     set description.operands = &mut operands[0]; set description.operand_count = 1; set description.span = span;
     return vitte_ir_add_instruction(context, &description);
@@ -1483,7 +1483,7 @@ export proc vitte_ir_build_unary(context: *mut IRContext, opcode: IROpcode, bloc
 
 export proc vitte_ir_build_binary(context: *mut IRContext, opcode: IROpcode, block: IRBlockId, result_type: IRTypeId, left: IRValueId, right: IRValueId, span: IRSpan) -> IRInstructionId {
     let mut operands: [IRValueId; 2] = [left, right];
-    let mut description = IRInstructionDesc {};
+    let mut description: IRInstructionDesc = IRInstructionDesc {};
     set description.opcode = opcode; set description.block = block; set description.result_type = result_type;
     set description.operands = &mut operands[0]; set description.operand_count = 2; set description.span = span;
     return vitte_ir_add_instruction(context, &description);
@@ -1491,7 +1491,7 @@ export proc vitte_ir_build_binary(context: *mut IRContext, opcode: IROpcode, blo
 
 export proc vitte_ir_build_br(context: *mut IRContext, block: IRBlockId, target: IRBlockId, span: IRSpan) -> IRInstructionId {
     if vitte_ir_get_block(context, target) == null { return ir_fail_id(context, IRError.InvalidBlock); }
-    let mut description = IRInstructionDesc {}; set description.opcode = IROpcode.Br; set description.block = block; set description.span = span;
+    let mut description: IRInstructionDesc = IRInstructionDesc {}; set description.opcode = IROpcode.Br; set description.block = block; set description.span = span;
     let id = vitte_ir_add_instruction(context, &description);
     if id == 0 { return 0; }
     let instruction = vitte_ir_get_instruction_mut(context, id);
@@ -1502,7 +1502,7 @@ export proc vitte_ir_build_br(context: *mut IRContext, block: IRBlockId, target:
 
 export proc vitte_ir_build_cond_br(context: *mut IRContext, block: IRBlockId, condition: IRValueId, true_target: IRBlockId, false_target: IRBlockId, span: IRSpan) -> IRInstructionId {
     let mut operands: [IRValueId; 1] = [condition];
-    let mut description = IRInstructionDesc {};
+    let mut description: IRInstructionDesc = IRInstructionDesc {};
     set description.opcode = IROpcode.CondBr; set description.block = block; set description.operands = &mut operands[0];
     set description.operand_count = 1; set description.span = span;
     let id = vitte_ir_add_instruction(context, &description);
@@ -1514,14 +1514,14 @@ export proc vitte_ir_build_cond_br(context: *mut IRContext, block: IRBlockId, co
 }
 
 export proc vitte_ir_build_return(context: *mut IRContext, block: IRBlockId, value: IRValueId, span: IRSpan) -> IRInstructionId {
-    let mut description = IRInstructionDesc {}; set description.opcode = IROpcode.Return; set description.block = block; set description.span = span;
+    let mut description: IRInstructionDesc = IRInstructionDesc {}; set description.opcode = IROpcode.Return; set description.block = block; set description.span = span;
     let mut operand: IRValueId = value;
     if value != 0 { set description.operands = &mut operand; set description.operand_count = 1; }
     return vitte_ir_add_instruction(context, &description);
 }
 
 export proc vitte_ir_build_unreachable(context: *mut IRContext, block: IRBlockId, span: IRSpan) -> IRInstructionId {
-    let mut description = IRInstructionDesc {}; set description.opcode = IROpcode.Unreachable; set description.block = block; set description.span = span;
+    let mut description: IRInstructionDesc = IRInstructionDesc {}; set description.opcode = IROpcode.Unreachable; set description.block = block; set description.span = span;
     return vitte_ir_add_instruction(context, &description);
 }
 
@@ -1553,7 +1553,7 @@ proc ir_validate_value(context: *mut IRContext, value: *IRValue) -> bool {
     if (*value).kind == IRValueKind.Parameter and vitte_ir_get_function(context, (*value).function) == null { return ir_fail(context, IRError.InvalidFunction); }
     if (*value).kind == IRValueKind.Instruction and vitte_ir_get_instruction(context, (*value).instruction) == null { return ir_fail(context, IRError.InvalidInstruction); }
     if (*value).kind == IRValueKind.Function {
-        let function = vitte_ir_get_function(context, (*value).function);
+        let function: *IRFunction = vitte_ir_get_function(context, (*value).function);
         if function == null or (*function).type_ != (*value).type_ { return ir_fail(context, IRError.InvalidFunction); }
     }
     if (*value).kind == IRValueKind.Global {
@@ -1597,11 +1597,11 @@ proc ir_validate_instruction(context: *mut IRContext, value: *IRInstruction) -> 
         case IROpcode.StructField => {
             if operands != 2 { return ir_fail(context, IRError.InvalidInstruction); }
             let base = vitte_ir_get_value(context, (*value).operands[0]);
-            let base_type = if base == null { null } else { vitte_ir_get_type(context, (*base).type_) };
+            let base_type: *IRType = if base == null { null } else { vitte_ir_get_type(context, (*base).type_) };
             let aggregate_id = if base_type != null and (*base_type).kind == IRTypeKind.Pointer { (*base_type).element_type } else if base_type != null { (*base).type_ } else { 0 as IRTypeId };
             let aggregate = vitte_ir_get_type(context, aggregate_id);
             let field_index_value = vitte_ir_get_value(context, (*value).operands[1]);
-            let pointer = vitte_ir_get_type(context, (*value).result_type);
+            let pointer: *IRType = vitte_ir_get_type(context, (*value).result_type);
             if aggregate == null or (*aggregate).kind != IRTypeKind.Struct or field_index_value == null or
                (*field_index_value).kind != IRValueKind.ConstantInteger or (*field_index_value).integer_value >= (*aggregate).field_count or
                pointer == null or (*pointer).kind != IRTypeKind.Pointer or
@@ -1649,16 +1649,16 @@ proc ir_validate_instruction(context: *mut IRContext, value: *IRInstruction) -> 
     }
     if (*value).opcode == IROpcode.Load {
         let address = vitte_ir_get_value(context, (*value).operands[0]);
-        let address_type = if address == null { null } else { vitte_ir_get_type(context, (*address).type_) };
+        let address_type: *IRType = if address == null { null } else { vitte_ir_get_type(context, (*address).type_) };
         if address_type == null or (*address_type).kind != IRTypeKind.Pointer or (*address_type).element_type != (*value).result_type { return ir_fail(context, IRError.TypeMismatch); }
     }
     if (*value).opcode == IROpcode.Store {
         let address = vitte_ir_get_value(context, (*value).operands[0]); let stored = vitte_ir_get_value(context, (*value).operands[1]);
-        let address_type = if address == null { null } else { vitte_ir_get_type(context, (*address).type_) };
+        let address_type: *IRType = if address == null { null } else { vitte_ir_get_type(context, (*address).type_) };
         if address_type == null or (*address_type).kind != IRTypeKind.Pointer or stored == null or (*address_type).element_type != (*stored).type_ { return ir_fail(context, IRError.TypeMismatch); }
     }
     if (*value).opcode == IROpcode.ArrayMake {
-        let array_type = vitte_ir_get_type(context, (*value).result_type);
+        let array_type: *IRType = vitte_ir_get_type(context, (*value).result_type);
         if array_type == null or (*array_type).kind != IRTypeKind.Array or
            (*array_type).array_length != operands {
             return ir_fail(context, IRError.TypeMismatch);
@@ -1676,9 +1676,9 @@ proc ir_validate_instruction(context: *mut IRContext, value: *IRInstruction) -> 
         if operands != 2 { return ir_fail(context, IRError.InvalidInstruction); }
         let slice_type = vitte_ir_get_type(context, (*value).result_type);
         let data = vitte_ir_get_value(context, (*value).operands[0]);
-        let data_type = if data == null { null } else { vitte_ir_get_type(context, (*data).type_) };
+        let data_type: *IRType = if data == null { null } else { vitte_ir_get_type(context, (*data).type_) };
         let length = vitte_ir_get_value(context, (*value).operands[1]);
-        let length_type = if length == null { null } else { vitte_ir_get_type(context, (*length).type_) };
+        let length_type: *IRType = if length == null { null } else { vitte_ir_get_type(context, (*length).type_) };
         let data_element = if data_type != null and ((*data_type).kind == IRTypeKind.Array or (*data_type).kind == IRTypeKind.Pointer) { (*data_type).element_type } else { 0 as IRTypeId };
         if slice_type == null or (*slice_type).kind != IRTypeKind.Slice or
            data_type == null or data_element != (*slice_type).element_type or
@@ -1689,7 +1689,7 @@ proc ir_validate_instruction(context: *mut IRContext, value: *IRInstruction) -> 
     if (*value).opcode == IROpcode.PickMake {
         let result_type = vitte_ir_get_type(context, (*value).result_type);
         let tag = vitte_ir_get_value(context, (*value).operands[0]);
-        let tag_type = if tag == null { null } else { vitte_ir_get_type(context, (*tag).type_) };
+        let tag_type: *IRType = if tag == null { null } else { vitte_ir_get_type(context, (*tag).type_) };
         if result_type == null or (*result_type).kind != IRTypeKind.Pick or
            tag_type == null or not ir_is_integer((*tag_type).kind) {
             return ir_fail(context, IRError.TypeMismatch);
@@ -1697,7 +1697,7 @@ proc ir_validate_instruction(context: *mut IRContext, value: *IRInstruction) -> 
         let mut payload_index: usize = 1;
         while payload_index < operands {
             let payload = vitte_ir_get_value(context, (*value).operands[payload_index]);
-            let payload_type = if payload == null { null } else { vitte_ir_get_type(context, (*payload).type_) };
+            let payload_type: *IRType = if payload == null { null } else { vitte_ir_get_type(context, (*payload).type_) };
             if payload_type == null or not ir_pick_payload_type_supported((*payload_type).kind) {
                 return ir_fail(context, IRError.TypeMismatch);
             }
@@ -1706,14 +1706,14 @@ proc ir_validate_instruction(context: *mut IRContext, value: *IRInstruction) -> 
     }
     if (*value).opcode == IROpcode.PickTag or (*value).opcode == IROpcode.PickPayload {
         let operand = vitte_ir_get_value(context, (*value).operands[0]);
-        let operand_type = if operand == null { null } else { vitte_ir_get_type(context, (*operand).type_) };
+        let operand_type: *IRType = if operand == null { null } else { vitte_ir_get_type(context, (*operand).type_) };
         if operand_type == null or (*operand_type).kind != IRTypeKind.Pick { return ir_fail(context, IRError.TypeMismatch); }
         if (*value).opcode == IROpcode.PickTag {
             let result_type = vitte_ir_get_type(context, (*value).result_type);
             if result_type == null or not ir_is_integer((*result_type).kind) { return ir_fail(context, IRError.TypeMismatch); }
         } else {
             let index_value = vitte_ir_get_value(context, (*value).operands[1]);
-            let index_type = if index_value == null { null } else { vitte_ir_get_type(context, (*index_value).type_) };
+            let index_type: *IRType = if index_value == null { null } else { vitte_ir_get_type(context, (*index_value).type_) };
             let result_type = vitte_ir_get_type(context, (*value).result_type);
             if index_value == null or (*index_value).kind != IRValueKind.ConstantInteger or index_type == null or
                not ir_is_integer((*index_type).kind) or (*index_value).integer_value >= 16 or result_type == null or
@@ -1724,13 +1724,13 @@ proc ir_validate_instruction(context: *mut IRContext, value: *IRInstruction) -> 
     }
     if (*value).opcode == IROpcode.CondBr {
         let condition = vitte_ir_get_value(context, (*value).operands[0]);
-        let condition_type = if condition == null { null } else { vitte_ir_get_type(context, (*condition).type_) };
+        let condition_type: *IRType = if condition == null { null } else { vitte_ir_get_type(context, (*condition).type_) };
         if condition_type == null or (*condition_type).kind != IRTypeKind.Bool { return ir_fail(context, IRError.TypeMismatch); }
     }
     if (*value).opcode == IROpcode.Return {
         let block = vitte_ir_get_block(context, (*value).block);
-        let function = if block == null { null } else { vitte_ir_get_function(context, (*block).function) };
-        let signature = if function == null { null } else { vitte_ir_get_type(context, (*function).type_) };
+        let function: *IRFunction = if block == null { null } else { vitte_ir_get_function(context, (*block).function) };
+        let signature: *IRType = if function == null { null } else { vitte_ir_get_type(context, (*function).type_) };
         if signature == null { return ir_fail(context, IRError.InvalidFunction); }
         if (*value).operand_count == 0 {
             let result_type = vitte_ir_get_type(context, (*signature).return_type);
@@ -1742,7 +1742,7 @@ proc ir_validate_instruction(context: *mut IRContext, value: *IRInstruction) -> 
     }
     if (*value).opcode == IROpcode.Call {
         let callee = vitte_ir_get_value(context, (*value).operands[0]);
-        let callee_type = if callee == null { null } else { vitte_ir_get_type(context, (*callee).type_) };
+        let callee_type: *IRType = if callee == null { null } else { vitte_ir_get_type(context, (*callee).type_) };
         if callee_type == null or (*callee_type).kind != IRTypeKind.Function or (*callee_type).return_type != (*value).result_type { return ir_fail(context, IRError.TypeMismatch); }
         let arguments = (*value).operand_count - 1;
         if arguments < (*callee_type).parameter_count or (not (*callee_type).is_variadic and arguments != (*callee_type).parameter_count) { return ir_fail(context, IRError.TypeMismatch); }
@@ -1857,7 +1857,7 @@ export proc vitte_ir_seal(context: *mut IRContext) -> bool {
 
 export proc vitte_ir_fingerprint(context: *mut IRContext) -> u64 {
     if not vitte_ir_is_valid(context) { return 0; }
-    let mut hash = IR_FNV_OFFSET;
+    let mut hash: u64 = IR_FNV_OFFSET;
     hash = ir_hash_u64(hash, (*context).string_count as u64);
     let mut index: usize = 0;
     while index < (*context).string_count {
@@ -1971,7 +1971,7 @@ proc ir_lower_intern_hir_string(context: *mut IRLowerContext, id: u64) -> IRStri
 }
 
 proc ir_lower_primitive(context: *mut IRLowerContext, kind: IRTypeKind) -> IRTypeId {
-    let mut description = IRTypeDesc {}; set description.kind = kind;
+    let mut description: IRTypeDesc = IRTypeDesc {}; set description.kind = kind;
     return vitte_ir_intern_type((*context).ir, &description);
 }
 
@@ -1989,7 +1989,7 @@ proc ir_lower_form_field_types(context: *mut IRLowerContext, form_symbol: HIRSym
             set (*description).field_types = allocate(bytes) as *mut IRTypeId;
             if (*description).field_types == null { return ir_fail((*context).ir, IRError.OutOfMemory); }
             set (*description).field_count = field_count;
-            let fields = (*declaration).payload[1] as usize as *const HIRNodeId;
+            let fields: *const HIRNodeId = (*declaration).payload[1] as usize as *const HIRNodeId;
             if fields == null { deallocate((*description).field_types as *mut u8); set (*description).field_types = null; set (*description).field_count = 0; return false; }
             let mut field_index: usize = 0;
             while field_index < field_count {
@@ -2016,7 +2016,7 @@ proc ir_lower_type(context: *mut IRLowerContext, id: HIRTypeId) -> IRTypeId {
     if (*context).types[cache_index] != 0 { return (*context).types[cache_index]; }
     let source = ir_lower_type_entry(context, id);
     if source == null { return 0; }
-    let mut description = IRTypeDesc {};
+    let mut description: IRTypeDesc = IRTypeDesc {};
     match (*source).kind {
         case HIRTypeKind.Unit | HIRTypeKind.Never => set description.kind = IRTypeKind.Void;
         case HIRTypeKind.Bool => set description.kind = IRTypeKind.Bool;
@@ -2137,7 +2137,7 @@ proc ir_lower_bind_value(context: *mut IRLowerContext, symbol: HIRSymbolId, valu
 
 proc ir_lower_member_is(context: *mut IRLowerContext, symbol_id: HIRSymbolId, name: string) -> bool {
     let symbol = ir_lower_symbol(context, symbol_id);
-    let text = if symbol == null { null } else { ir_lower_string(context, (*symbol).name) };
+    let text: *HIRString = if symbol == null { null } else { ir_lower_string(context, (*symbol).name) };
     if text == null or (*text).length != name.len() { return false; }
     let text_data: string = (*text).data;
     let left: *const u8 = text_data.as_bytes().as_ptr() as *const u8; let right: *const u8 = name as *const u8;
@@ -2197,7 +2197,7 @@ proc ir_lower_float_literal(node: *HIRNode) -> f64 {
 
 
 proc ir_lower_emit(context: *mut IRLowerContext, opcode: IROpcode, block: IRBlockId, result_type: IRTypeId, operands: *IRValueId, operand_count: usize, span: *const HIRSpan) -> IRInstructionId {
-    let mut description = IRInstructionDesc {};
+    let mut description: IRInstructionDesc = IRInstructionDesc {};
     set description.opcode = opcode; set description.block = block; set description.result_type = result_type;
     set description.operands = operands; set description.operand_count = operand_count;
     set description.span = ir_lower_span(span);
@@ -2210,6 +2210,88 @@ proc ir_lower_emit_value(context: *mut IRLowerContext, opcode: IROpcode, block: 
     return vitte_ir_instruction_result((*context).ir, instruction);
 }
 
+proc ir_lower_integer_width(kind: IRTypeKind) -> u32 {
+    match kind {
+        case IRTypeKind.I8 | IRTypeKind.U8 => return 8;
+        case IRTypeKind.I16 | IRTypeKind.U16 => return 16;
+        case IRTypeKind.I32 | IRTypeKind.U32 | IRTypeKind.Char => return 32;
+        case IRTypeKind.I64 | IRTypeKind.U64 => return 64;
+        case _ => return 0;
+    }
+}
+
+proc ir_lower_integer_signed(kind: IRTypeKind) -> bool {
+    return kind == IRTypeKind.I8 or kind == IRTypeKind.I16 or
+        kind == IRTypeKind.I32 or kind == IRTypeKind.I64;
+}
+
+proc ir_lower_numeric_kind(kind: IRTypeKind) -> bool {
+    return ir_is_integer(kind) or kind == IRTypeKind.Char or ir_is_float(kind);
+}
+
+proc ir_lower_common_numeric_type(
+    context: *mut IRLowerContext,
+    left_id: IRTypeId,
+    right_id: IRTypeId
+) -> IRTypeId {
+    let left = vitte_ir_get_type((*context).ir, left_id);
+    let right = vitte_ir_get_type((*context).ir, right_id);
+    if left == null or right == null or
+       not ir_lower_numeric_kind((*left).kind) or
+       not ir_lower_numeric_kind((*right).kind) { return 0; }
+    if (*left).kind == IRTypeKind.F64 or (*right).kind == IRTypeKind.F64 {
+        return ir_lower_primitive(context, IRTypeKind.F64);
+    }
+    if (*left).kind == IRTypeKind.F32 or (*right).kind == IRTypeKind.F32 {
+        return ir_lower_primitive(context, IRTypeKind.F32);
+    }
+    if (*left).kind == IRTypeKind.U64 and (*right).kind == IRTypeKind.U64 {
+        return ir_lower_primitive(context, IRTypeKind.U64);
+    }
+    if (*left).kind == IRTypeKind.U8 and (*right).kind == IRTypeKind.U8 {
+        return ir_lower_primitive(context, IRTypeKind.U8);
+    }
+    if ((*left).kind == IRTypeKind.U64 and (*right).kind == IRTypeKind.U8) or
+       ((*right).kind == IRTypeKind.U64 and (*left).kind == IRTypeKind.U8) {
+        return ir_lower_primitive(context, IRTypeKind.U64);
+    }
+    return ir_lower_primitive(context, IRTypeKind.I64);
+}
+
+proc ir_lower_convert_numeric(
+    context: *mut IRLowerContext,
+    block: *mut IRBlockId,
+    value_id: IRValueId,
+    expected: IRTypeId,
+    span: *const HIRSpan
+) -> IRValueId {
+    let value = vitte_ir_get_value((*context).ir, value_id);
+    let source = if value == null { null } else { vitte_ir_get_type((*context).ir, (*value).type_) };
+    let target = vitte_ir_get_type((*context).ir, expected);
+    if value == null or source == null or target == null { return 0; }
+    if (*value).type_ == expected { return value_id; }
+    if not ir_lower_numeric_kind((*source).kind) or not ir_lower_numeric_kind((*target).kind) {
+        return 0;
+    }
+    let source_width = ir_lower_integer_width((*source).kind);
+    let target_width = ir_lower_integer_width((*target).kind);
+    let opcode: IROpcode = if source_width != 0 and target_width != 0 {
+        if source_width > target_width { IROpcode.Trunc }
+        elif source_width < target_width {
+            if ir_lower_integer_signed((*source).kind) { IROpcode.Sext } else { IROpcode.Zext }
+        } else { IROpcode.Bitcast }
+    } elif ir_is_float((*source).kind) and ir_is_float((*target).kind) {
+        if (*source).kind == IRTypeKind.F64 { IROpcode.FpTrunc } else { IROpcode.FpExt }
+    } elif source_width != 0 and ir_is_float((*target).kind) {
+        if ir_lower_integer_signed((*source).kind) { IROpcode.SiToFp } else { IROpcode.UiToFp }
+    } elif ir_is_float((*source).kind) and target_width != 0 {
+        if ir_lower_integer_signed((*target).kind) { IROpcode.FpToSi } else { IROpcode.FpToUi }
+    } else { IROpcode.Invalid };
+    if opcode == IROpcode.Invalid { return 0; }
+    let mut operand = value_id;
+    return ir_lower_emit_value(context, opcode, *block, expected, &mut operand, 1, span);
+}
+
 proc ir_lower_array_expr_as(context: *mut IRLowerContext, function: IRFunctionId, block: *mut IRBlockId, node: *HIRNode, expected: IRTypeId) -> IRValueId {
     let expected_type = vitte_ir_get_type((*context).ir, expected);
     if node == null or expected_type == null or (*node).kind != HIRNodeKind.Array or
@@ -2217,17 +2299,18 @@ proc ir_lower_array_expr_as(context: *mut IRLowerContext, function: IRFunctionId
     let count = ir_lower_list_count(node, 0);
     let is_slice: bool = (*expected_type).kind == IRTypeKind.Slice;
     if not is_slice and count != (*expected_type).array_length { return ir_fail_id((*context).ir, IRError.TypeMismatch); }
-    let array_type = if is_slice {
-        let mut description = IRTypeDesc {};
+    let mut array_type: IRTypeId = expected;
+    if is_slice {
+        let mut description: IRTypeDesc = IRTypeDesc {};
         set description.kind = IRTypeKind.Array;
         set description.element_type = (*expected_type).element_type;
         set description.array_length = count;
-        vitte_ir_intern_type((*context).ir, &description)
-    } else { expected };
+        set array_type = vitte_ir_intern_type((*context).ir, &description);
+    }
     if array_type == 0 { return 0; }
     let mut bytes: usize = 0;
     if not ir_size_mul(count, sizeof(IRValueId), &mut bytes) { return ir_fail_id((*context).ir, IRError.Overflow); }
-    let operands = if count == 0 { null } else { allocate(bytes) as *mut IRValueId };
+    let operands: *mut IRValueId = if count == 0 { null } else { allocate(bytes) as *mut IRValueId };
     if count != 0 and operands == null { return ir_fail_id((*context).ir, IRError.OutOfMemory); }
     let elements = ir_lower_node_list(node, 0);
     let mut index: usize = 0;
@@ -2261,7 +2344,7 @@ proc ir_lower_expr_as(context: *mut IRLowerContext, function: IRFunctionId, bloc
         if ir_lower_list_count(node, 1) != field_count { return 0; }
         let mut bytes: usize = 0;
         if not ir_size_mul(field_count, sizeof(IRValueId), &mut bytes) { return ir_fail_id((*context).ir, IRError.Overflow); }
-        let fields = if field_count == 0 { null } else { allocate(bytes) as *mut IRValueId };
+        let fields: *mut IRValueId = if field_count == 0 { null } else { allocate(bytes) as *mut IRValueId };
         if field_count != 0 and fields == null { return ir_fail_id((*context).ir, IRError.OutOfMemory); }
         let mut initialized: *mut bool = null;
         if field_count != 0 {
@@ -2303,7 +2386,9 @@ proc ir_lower_expr_as(context: *mut IRLowerContext, function: IRFunctionId, bloc
             return vitte_ir_const_float((*context).ir, expected, ir_lower_float_literal(node));
         }
     }
-    return ir_lower_expr(context, function, block, node_id);
+    let value = ir_lower_expr(context, function, block, node_id);
+    if value == 0 { return 0; }
+    return ir_lower_convert_numeric(context, block, value, expected, &(*node).span);
 }
 
 proc ir_lower_lvalue(context: *mut IRLowerContext, function: IRFunctionId, block: *mut IRBlockId, node_id: HIRNodeId) -> IRValueId {
@@ -2325,7 +2410,7 @@ proc ir_lower_lvalue(context: *mut IRLowerContext, function: IRFunctionId, block
             else { ir_lower_expr(context, function, block, (*node).payload[0]) };
         if object == 0 { return 0; }
         let field_type = ir_lower_type(context, (*node).type_);
-        let mut pointer_desc = IRTypeDesc {}; set pointer_desc.kind = IRTypeKind.Pointer; set pointer_desc.element_type = field_type;
+        let mut pointer_desc: IRTypeDesc = IRTypeDesc {}; set pointer_desc.kind = IRTypeKind.Pointer; set pointer_desc.element_type = field_type;
         let pointer_type = vitte_ir_intern_type((*context).ir, &pointer_desc);
         let index_type = ir_lower_primitive(context, IRTypeKind.U64);
         let index_value = if index_type == 0 { 0 as IRValueId } else { vitte_ir_const_integer((*context).ir, index_type, (*node).payload[2]) };
@@ -2340,12 +2425,12 @@ proc ir_lower_lvalue(context: *mut IRLowerContext, function: IRFunctionId, block
     let index = ir_lower_expr(context, function, block, (*node).payload[1]);
     if object == 0 or index == 0 { return 0; }
     let object_value = vitte_ir_get_value((*context).ir, object);
-    let object_type = if object_value == null { null } else { vitte_ir_get_type((*context).ir, (*object_value).type_) };
+    let object_type: *IRType = if object_value == null { null } else { vitte_ir_get_type((*context).ir, (*object_value).type_) };
     if object_type == null { return 0; }
     let mut base = object;
-    let mut element_type = (*object_type).element_type;
+    let mut element_type: IRTypeId = (*object_type).element_type;
     if (*object_type).kind == IRTypeKind.Slice {
-        let mut pointer = IRTypeDesc {}; set pointer.kind = IRTypeKind.Pointer; set pointer.element_type = element_type;
+        let mut pointer: IRTypeDesc = IRTypeDesc {}; set pointer.kind = IRTypeKind.Pointer; set pointer.element_type = element_type;
         let pointer_type = vitte_ir_intern_type((*context).ir, &pointer); if pointer_type == 0 { return 0; }
         base = ir_lower_emit_value(context, IROpcode.SliceData, *block, pointer_type, &mut base, 1, &(*node).span);
         if base == 0 { return 0; }
@@ -2353,7 +2438,7 @@ proc ir_lower_lvalue(context: *mut IRLowerContext, function: IRFunctionId, block
         // Fixed arrays use element pointers as their IR values and retain
         // their extent as metadata, so indexing points at the element type.
     } elif (*object_type).kind != IRTypeKind.Pointer { return 0; }
-    let mut address_desc = IRTypeDesc {}; set address_desc.kind = IRTypeKind.Pointer;
+    let mut address_desc: IRTypeDesc = IRTypeDesc {}; set address_desc.kind = IRTypeKind.Pointer;
     set address_desc.element_type = if (*object_type).kind == IRTypeKind.Pointer { (*object_type).element_type } else { element_type };
     let address_type = vitte_ir_intern_type((*context).ir, &address_desc); if address_type == 0 { return 0; }
     let mut operands: [IRValueId; 2] = [base, index];
@@ -2374,7 +2459,7 @@ proc ir_lower_expr(context: *mut IRLowerContext, function: IRFunctionId, block: 
                 case HIRLiteralKind.SignedInteger | HIRLiteralKind.UnsignedInteger | HIRLiteralKind.Char => return vitte_ir_const_integer((*context).ir, type_id, (*node).payload[1]);
                 case HIRLiteralKind.F32 | HIRLiteralKind.F64 => return vitte_ir_const_float((*context).ir, type_id, ir_lower_float_literal(node));
                 case HIRLiteralKind.String => {
-                    let text = ir_lower_string(context, (*node).payload[1]); if text == null { return 0; }
+                    let text: *HIRString = ir_lower_string(context, (*node).payload[1]); if text == null { return 0; }
                     let text_data: string = (*text).data;
                     let string_id = vitte_ir_intern_string((*context).ir, text_data.as_bytes().as_ptr() as *const u8, (*text).length);
                     if string_id == 0 { return 0; }
@@ -2403,7 +2488,7 @@ proc ir_lower_expr(context: *mut IRLowerContext, function: IRFunctionId, block: 
             let operand_count = payload_count + 1;
             let mut operand_bytes: usize = 0;
             if not ir_size_mul(operand_count, sizeof(IRValueId), &mut operand_bytes) { return ir_fail_id((*context).ir, IRError.Overflow); }
-            let operands = allocate(operand_bytes) as *mut IRValueId;
+            let operands: *mut IRValueId = allocate(operand_bytes) as *mut IRValueId;
             if operands == null { return ir_fail_id((*context).ir, IRError.OutOfMemory); }
             set operands[0] = tag;
             let mut payload_index: usize = 0;
@@ -2446,20 +2531,29 @@ proc ir_lower_expr(context: *mut IRLowerContext, function: IRFunctionId, block: 
                 return ir_lower_emit_value(context, IROpcode.StringConcat, *block, type_id, &mut operands[0], 2, &(*node).span);
             }
             let left_type_id = ir_lower_type(context, (*left_node).type_);
-            let left_type = vitte_ir_get_type((*context).ir, left_type_id); if left_type == null { return 0; }
-            let left = ir_lower_expr(context, function, block, (*node).payload[1]); if left == 0 { return 0; }
+            let left_type: *IRType = vitte_ir_get_type((*context).ir, left_type_id); if left_type == null { return 0; }
+            let right_type_id = ir_lower_type(context, (*right_node).type_);
+            let common_type = ir_lower_common_numeric_type(context, left_type_id, right_type_id);
+            let operand_type = if common_type != 0 { common_type } else { left_type_id };
+            let operand_type_record: *IRType = vitte_ir_get_type((*context).ir, operand_type);
+            if operand_type_record == null { return 0; }
+            let left = if common_type != 0 {
+                ir_lower_expr_as(context, function, block, (*node).payload[1], operand_type)
+            } else { ir_lower_expr(context, function, block, (*node).payload[1]) };
+            if left == 0 { return 0; }
             let right_is_literal = (*right_node).kind == HIRNodeKind.Literal and
                 (((*right_node).payload[0] as HIRLiteralKind) == HIRLiteralKind.SignedInteger or
                  ((*right_node).payload[0] as HIRLiteralKind) == HIRLiteralKind.UnsignedInteger or
                  ((*right_node).payload[0] as HIRLiteralKind) == HIRLiteralKind.F32 or
                  ((*right_node).payload[0] as HIRLiteralKind) == HIRLiteralKind.F64);
-            let right = if right_is_literal { ir_lower_expr_as(context, function, block, (*node).payload[2], left_type_id) }
+            let right = if common_type != 0 { ir_lower_expr_as(context, function, block, (*node).payload[2], operand_type) }
+                elif right_is_literal { ir_lower_expr_as(context, function, block, (*node).payload[2], left_type_id) }
                 else { ir_lower_expr(context, function, block, (*node).payload[2]) };
             if right == 0 { return 0; }
-            let opcode = ir_lower_binary((*node).payload[0] as HIRBinaryOperator, ir_is_float((*left_type).kind));
+            let opcode = ir_lower_binary((*node).payload[0] as HIRBinaryOperator, ir_is_float((*operand_type_record).kind));
             if opcode == IROpcode.Invalid { return 0; }
             let right_value = vitte_ir_get_value((*context).ir, right);
-            let right_type = if right_value == null { null } else { vitte_ir_get_type((*context).ir, (*right_value).type_) };
+            let right_type: *IRType = if right_value == null { null } else { vitte_ir_get_type((*context).ir, (*right_value).type_) };
             if (opcode == IROpcode.IcmpEq or opcode == IROpcode.IcmpNe) and
                (*left_type).kind == IRTypeKind.Pick and right_type != null and
                (*right_type).kind == IRTypeKind.Pick {
@@ -2480,7 +2574,7 @@ proc ir_lower_expr(context: *mut IRLowerContext, function: IRFunctionId, block: 
             if callee_node != null and (*callee_node).kind == HIRNodeKind.Member and ir_lower_member_is(context, (*callee_node).payload[1], "len") and ir_lower_list_count(node, 1) == 0 {
                 let receiver = ir_lower_expr(context, function, block, (*callee_node).payload[0]); if receiver == 0 { return 0; }
                 let receiver_node = ir_lower_node(context, (*callee_node).payload[0]);
-                let source_type = if receiver_node == null { null } else { ir_lower_type_entry(context, (*receiver_node).type_) };
+                let source_type: *HIRType = if receiver_node == null { null } else { ir_lower_type_entry(context, (*receiver_node).type_) };
                 let mut operand = receiver;
                 let opcode: IROpcode = if source_type != null and (*source_type).kind == HIRTypeKind.Slice { IROpcode.SliceLength } else { IROpcode.StringLength };
                 return ir_lower_emit_value(context, opcode, *block, type_id, &mut operand, 1, &(*node).span);
@@ -2495,11 +2589,11 @@ proc ir_lower_expr(context: *mut IRLowerContext, function: IRFunctionId, block: 
             }
             let callee = ir_lower_expr(context, function, block, (*node).payload[0]); if callee == 0 { return 0; }
             let callee_value = vitte_ir_get_value((*context).ir, callee);
-            let signature = if callee_value == null { null } else { vitte_ir_get_type((*context).ir, (*callee_value).type_) };
-            let argument_count = ir_lower_list_count(node, 1); let mut count: usize = 0;
+            let signature: *IRType = if callee_value == null { null } else { vitte_ir_get_type((*context).ir, (*callee_value).type_) };
+            let argument_count: usize = ir_lower_list_count(node, 1); let mut count: usize = 0;
             if not ir_size_add(argument_count, 1, &mut count) { return ir_fail_id((*context).ir, IRError.Overflow); }
             let mut bytes: usize = 0; if not ir_size_mul(count, sizeof(IRValueId), &mut bytes) { return ir_fail_id((*context).ir, IRError.Overflow); }
-            let operands = allocate(bytes) as *mut IRValueId; if operands == null { return ir_fail_id((*context).ir, IRError.OutOfMemory); }
+            let operands: *mut IRValueId = allocate(bytes) as *mut IRValueId; if operands == null { return ir_fail_id((*context).ir, IRError.OutOfMemory); }
             set operands[0] = callee; let arguments = ir_lower_node_list(node, 1); let mut index: usize = 0;
             while index < argument_count {
                 let arg = if signature != null and (*signature).kind == IRTypeKind.Function and index < (*signature).parameter_count
@@ -2666,7 +2760,7 @@ proc ir_lower_match(context: *mut IRLowerContext, function: IRFunctionId, start:
         let pattern = ir_lower_node(context, arm.pattern);
         if pattern == null { return ir_fail((*context).ir, IRError.InvalidInstruction); }
         let body_block = ir_lower_new_block(context, function, "match.arm");
-        let next_block = if index + 1 == count { merge } else { ir_lower_new_block(context, function, "match.next") };
+        let next_block: IRBlockId = if index + 1 == count { merge } else { ir_lower_new_block(context, function, "match.next") };
         if body_block == 0 or next_block == 0 { return false; }
 
         if (*pattern).kind == HIRNodeKind.PatternWildcard {
@@ -2760,7 +2854,7 @@ proc ir_lower_if_expr(context: *mut IRLowerContext, function: IRFunctionId, bloc
     if result_type == 0 { return ir_fail_id((*context).ir, IRError.InvalidType); }
     let condition = ir_lower_expr(context, function, block, (*node).payload[0]);
     if condition == 0 { return 0; }
-    let mut pointer_desc = IRTypeDesc {};
+    let mut pointer_desc: IRTypeDesc = IRTypeDesc {};
     set pointer_desc.kind = IRTypeKind.Pointer;
     set pointer_desc.element_type = result_type;
     let pointer_type = vitte_ir_intern_type((*context).ir, &pointer_desc);
@@ -2798,12 +2892,12 @@ proc ir_lower_for_array(context: *mut IRLowerContext, function: IRFunctionId, st
     let pattern = ir_lower_node(context, (*node).payload[0]);
     let iterable = ir_lower_node(context, (*node).payload[1]);
     if pattern == null or iterable == null { return ir_fail((*context).ir, IRError.InvalidInstruction); }
-    let array_type = ir_lower_type(context, (*iterable).type_);
+    let array_type: IRTypeId = ir_lower_type(context, (*iterable).type_);
     let array_record = vitte_ir_get_type((*context).ir, array_type);
     if array_record == null or (*array_record).kind != IRTypeKind.Array {
         return ir_fail((*context).ir, IRError.Unsupported);
     }
-    let element_type = (*array_record).element_type;
+    let element_type: IRTypeId = (*array_record).element_type;
     let length = (*array_record).array_length;
     let mut expression_block = start;
     let array = ir_lower_expr(context, function, &mut expression_block, (*node).payload[1]);
@@ -2812,7 +2906,7 @@ proc ir_lower_for_array(context: *mut IRLowerContext, function: IRFunctionId, st
     let zero = vitte_ir_const_integer((*context).ir, index_type, 0);
     let one = vitte_ir_const_integer((*context).ir, index_type, 1);
     let upper = vitte_ir_const_integer((*context).ir, index_type, length as u64);
-    let mut pointer_desc = IRTypeDesc {};
+    let mut pointer_desc: IRTypeDesc = IRTypeDesc {};
     set pointer_desc.kind = IRTypeKind.Pointer;
     set pointer_desc.element_type = index_type;
     let index_pointer_type = vitte_ir_intern_type((*context).ir, &pointer_desc);
@@ -2894,7 +2988,7 @@ proc ir_lower_for_range(context: *mut IRLowerContext, function: IRFunctionId, st
     let lower = ir_lower_expr_as(context, function, &mut expression_block, (*range).payload[0], range_type);
     let upper = ir_lower_expr_as(context, function, &mut expression_block, (*range).payload[1], range_type);
     if lower == 0 or upper == 0 { return false; }
-    let mut counter_pointer_desc = IRTypeDesc {};
+    let mut counter_pointer_desc: IRTypeDesc = IRTypeDesc {};
     set counter_pointer_desc.kind = IRTypeKind.Pointer;
     set counter_pointer_desc.element_type = range_type;
     let counter_pointer_type = vitte_ir_intern_type((*context).ir, &counter_pointer_desc);
@@ -2987,10 +3081,10 @@ proc ir_lower_statement(context: *mut IRLowerContext, function: IRFunctionId, bl
             let initializer_id = (*node).payload[2] as HIRNodeId;
             let type_hir = if (*node).payload[1] != 0 { (*node).payload[1] as HIRTypeId } elif symbol != null { (*symbol).type_ } else { 0 as HIRTypeId };
             if type_hir == 0 and initializer_id == 0 { return ir_fail((*context).ir, IRError.InvalidType); }
-            let inferred = if type_hir == 0 { ir_lower_node(context, initializer_id) } else { null };
+            let inferred: *HIRNode = if type_hir == 0 { ir_lower_node(context, initializer_id) } else { null };
             let value_hir_type = if type_hir != 0 { type_hir } elif inferred != null { (*inferred).type_ } else { 0 as HIRTypeId };
             let value_type = ir_lower_type(context, value_hir_type); if value_type == 0 { return ir_fail((*context).ir, IRError.InvalidType); }
-            let mut pointer_desc = IRTypeDesc {}; set pointer_desc.kind = IRTypeKind.Pointer; set pointer_desc.element_type = value_type;
+            let mut pointer_desc: IRTypeDesc = IRTypeDesc {}; set pointer_desc.kind = IRTypeKind.Pointer; set pointer_desc.element_type = value_type;
             let pointer_type = vitte_ir_intern_type((*context).ir, &pointer_desc); if pointer_type == 0 { return false; }
             let mut expression_block = block;
             let address = ir_lower_emit_value(context, IROpcode.Alloca, expression_block, pointer_type, null, 0, &(*node).span); if address == 0 { return false; }
@@ -3006,7 +3100,7 @@ proc ir_lower_statement(context: *mut IRLowerContext, function: IRFunctionId, bl
             let mut expression_block = block;
             let address = ir_lower_lvalue(context, function, &mut expression_block, (*node).payload[0]);
             let target = ir_lower_node(context, (*node).payload[0]);
-            let target_type = if target == null { 0 as IRTypeId } else { ir_lower_type(context, (*target).type_) };
+            let target_type: IRTypeId = if target == null { 0 as IRTypeId } else { ir_lower_type(context, (*target).type_) };
             if address == 0 or target_type == 0 { return ir_fail((*context).ir, IRError.InvalidValue); }
             let value = ir_lower_expr_as(context, function, &mut expression_block, (*node).payload[1], target_type); if value == 0 { return false; }
             let mut operands: [IRValueId; 2] = [address, value];
@@ -3103,7 +3197,7 @@ proc ir_lower_constant_as(context: *mut IRLowerContext, node_id: HIRNodeId, expe
         case HIRLiteralKind.SignedInteger | HIRLiteralKind.UnsignedInteger | HIRLiteralKind.Char => return vitte_ir_const_integer((*context).ir, type_id, (*node).payload[1]);
         case HIRLiteralKind.F32 | HIRLiteralKind.F64 => return vitte_ir_const_float((*context).ir, type_id, ir_lower_float_literal(node));
         case HIRLiteralKind.String => {
-            let text = ir_lower_string(context, (*node).payload[1]); if text == null { return 0; }
+            let text: *HIRString = ir_lower_string(context, (*node).payload[1]); if text == null { return 0; }
             let text_data: string = (*text).data;
             let string_id = vitte_ir_intern_string((*context).ir, text_data.as_bytes().as_ptr() as *const u8, (*text).length); if string_id == 0 { return 0; }
             return vitte_ir_const_string((*context).ir, type_id, string_id);
@@ -3131,7 +3225,7 @@ export proc vitte_ir_lower_hir(ir: *mut IRContext, hir: *const HIR) -> bool {
     }
     let module = vitte_hir_get_node(hir as *HIR, (*hir).roots.items[0]);
     if module == null or (*module).kind != HIRNodeKind.Module { return ir_fail(ir, IRError.InvalidArgument); }
-    let mut context = IRLowerContext {}; set context.ir = ir; set context.hir = hir; set context.type_count = (*hir).type_count;
+    let mut context: IRLowerContext = IRLowerContext {}; set context.ir = ir; set context.hir = hir; set context.type_count = (*hir).type_count;
     if context.type_count != 0 {
         let mut bytes: usize = 0;
         if not ir_size_mul(context.type_count, sizeof(IRTypeId), &mut bytes) { return ir_fail(ir, IRError.Overflow); }
@@ -3220,7 +3314,7 @@ export proc vitte_ir_lower_hir(ir: *mut IRContext, hir: *const HIR) -> bool {
         let params = ir_lower_node_list(item, 1); let mut parameter_index: usize = 0; let mut valid = true;
         while parameter_index < parameter_count {
             let parameter = ir_lower_node(&mut context, params[parameter_index]);
-            let param_symbol = if parameter == null { null } else { ir_lower_symbol(&mut context, (*parameter).payload[0]) };
+            let param_symbol: *HIRSymbol = if parameter == null { null } else { ir_lower_symbol(&mut context, (*parameter).payload[0]) };
             if param_symbol == null { set valid = false; break; }
             set parameter_types[parameter_index] = ir_lower_type(&mut context, (*param_symbol).type_);
             if parameter_types[parameter_index] == 0 { set valid = false; break; }
@@ -3228,11 +3322,11 @@ export proc vitte_ir_lower_hir(ir: *mut IRContext, hir: *const HIR) -> bool {
         }
         let return_type = ir_lower_type(&mut context, (*item).payload[4]);
         if not valid or return_type == 0 { deallocate(parameter_types as *mut u8); ir_lower_cleanup(&mut context); return ir_fail(ir, IRError.InvalidType); }
-        let mut type_desc = IRTypeDesc {}; set type_desc.kind = IRTypeKind.Function; set type_desc.parameter_types = parameter_types;
+        let mut type_desc: IRTypeDesc = IRTypeDesc {}; set type_desc.kind = IRTypeKind.Function; set type_desc.parameter_types = parameter_types;
         set type_desc.parameter_count = parameter_count; set type_desc.return_type = return_type; set type_desc.is_variadic = ((*item).payload[7] & 65536) != 0;
         let function_type = vitte_ir_intern_type(ir, &type_desc); deallocate(parameter_types as *mut u8);
         if function_type == 0 { ir_lower_cleanup(&mut context); return false; }
-        let mut function_desc = IRFunctionDesc {};
+        let mut function_desc: IRFunctionDesc = IRFunctionDesc {};
         set function_desc.name = ir_lower_intern_hir_string(&mut context, (*symbol).name);
         set function_desc.type_ = function_type;
         set function_desc.linkage = if (*item).kind == HIRNodeKind.ExternProcDecl { IRLinkage.External } else { IRLinkage.Internal };
@@ -3241,7 +3335,7 @@ export proc vitte_ir_lower_hir(ir: *mut IRContext, hir: *const HIR) -> bool {
         set function_desc.is_variadic = type_desc.is_variadic; set function_desc.span = ir_lower_span(&(*item).span);
         let function_id = vitte_ir_add_function(ir, &function_desc);
         if function_id == 0 { ir_lower_cleanup(&mut context); return false; }
-        let mut value_desc = IRValueDesc {}; set value_desc.kind = IRValueKind.Function; set value_desc.type_ = function_type; set value_desc.function = function_id;
+        let mut value_desc: IRValueDesc = IRValueDesc {}; set value_desc.kind = IRValueKind.Function; set value_desc.type_ = function_type; set value_desc.function = function_id;
         let function_value = vitte_ir_add_value(ir, &value_desc);
         if function_value == 0 { ir_lower_cleanup(&mut context); return false; }
         set context.functions[context.function_count] = IRLowerFunction { symbol: (*item).payload[0], node: (*item).id, function: function_id, function_value: function_value, return_type: return_type };
@@ -3258,7 +3352,7 @@ export proc vitte_ir_lower_hir(ir: *mut IRContext, hir: *const HIR) -> bool {
     index = 0;
     while index < context.function_count {
         let lowered = &context.functions[index]; let procedure = ir_lower_node(&mut context, (*lowered).node);
-        let function = vitte_ir_get_function_mut(ir, (*lowered).function);
+        let function: *mut IRFunction = vitte_ir_get_function_mut(ir, (*lowered).function);
         if procedure == null or function == null { ir_lower_cleanup(&mut context); return ir_fail(ir, IRError.InvalidFunction); }
         let params = ir_lower_node_list(procedure, 1); let parameter_count = ir_lower_list_count(procedure, 1);
         let mut entry_block: IRBlockId = 0;
@@ -3270,16 +3364,16 @@ export proc vitte_ir_lower_hir(ir: *mut IRContext, hir: *const HIR) -> bool {
         let mut parameter_index: usize = 0;
         while parameter_index < parameter_count {
             let parameter = ir_lower_node(&mut context, params[parameter_index]);
-            let symbol = if parameter == null { null } else { ir_lower_symbol(&mut context, (*parameter).payload[0]) };
+            let symbol: *HIRSymbol = if parameter == null { null } else { ir_lower_symbol(&mut context, (*parameter).payload[0]) };
             if symbol == null { ir_lower_cleanup(&mut context); return ir_fail(ir, IRError.InvalidValue); }
-            let parameter_type = ir_lower_type(&mut context, (*symbol).type_);
+            let parameter_type: IRTypeId = ir_lower_type(&mut context, (*symbol).type_);
             let parameter_name = ir_lower_intern_hir_string(&mut context, (*symbol).name);
             let parameter_value = vitte_ir_add_parameter(ir, (*lowered).function, parameter_type, parameter_name, ir_lower_span(&(*parameter).span));
             if parameter_value == 0 { ir_lower_cleanup(&mut context); return false; }
             if (*function).is_declaration {
                 if not ir_lower_bind_value(&mut context, (*symbol).id, parameter_value, false) { ir_lower_cleanup(&mut context); return false; }
             } else {
-                let mut pointer_desc = IRTypeDesc {}; set pointer_desc.kind = IRTypeKind.Pointer; set pointer_desc.element_type = parameter_type;
+                let mut pointer_desc: IRTypeDesc = IRTypeDesc {}; set pointer_desc.kind = IRTypeKind.Pointer; set pointer_desc.element_type = parameter_type;
                 let pointer_type = vitte_ir_intern_type(ir, &pointer_desc);
                 let address = ir_lower_emit_value(&mut context, IROpcode.Alloca, entry_block, pointer_type, null, 0, &(*parameter).span);
                 if address == 0 { ir_lower_cleanup(&mut context); return false; }

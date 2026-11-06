@@ -136,6 +136,7 @@ use compiler::sema::sema::{
 };
 use compiler::scope::scope::{
     Scope,
+    Symbol,
     vitte_scope_get_symbol
 };
 
@@ -460,9 +461,10 @@ proc native_pipeline_sema_has_type_context(code: SemaDiagnosticCode) -> bool {
 
 proc native_pipeline_cstring(value: *const char) -> string {
     if value == null { return ""; }
+    let value_bytes = value as *const u8;
     let mut length: usize = 0;
-    while value[length] != 0 { set length += 1; }
-    return string.from_bytes(value as *mut u8, length);
+    while value_bytes[length] != 0 { set length += 1; }
+    return string.from_bytes(value_bytes as *mut u8, length);
 }
 
 proc native_pipeline_c_string(value: string) -> *const char {
@@ -639,14 +641,14 @@ proc native_pipeline_export_diagnostics(
         let mut related_label: *const char = null;
         if (*source_diagnostic).type_context == SemaTypeContextKind.Argument {
             probable_cause = native_pipeline_c_string("the argument does not satisfy the parameter type");
-            let context_symbol = if (*source_diagnostic).context_symbol_id == 0 {
+            let context_symbol: *const Symbol = if (*source_diagnostic).context_symbol_id == 0 {
                 null
             } else {
                 vitte_scope_get_symbol((&((*sema).scopes)) as *const Scope, (*source_diagnostic).context_symbol_id)
             };
             if context_symbol != null {
                 symbol = (*context_symbol).name as *const char;
-                let parameter_name = string.from_bytes((*context_symbol).name as *mut u8, (*context_symbol).name_length);
+                let parameter_name: string = string.from_bytes((*context_symbol).name as *mut u8, (*context_symbol).name_length);
                 set context_text = "argument " + native_pipeline_size_to_string((*source_diagnostic).context_index) +
                     " / parameter `" + parameter_name + "`";
                 let declaration_span = (*context_symbol).span;
@@ -683,7 +685,7 @@ proc native_pipeline_export_diagnostics(
                 native_pipeline_c_string("the assigned value does not satisfy the target type")
             };
             set context_text = "assignment / mutable binding";
-            let assignment_symbol = if (*source_diagnostic).context_symbol_id == 0 {
+            let assignment_symbol: *const Symbol = if (*source_diagnostic).context_symbol_id == 0 {
                 null
             } else {
                 vitte_scope_get_symbol(
@@ -719,22 +721,22 @@ proc native_pipeline_export_diagnostics(
             }
         } elif (*source_diagnostic).type_context == SemaTypeContextKind.Field {
             probable_cause = native_pipeline_c_string("the field value does not satisfy the declared field type");
-            let field_declaration = vitte_parser_get_node(
+            let field_declaration: *const ASTNode = vitte_parser_get_node(
                 (*sema).parser,
                 (*source_diagnostic).context_index as ASTNodeId
             );
             if field_declaration != null {
                 if (*field_declaration).child_count != 0 and (*field_declaration).children != null {
-                    let field_name_node = vitte_parser_get_node(
+                    let field_name_node: *const ASTNode = vitte_parser_get_node(
                         (*sema).parser,
                         (*field_declaration).children[0]
                     );
-                    let field_name_token = vitte_parser_node_token(
+                    let field_name_token: *const ParserToken = vitte_parser_node_token(
                         (*sema).parser,
                         field_name_node
                     );
                     if field_name_token != null {
-                        let field_name = string.from_bytes(
+                        let field_name: string = string.from_bytes(
                             (*field_name_token).lexeme,
                             (*field_name_token).length
                         );
@@ -921,8 +923,8 @@ export proc native_pipeline_emit_c17_unit(
     if codegen == null or unit == null or backend_data == null or (*unit).input == null {
         return false;
     }
-    let input = (*unit).input as *const NativePipelineC17Input;
-    let backend = &mut *(backend_data as *mut NativePipelineC17Backend);
+    let input: *const NativePipelineC17Input = (*unit).input as *const NativePipelineC17Input;
+    let backend: *mut NativePipelineC17Backend = &mut *(backend_data as *mut NativePipelineC17Backend);
     if input == null or ((*input).parser == null and (*input).ast_fallback) or
        ((*input).ir == null and not (*input).ast_fallback) {
         return false;
@@ -1004,15 +1006,15 @@ proc native_pipeline_emit_c17(
         );
     }
 
-    let mut backend = NativePipelineC17Backend { output: failed_output };
-    let input = NativePipelineC17Input {
+    let mut backend: NativePipelineC17Backend = NativePipelineC17Backend { output: failed_output };
+    let input: NativePipelineC17Input = NativePipelineC17Input {
         parser: parser as *const Parser,
         ir: if ir == null { null } else { ir? as *const IRContext },
         ast_fallback: ast_fallback
     };
     let mut interface: CodegenBackendInterface = CodegenBackendInterface {};
     set interface.emit_unit = native_pipeline_emit_c17_unit;
-    let unit = CodegenUnit {
+    let unit: CodegenUnit = CodegenUnit {
         id: 1,
         name: native_pipeline_c_string("main"),
         input: (&input) as *const NativePipelineC17Input as *const u8,
@@ -1046,12 +1048,12 @@ proc native_pipeline_emit_c17(
 /// lowerers.
 proc native_pipeline_form_supported(parser: &Parser, node: &ASTNode) -> bool {
     if node.child_count == 0 or parser.nodes == null { return false; }
-    let form_name_node = vitte_parser_get_node(parser, node.children[0]);
-    let form_name_token = if form_name_node == null { null } else { vitte_parser_node_token(parser, form_name_node) };
+    let form_name_node: *const ASTNode = vitte_parser_get_node(parser, node.children[0]);
+    let form_name_token: *const ParserToken = if form_name_node == null { null } else { vitte_parser_node_token(parser, form_name_node) };
     if form_name_token == null { return false; }
     let mut index: usize = 1;
     while index < node.child_count {
-        let part = vitte_parser_get_node(parser, node.children[index]);
+        let part: *const ASTNode = vitte_parser_get_node(parser, node.children[index]);
         if part == null or part.kind == ASTNodeKind.GenericParam or part.kind == ASTNodeKind.WhereClause { return false; }
         if part.kind != ASTNodeKind.FieldDecl or part.child_count != 2 { return false; }
         if not native_pipeline_form_field_type_supported(
@@ -1072,7 +1074,7 @@ proc native_pipeline_form_named_type_supported(
     if node == null or owner_name == null or
        (node.kind != ASTNodeKind.Identifier and node.kind != ASTNodeKind.Path) or
        (node.kind == ASTNodeKind.Path and node.child_count != 1) { return false; }
-    let named_token = vitte_parser_node_token(parser, node);
+    let named_token: *const ParserToken = vitte_parser_node_token(parser, node);
     if named_token == null { return false; }
     let builtin = named_token.lexeme == "i64" or named_token.lexeme == "i32" or
         named_token.lexeme == "u64" or named_token.lexeme == "usize" or
@@ -1090,12 +1092,12 @@ proc native_pipeline_form_named_type_supported(
     while declaration_index < parser.node_count {
         let declaration = &parser.nodes[declaration_index];
         if (declaration.kind == ASTNodeKind.FormDecl or declaration.kind == ASTNodeKind.PickDecl) and declaration.child_count != 0 {
-            let declaration_name = vitte_parser_get_node(parser, declaration.children[0]);
-            let declaration_token = if declaration_name == null { null } else { vitte_parser_node_token(parser, declaration_name) };
+            let declaration_name: *const ASTNode = vitte_parser_get_node(parser, declaration.children[0]);
+            let declaration_token: *const ParserToken = if declaration_name == null { null } else { vitte_parser_node_token(parser, declaration_name) };
             if declaration_token != null and declaration_token.length == named_token.length and declaration_token.lexeme == named_token.lexeme {
                 let mut part_index: usize = 1;
                 while part_index < declaration.child_count {
-                    let part = vitte_parser_get_node(parser, declaration.children[part_index]);
+                    let part: *const ASTNode = vitte_parser_get_node(parser, declaration.children[part_index]);
                     if part == null or part.kind == ASTNodeKind.GenericParam or part.kind == ASTNodeKind.WhereClause {
                         return false;
                     }
@@ -1114,7 +1116,7 @@ proc native_pipeline_form_field_type_supported(
     type_id: ASTNodeId,
     owner_name: *const ParserToken
 ) -> bool {
-    let node = vitte_parser_get_node(parser, type_id);
+    let node: *const ASTNode = vitte_parser_get_node(parser, type_id);
     if node == null { return false; }
     if node.kind == ASTNodeKind.TypeExpr {
         return node.child_count == 1 and native_pipeline_form_field_type_supported(
@@ -1132,7 +1134,7 @@ proc native_pipeline_form_field_type_supported(
     }
     if node.kind == ASTNodeKind.ArrayType {
         if node.child_count != 2 { return false; }
-        let length = vitte_parser_get_node(parser, node.children[0]);
+        let length: *const ASTNode = vitte_parser_get_node(parser, node.children[0]);
         if length == null or length.kind != ASTNodeKind.IntegerLiteral { return false; }
         return native_pipeline_form_field_type_supported(
             parser,
@@ -1228,7 +1230,7 @@ proc native_pipeline_has_generic_form_declaration(parser: &Parser) -> bool {
         if declaration.kind == ASTNodeKind.FormDecl {
             let mut child_index: usize = 1;
             while child_index < declaration.child_count {
-                let child = vitte_parser_get_node(parser, declaration.children[child_index]);
+                let child: *const ASTNode = vitte_parser_get_node(parser, declaration.children[child_index]);
                 if child != null and child.kind == ASTNodeKind.GenericParam { return true; }
                 set child_index += 1;
             }
@@ -1285,7 +1287,7 @@ proc native_pipeline_has_generic_proc_call(parser: &Parser) -> bool {
             let mut has_generic_parameter = false;
             let mut child_index: usize = 1;
             while child_index < declaration.child_count {
-                let child = vitte_parser_get_node(
+                let child: *const ASTNode = vitte_parser_get_node(
                     parser,
                     declaration.children[child_index]
                 );
@@ -1296,8 +1298,8 @@ proc native_pipeline_has_generic_proc_call(parser: &Parser) -> bool {
                 set child_index += 1;
             }
             if has_generic_parameter {
-                let name = vitte_parser_get_node(parser, declaration.children[0]);
-                let name_token = if name == null { null } else {
+                let name: *const ASTNode = vitte_parser_get_node(parser, declaration.children[0]);
+                let name_token: *const ParserToken = if name == null { null } else {
                     vitte_parser_node_token(parser, name)
                 };
                 if name_token != null {
@@ -1305,7 +1307,7 @@ proc native_pipeline_has_generic_proc_call(parser: &Parser) -> bool {
                     while call_index < parser.node_count {
                         let call = &parser.nodes[call_index];
                         if call.kind == ASTNodeKind.CallExpr and call.child_count != 0 {
-                            let callee = vitte_parser_get_node(parser, call.children[0]);
+                            let callee: *const ASTNode = vitte_parser_get_node(parser, call.children[0]);
                             if callee != null and
                                (callee.kind == ASTNodeKind.Identifier or
                                 (callee.kind == ASTNodeKind.Path and callee.child_count != 0)) {
@@ -1315,7 +1317,7 @@ proc native_pipeline_has_generic_proc_call(parser: &Parser) -> bool {
                                         callee.children[callee.child_count - 1]
                                     )
                                 } else { callee };
-                                let call_name = if call_name_node == null { null } else {
+                                let call_name: *const ParserToken = if call_name_node == null { null } else {
                                     vitte_parser_node_token(parser, call_name_node)
                                 };
                                 if call_name != null and
