@@ -84,8 +84,8 @@
   source: examples/tutorials/modules/main.vit
   companion: examples/tutorials/modules/calcul.vit
   lesson: /cours/09-modules/
-  mode: Frontend natif
-  command: VITTE_MODULE_PATH=examples build/bin/vitte run examples/tutorials/modules/main.vit --quiet --no-color
+  mode: Bootstrap
+  command: VITTE_MODULE_PATH=examples build/bin/vitte-bootstrap run examples/tutorials/modules/main.vit --quiet --no-color
   result: Le programme vérifie que l’appel du module exporté retourne 42 ; sortie standard vide, code de sortie 0.
 - title: Contrats de procédures
   group: Organiser un projet
@@ -100,8 +100,8 @@
   summary: Parse un document strict, contrôle son schéma métier et le réencode avec indentation.
   source: examples/projects/json_config/main.vit
   lesson: /projets/configuration-json/
-  mode: Frontend natif
-  command: VITTE_MODULE_PATH=examples:modules build/bin/vitte run examples/projects/json_config/main.vit --quiet --no-color
+  mode: Bootstrap
+  command: VITTE_MODULE_PATH=examples:modules build/bin/vitte-bootstrap run examples/projects/json_config/main.vit --quiet --no-color
   result: 'Code de sortie 0 ; affiche « Configuration valide : gateway écoute sur le port 8443. » puis le JSON indenté.'
 - title: Diagnostic de type attendu
   group: Résultats négatifs attendus
@@ -127,21 +127,21 @@
   mode: Échec attendu
   command: build/bin/vitte check examples/diagnostics/unterminated_string.vit --quiet --no-color --diagnostic=terminal
   result: Code de sortie 1 ; E0102, phase lexer, chaîne non terminée.
-- title: Point-virgule attendu
+- title: Point-virgule requis entre deux instructions
   group: Résultats négatifs attendus
-  summary: Termine un return sans le point-virgule requis avant la fermeture du bloc.
+  summary: Omet le point-virgule entre une déclaration locale et l’instruction suivante.
   source: examples/diagnostics/syntax_missing_semicolon.vit
   lesson: /guides/erreurs-courantes/
   mode: Échec attendu
-  command: build/bin/vitte check examples/diagnostics/syntax_missing_semicolon.vit --quiet --no-color --diagnostic=terminal
-  result: Code de sortie 1 ; E0201, attendu « ; », trouvé « } ».
+  command: build/bin/vitte-bootstrap check examples/diagnostics/syntax_missing_semicolon.vit --quiet --no-color --diagnostic=terminal
+  result: Code de sortie 1 ; E0201, point-virgule attendu avant return.
 - title: Import inexistant
   group: Résultats négatifs attendus
   summary: Demande un module qui n’existe sous aucune racine de recherche.
   source: examples/diagnostics/missing_import.vit
   lesson: /guides/erreurs-courantes/
   mode: Échec attendu
-  command: build/bin/vitte check examples/diagnostics/missing_import.vit --quiet --no-color --diagnostic=terminal
+  command: build/bin/vitte-bootstrap check examples/diagnostics/missing_import.vit --quiet --no-color --diagnostic=terminal
   result: Code de sortie 1 ; E0301, module missing::package::module introuvable.
 - title: Nom non déclaré
   group: Résultats négatifs attendus

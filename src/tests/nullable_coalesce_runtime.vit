@@ -1,0 +1,33 @@
+type MaybeI64 = ?i64;
+
+static mut optional_calls: i64 = 0;
+static mut fallback_calls: i64 = 0;
+static mut PAYLOAD: i64 = 40;
+
+proc present() -> ?i64 {
+    set optional_calls = optional_calls + 1;
+    return &PAYLOAD;
+}
+
+proc absent() -> ?i64 {
+    set optional_calls = optional_calls + 1;
+    return null;
+}
+
+proc fallback() -> i64 {
+    set fallback_calls = fallback_calls + 1;
+    return 42;
+}
+
+proc main() -> i64 {
+    if (present() ?? fallback()) != 40 { return 1; }
+    if optional_calls != 1 { return 2; }
+    if fallback_calls != 0 { return 3; }
+    if (absent() ?? fallback()) != 42 { return 4; }
+    if optional_calls != 2 { return 5; }
+    if fallback_calls != 1 { return 6; }
+    if (null ?? 42) != 42 { return 7; }
+    let aliased: MaybeI64 = &PAYLOAD;
+    if (aliased ?? 0) != 40 { return 8; }
+    return 0;
+}

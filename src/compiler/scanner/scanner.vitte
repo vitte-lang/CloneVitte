@@ -417,7 +417,7 @@ export proc vitte_scanner_span_from_positions(begin: ScannerPosition, end: Scann
 
 export proc vitte_scanner_span_from_checkpoint(scanner: *Scanner, begin: ScannerCheckpoint) -> ScannerSpan {
     if not scanner_context_valid(scanner) || not begin.valid || begin.generation != (*scanner).generation { return ScannerSpan { file_id: 0, begin: 0, end: 0, line: 0, column: 0, display_column: 0, valid: false }; }
-    let start = ScannerPosition { file_id: (*scanner).file_id, offset: begin.offset, line: begin.line, column: begin.column, display_column: begin.display_column, line_start_offset: begin.line_start_offset, valid: true };
+    let start: ScannerPosition = ScannerPosition { file_id: (*scanner).file_id, offset: begin.offset, line: begin.line, column: begin.column, display_column: begin.display_column, line_start_offset: begin.line_start_offset, valid: true };
     return vitte_scanner_span_from_positions(start, scanner_position(scanner));
 }
 
@@ -444,7 +444,7 @@ export proc vitte_scanner_position_at(scanner: *Scanner, target_offset: usize, p
     let mut offset: usize = 0; let mut line: usize = 1; let mut column: usize = 1; let mut display_column: usize = 1; let mut line_start: usize = 0;
     if (*scanner).skip_utf8_bom && scanner_has_bom(scanner) { if target_offset < 3 { return false; } set offset = 3; set line_start = 3; }
     while offset < target_offset {
-        let byte = (*scanner).source[offset];
+        let byte: u8 = (*scanner).source[offset];
         if byte == 10 || byte == 13 {
             let width: usize = if byte == 13 && offset + 1 < (*scanner).source_length && (*scanner).source[offset + 1] == 10 { 2 as usize } else { 1 as usize };
             if target_offset < offset + width { return false; }

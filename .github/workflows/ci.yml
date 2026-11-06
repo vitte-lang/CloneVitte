@@ -70,8 +70,11 @@ jobs:
       - name: Enforce release ownership and path witnesses
         run: make compiler-release-criteria
 
-      - name: Check incremental invalidation and package target inventory
-        run: make test-build-invalidation test-packaging-matrix
+      - name: Check incremental invalidation
+        run: make test-build-invalidation
+
+      - name: Check package target inventory
+        run: make test-packaging-matrix
 
   compiler-selfhost:
     name: Cross-platform compiler self-host
@@ -80,8 +83,10 @@ jobs:
   native-package-install:
     name: Native package install (${{ matrix.os }})
     needs:
-      - compiler-runtime
       - compiler-selfhost
+    # Package checks still provide useful platform evidence when a separate
+    # self-host gate fails; release-readiness continues to require both.
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -122,6 +127,7 @@ jobs:
             mingw-w64-ucrt-x86_64-nsis
             tar
             gzip
+            curl
             git
 
       - name: Install Linux package verification tools
@@ -137,10 +143,11 @@ jobs:
       - name: Build compiler
         run: make MODE=release -j2
 
-      - name: Validate incremental invalidation and package matrix
-        env:
-          VITTE_BIN: ${{ matrix.os == 'windows' && 'build/bin/vitte.exe' || 'build/bin/vitte' }}
-        run: make test-build-invalidation test-packaging-matrix
+      - name: Validate incremental invalidation
+        run: make test-build-invalidation
+
+      - name: Validate package target matrix
+        run: make test-packaging-matrix
 
       - name: Build and verify Linux package
         if: matrix.os == 'linux'
@@ -155,6 +162,7 @@ jobs:
           python3 scripts/verify-package-manifest.py "$deb" "$version" linux amd64
           sudo dpkg -i "$deb"
           VITTE_BIN=/usr/local/bin/vitte scripts/ci/real-install-smoke.sh
+          VITTE_BIN=/usr/local/bin/vitte scripts/ci/package-install-smoke.sh
 
       - name: Build and verify macOS package
         if: matrix.os == 'macos'
@@ -171,6 +179,7 @@ jobs:
           python3 scripts/verify-package-manifest.py "$dmg" "$version" macos arm64 "Mac OS X 11.0"
           sudo installer -pkg "$package" -target /
           VITTE_BIN=/usr/local/bin/vitte scripts/ci/real-install-smoke.sh
+          VITTE_BIN=/usr/local/bin/vitte scripts/ci/package-install-smoke.sh
 
       - name: Build and verify Windows package
         if: matrix.os == 'windows'
@@ -201,6 +210,7 @@ jobs:
           $env:VITTE_BIN = Join-Path $installDir 'bin/vitte.exe'
           $env:CC = 'gcc'
           ./scripts/ci/real-install-smoke.ps1 -VitteBin $env:VITTE_BIN -CCompiler $env:CC
+          ./scripts/ci/package-install-smoke.ps1 -VitteBin $env:VITTE_BIN
 
   release-readiness:
     name: Release readiness

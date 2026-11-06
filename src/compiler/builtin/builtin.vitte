@@ -177,7 +177,7 @@ export proc vitte_builtin_exists(name: string) -> bool { return vitte_builtin_fi
 export proc vitte_builtin_id_name(id: BuiltinId) -> string {
     if id == BuiltinId.Invalid { return "invalid"; }
     if id == BuiltinId.Count { return "count"; }
-    let descriptor = vitte_builtin_find_by_id(id);
+    let descriptor: *const BuiltinDescriptor = vitte_builtin_find_by_id(id);
     if descriptor == null { return "invalid"; }
     return (*descriptor).name;
 }
@@ -211,7 +211,7 @@ export proc vitte_builtin_registry_validate() -> bool {
     if BUILTIN_REGISTRY.len() != (BuiltinId.Count as usize) - 1 { return false; }
     let mut left: usize = 0;
     while left < BUILTIN_REGISTRY.len() {
-        let descriptor = &BUILTIN_REGISTRY[left];
+        let descriptor: *const BuiltinDescriptor = &BUILTIN_REGISTRY[left];
         if not builtin_descriptor_valid(descriptor) or (descriptor.id as usize) != left + 1 { return false; }
         let mut right = left + 1;
         while right < BUILTIN_REGISTRY.len() {
@@ -242,10 +242,10 @@ proc builtin_hash_string(hash: u64, value: string) -> u64 {
 }
 
 export proc vitte_builtin_registry_hash() -> u64 {
-    let mut hash = BUILTIN_FNV_OFFSET;
+    let mut hash: u64 = BUILTIN_FNV_OFFSET;
     let mut index: usize = 0;
     while index < BUILTIN_REGISTRY.len() {
-        let descriptor = BUILTIN_REGISTRY[index];
+        let descriptor: BuiltinDescriptor = BUILTIN_REGISTRY[index];
         set hash = builtin_hash_u64(hash, descriptor.id as u64);
         set hash = builtin_hash_string(hash, descriptor.name);
         set hash = builtin_hash_string(hash, descriptor.description);
@@ -259,10 +259,10 @@ export proc vitte_builtin_registry_hash() -> u64 {
 }
 
 export proc vitte_builtin_stats() -> BuiltinStats {
-    let mut stats = BuiltinStats { builtin_count: BUILTIN_REGISTRY.len(), pure_count: 0, const_count: 0, unsafe_count: 0, noreturn_count: 0, memory_read_count: 0, memory_write_count: 0, atomic_count: 0, target_dependent_count: 0, comptime_count: 0, directly_lowered_count: 0, registry_hash: 0 };
+    let mut stats: BuiltinStats = BuiltinStats { builtin_count: BUILTIN_REGISTRY.len(), pure_count: 0, const_count: 0, unsafe_count: 0, noreturn_count: 0, memory_read_count: 0, memory_write_count: 0, atomic_count: 0, target_dependent_count: 0, comptime_count: 0, directly_lowered_count: 0, registry_hash: 0 };
     let mut index: usize = 0;
     while index < BUILTIN_REGISTRY.len() {
-        let descriptor = &BUILTIN_REGISTRY[index];
+        let descriptor: *const BuiltinDescriptor = &BUILTIN_REGISTRY[index];
         if vitte_builtin_is_pure(descriptor) { set stats.pure_count += 1; }
         if vitte_builtin_is_const(descriptor) { set stats.const_count += 1; }
         if vitte_builtin_is_unsafe(descriptor) { set stats.unsafe_count += 1; }

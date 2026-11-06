@@ -83,6 +83,8 @@ extern uint32_t compiler_driver_pipeline_vitte_native_frontend_execute_with_diag
     void **diagnostics, size_t *diagnostic_count);
 extern void compiler_driver_pipeline_vitte_native_frontend_release_output(
     uint8_t *generated_source);
+extern void vitte_api_native_diagnostic_transport_destroy(
+    uint8_t *diagnostics);
 
 static _Thread_local vitte_error_t vitte_api_native_error_snapshot;
 
@@ -266,7 +268,7 @@ void
 vitte_native_frontend_release_diagnostics(
     vitte_cli_diagnostic_t *diagnostics)
 {
-    vitte_cli_diagnostic_transport_destroy(diagnostics);
+    vitte_api_native_diagnostic_transport_destroy((uint8_t *)diagnostics);
 }
 
 vitte_status_t

@@ -582,7 +582,7 @@ export proc vitte_codegen_unit_at(codegen: *const Codegen, index: usize) -> *con
 
 export proc vitte_codegen_fingerprint(codegen: *const Codegen) -> u64 {
     if not vitte_codegen_is_valid(codegen) { return 0; }
-    let mut hash = VITTE_CODEGEN_FNV_OFFSET;
+    let mut hash: u64 = VITTE_CODEGEN_FNV_OFFSET;
     set hash = codegen_hash_u64(hash, (*codegen).config.backend as u64);
     set hash = codegen_hash_u64(hash, (*codegen).config.optimization as u64);
     set hash = codegen_hash_u64(hash, (*codegen).target.architecture as u64);

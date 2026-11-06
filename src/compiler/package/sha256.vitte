@@ -1,0 +1,220 @@
+/// SHA-256 used to verify package release archives.
+space compiler::package::sha256;
+
+use vitte::core::memory::{allocate, deallocate};
+use vitte::core::pointer::{add_bytes_const};
+
+proc sha256_constant(index: usize) -> u32 {
+    match index {
+        case 0 => return 0x428a2f98 as u32;
+        case 1 => return 0x71374491 as u32;
+        case 2 => return 0xb5c0fbcf as u32;
+        case 3 => return 0xe9b5dba5 as u32;
+        case 4 => return 0x3956c25b as u32;
+        case 5 => return 0x59f111f1 as u32;
+        case 6 => return 0x923f82a4 as u32;
+        case 7 => return 0xab1c5ed5 as u32;
+        case 8 => return 0xd807aa98 as u32;
+        case 9 => return 0x12835b01 as u32;
+        case 10 => return 0x243185be as u32;
+        case 11 => return 0x550c7dc3 as u32;
+        case 12 => return 0x72be5d74 as u32;
+        case 13 => return 0x80deb1fe as u32;
+        case 14 => return 0x9bdc06a7 as u32;
+        case 15 => return 0xc19bf174 as u32;
+        case 16 => return 0xe49b69c1 as u32;
+        case 17 => return 0xefbe4786 as u32;
+        case 18 => return 0x0fc19dc6 as u32;
+        case 19 => return 0x240ca1cc as u32;
+        case 20 => return 0x2de92c6f as u32;
+        case 21 => return 0x4a7484aa as u32;
+        case 22 => return 0x5cb0a9dc as u32;
+        case 23 => return 0x76f988da as u32;
+        case 24 => return 0x983e5152 as u32;
+        case 25 => return 0xa831c66d as u32;
+        case 26 => return 0xb00327c8 as u32;
+        case 27 => return 0xbf597fc7 as u32;
+        case 28 => return 0xc6e00bf3 as u32;
+        case 29 => return 0xd5a79147 as u32;
+        case 30 => return 0x06ca6351 as u32;
+        case 31 => return 0x14292967 as u32;
+        case 32 => return 0x27b70a85 as u32;
+        case 33 => return 0x2e1b2138 as u32;
+        case 34 => return 0x4d2c6dfc as u32;
+        case 35 => return 0x53380d13 as u32;
+        case 36 => return 0x650a7354 as u32;
+        case 37 => return 0x766a0abb as u32;
+        case 38 => return 0x81c2c92e as u32;
+        case 39 => return 0x92722c85 as u32;
+        case 40 => return 0xa2bfe8a1 as u32;
+        case 41 => return 0xa81a664b as u32;
+        case 42 => return 0xc24b8b70 as u32;
+        case 43 => return 0xc76c51a3 as u32;
+        case 44 => return 0xd192e819 as u32;
+        case 45 => return 0xd6990624 as u32;
+        case 46 => return 0xf40e3585 as u32;
+        case 47 => return 0x106aa070 as u32;
+        case 48 => return 0x19a4c116 as u32;
+        case 49 => return 0x1e376c08 as u32;
+        case 50 => return 0x2748774c as u32;
+        case 51 => return 0x34b0bcb5 as u32;
+        case 52 => return 0x391c0cb3 as u32;
+        case 53 => return 0x4ed8aa4a as u32;
+        case 54 => return 0x5b9cca4f as u32;
+        case 55 => return 0x682e6ff3 as u32;
+        case 56 => return 0x748f82ee as u32;
+        case 57 => return 0x78a5636f as u32;
+        case 58 => return 0x84c87814 as u32;
+        case 59 => return 0x8cc70208 as u32;
+        case 60 => return 0x90befffa as u32;
+        case 61 => return 0xa4506ceb as u32;
+        case 62 => return 0xbef9a3f7 as u32;
+        case 63 => return 0xc67178f2 as u32;
+        case _ => return 0;
+    }
+}
+
+proc sha256_rotate_right(value: u32, amount: u32) -> u32 {
+    return (value >> amount) | (value << (32 - amount));
+}
+
+proc sha256_compress(
+    block: *const u8,
+    state: *mut u32,
+    words: *mut u32,
+    constants: *const u32
+) {
+    let mut index: usize = 0;
+    while index < 16 {
+        let offset = index * 4;
+        set words[index] = ((block[offset] as u32) << 24) |
+            ((block[offset + 1] as u32) << 16) |
+            ((block[offset + 2] as u32) << 8) |
+            (block[offset + 3] as u32);
+        set index += 1;
+    }
+    while index < 64 {
+        let x = words[index - 15];
+        let y = words[index - 2];
+        let s0 = sha256_rotate_right(x, 7) ^ sha256_rotate_right(x, 18) ^ (x >> 3);
+        let s1 = sha256_rotate_right(y, 17) ^ sha256_rotate_right(y, 19) ^ (y >> 10);
+        set words[index] = words[index - 16] + s0 + words[index - 7] + s1;
+        set index += 1;
+    }
+
+    let mut a = state[0];
+    let mut b = state[1];
+    let mut c = state[2];
+    let mut d = state[3];
+    let mut e = state[4];
+    let mut f = state[5];
+    let mut g = state[6];
+    let mut h = state[7];
+    set index = 0;
+    while index < 64 {
+        let s1 = sha256_rotate_right(e, 6) ^ sha256_rotate_right(e, 11) ^ sha256_rotate_right(e, 25);
+        let choose = (e & f) ^ ((e ^ 0xffffffff as u32) & g);
+        let first = h + s1 + choose + constants[index] + words[index];
+        let s0 = sha256_rotate_right(a, 2) ^ sha256_rotate_right(a, 13) ^ sha256_rotate_right(a, 22);
+        let majority = (a & b) ^ (a & c) ^ (b & c);
+        let second = s0 + majority;
+        set h = g;
+        set g = f;
+        set f = e;
+        set e = d + first;
+        set d = c;
+        set c = b;
+        set b = a;
+        set a = first + second;
+        set index += 1;
+    }
+    set state[0] += a;
+    set state[1] += b;
+    set state[2] += c;
+    set state[3] += d;
+    set state[4] += e;
+    set state[5] += f;
+    set state[6] += g;
+    set state[7] += h;
+}
+
+/// Hash a byte sequence and return its lowercase 64-character hexadecimal form.
+export proc sha256_hex(data: *const u8, length: usize) -> string {
+    let state_memory = allocate(8 * sizeof(u32));
+    let final_memory = allocate(128);
+    let schedule_memory = allocate(64 * sizeof(u32));
+    let constants_memory = allocate(64 * sizeof(u32));
+    if state_memory == null or final_memory == null or schedule_memory == null or constants_memory == null {
+        if state_memory != null { deallocate(state_memory); }
+        if final_memory != null { deallocate(final_memory); }
+        if schedule_memory != null { deallocate(schedule_memory); }
+        if constants_memory != null { deallocate(constants_memory); }
+        return "";
+    }
+    let state = state_memory as *mut u32;
+    let final_blocks = final_memory as *mut u8;
+    let words = schedule_memory as *mut u32;
+    let constants = constants_memory as *mut u32;
+    let mut index: usize = 0;
+    while index < 64 {
+        set constants[index] = sha256_constant(index);
+        set index += 1;
+    }
+    set state[0] = 0x6a09e667 as u32;
+    set state[1] = 0xbb67ae85 as u32;
+    set state[2] = 0x3c6ef372 as u32;
+    set state[3] = 0xa54ff53a as u32;
+    set state[4] = 0x510e527f as u32;
+    set state[5] = 0x9b05688c as u32;
+    set state[6] = 0x1f83d9ab as u32;
+    set state[7] = 0x5be0cd19 as u32;
+
+    let mut offset: usize = 0;
+    while offset + 64 <= length {
+        sha256_compress(add_bytes_const(data, offset), state, words, constants);
+        set offset += 64;
+    }
+    let remainder = length - offset;
+    set index = 0;
+    while index < remainder {
+        set final_blocks[index] = data[offset + index];
+        set index += 1;
+    }
+    set final_blocks[remainder] = 0x80 as u8;
+    let padded_length: usize = if remainder < 56 { 64 as usize } else { 128 as usize };
+    set index = remainder + 1;
+    while index < padded_length { set final_blocks[index] = 0; set index += 1; }
+    let bit_length = (length as u64) * 8;
+    set index = 0;
+    while index < 8 {
+        set final_blocks[padded_length - 1 - index] = (bit_length >> (index * 8)) as u8;
+        set index += 1;
+    }
+    sha256_compress(final_blocks as *const u8, state, words, constants);
+    if padded_length == 128 {
+        sha256_compress(add_bytes_const(final_blocks as *const u8, 64), state, words, constants);
+    }
+
+    let hex = "0123456789abcdef";
+    let mut output = "";
+    set index = 0;
+    while index < 8 {
+        let word = state[index];
+        let mut byte_index: usize = 0;
+        while byte_index < 4 {
+            let shift = 24 - (byte_index * 8) as u32;
+            let byte_value = (word >> shift) as u8;
+            let high = (byte_value >> 4) as usize;
+            let low = (byte_value & 15) as usize;
+            set output += hex.slice(high, high + 1);
+            set output += hex.slice(low, low + 1);
+            set byte_index += 1;
+        }
+        set index += 1;
+    }
+    deallocate(state_memory);
+    deallocate(final_memory);
+    deallocate(schedule_memory);
+    deallocate(constants_memory);
+    return output;
+}

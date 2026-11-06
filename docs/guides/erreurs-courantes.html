@@ -49,7 +49,7 @@ build/bin/vitte compile chemin/vers/main.vit</code></pre>
 <h2 id="index">Index des cas reproduits</h2>
 <table><thead><tr><th>Code</th><th>Phase</th><th>Cause reproduite</th><th>Fixture</th></tr></thead><tbody>
 <tr><td><code>E0102</code></td><td>Lexer</td><td>Littéral de chaîne sans guillemet fermant.</td><td><a href="https://github.com/vitte-lang/vitte/blob/main/examples/diagnostics/unterminated_string.vit"><code>unterminated_string.vit</code></a></td></tr>
-<tr><td><code>E0201</code></td><td>Parser</td><td>Point-virgule absent avant la fermeture du bloc.</td><td><a href="https://github.com/vitte-lang/vitte/blob/main/examples/diagnostics/syntax_missing_semicolon.vit"><code>syntax_missing_semicolon.vit</code></a></td></tr>
+<tr><td><code>E0201</code></td><td>Parser</td><td>Point-virgule absent entre deux instructions.</td><td><a href="https://github.com/vitte-lang/vitte/blob/main/examples/diagnostics/syntax_missing_semicolon.vit"><code>syntax_missing_semicolon.vit</code></a></td></tr>
 <tr><td><code>E0301</code></td><td>Import</td><td>Module demandé absent des racines de résolution.</td><td><a href="https://github.com/vitte-lang/vitte/blob/main/examples/diagnostics/missing_import.vit"><code>missing_import.vit</code></a></td></tr>
 <tr><td><code>E0401</code></td><td>Résolution des noms</td><td>Nom utilisé mais non déclaré ni importé.</td><td><a href="https://github.com/vitte-lang/vitte/blob/main/examples/diagnostics/unknown_name.vit"><code>unknown_name.vit</code></a></td></tr>
 <tr><td><code>E0501</code></td><td>Vérification de type</td><td>La valeur fournie à un champ générique ne correspond pas au type substitué.</td><td><a href="https://github.com/vitte-lang/vitte/blob/main/examples/diagnostics/generic_form_multiple_parameters.vit"><code>generic_form_multiple_parameters.vit</code></a></td></tr>
@@ -65,10 +65,10 @@ build/bin/vitte compile chemin/vers/main.vit</code></pre>
 <p>Résultat observé : code de sortie <code>1</code>, code <code>E0102</code>, phase <code>lexer</code>, plage au début de la chaîne ouverte. Le correctif consiste à fermer le littéral avec le bon guillemet, ou à échapper un guillemet qui appartient au texte. Ne changez pas le type de la variable pour réparer un littéral lexical.</p>
 
 <h2 id="parser">Parser — remettre le token attendu</h2>
-<p>Fixture : <code>examples/diagnostics/syntax_missing_semicolon.vit</code>. La dernière instruction est <code>return 0</code> sans point-virgule. Commande vérifiée :</p>
-<pre><code>build/bin/vitte check examples/diagnostics/syntax_missing_semicolon.vit \
+<p>Fixture : <code>examples/diagnostics/syntax_missing_semicolon.vit</code>. Une déclaration locale est suivie d’un <code>return</code> sans séparateur. Commande vérifiée :</p>
+<pre><code>build/bin/vitte-bootstrap check examples/diagnostics/syntax_missing_semicolon.vit \
   --quiet --no-color --diagnostic=terminal</code></pre>
-<p>Résultat observé : <code>E0201</code>, <code>expected token</code>, attendu <code>;</code> mais trouvé <code>}</code>. Ajoutez le point-virgule à la fin de <code>return 0;</code>. Le diagnostic est placé sur l’accolade, car c’est à cet endroit que le parser constate l’absence du token attendu.</p>
+<p>Résultat observé : <code>E0201</code>, <code>expected token</code>, le parser attend <code>;</code> avant <code>return</code>. Ajoutez le séparateur après la déclaration locale. Un point-virgule final peut être omis juste avant l’accolade fermante.</p>
 
 <h2 id="import">Import — distinguer le chemin du nom exporté</h2>
 <p>Fixture : <code>examples/diagnostics/missing_import.vit</code>. Commande vérifiée :</p>

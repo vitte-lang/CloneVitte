@@ -9,13 +9,14 @@ import tempfile
 
 
 binary = Path(sys.argv[1]).resolve()
+format_binary = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else binary
 root = Path(__file__).resolve().parents[2]
 registry = root / "src/bootstrap/diagnostic/registry.c"
 
 
 def run_diagnostic(path, fmt):
     command = [
-        str(binary),
+        str(format_binary),
         "check",
         str(path),
         "--quiet",

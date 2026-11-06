@@ -204,6 +204,9 @@ typedef enum vitte_sema_type_kind {
     /* A declaration-scoped generic parameter. */
     VITTE_SEMA_TYPE_GENERIC_PARAMETER,
 
+    /* Compiler-generated result wrapper for an async procedure call. */
+    VITTE_SEMA_TYPE_TASK,
+
     VITTE_SEMA_TYPE_COUNT
 } vitte_sema_type_kind_t;
 
@@ -639,6 +642,7 @@ typedef struct vitte_sema {
     vitte_sema_type_id_t current_return_type;
     vitte_sema_type_id_t current_self_type;
     vitte_scope_id_t current_proc_scope;
+    vitte_ast_node_id_t awaited_async_call_id;
 
     /* True while checking an ensures clause, where `result` is implicit. */
     bool current_contract_ensures;

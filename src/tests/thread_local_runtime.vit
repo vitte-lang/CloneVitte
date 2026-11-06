@@ -1,0 +1,8 @@
+#[thread_local]
+static mut thread_counter: i64 = 0;
+
+proc main() -> i64 {
+    set thread_counter = 41;
+    set thread_counter += 1;
+    return thread_counter - 42;
+}

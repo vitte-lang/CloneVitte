@@ -1,0 +1,79 @@
+static mut ORDER: i64 = 0;
+static mut RETURN_VALUE: i64 = 42;
+
+proc record(value: i64) -> void {
+    set ORDER = ORDER * 10 + value;
+}
+
+proc return_with_defer() -> i64 {
+    defer {
+        record(5);
+        set RETURN_VALUE = 0;
+    }
+    return RETURN_VALUE;
+}
+
+proc nested_return_with_defer() -> i64 {
+    defer record(8);
+    {
+        defer record(9);
+        return 42;
+    }
+}
+
+proc void_return_with_defer() -> void {
+    defer record(1);
+    return;
+}
+
+proc main() -> i64 {
+    {
+        defer record(1);
+        defer record(2);
+    }
+    if ORDER != 21 { return 1; }
+
+    {
+        defer {
+            record(3);
+            record(4);
+        }
+    }
+    if ORDER != 2134 { return 2; }
+
+    let returned: i64 = return_with_defer();
+    if returned != 42 or ORDER != 21345 { return 3; }
+
+    while true {
+        defer record(6);
+        break;
+    }
+    if ORDER != 213456 { return 4; }
+
+    let mut iteration: i64 = 0;
+    while iteration < 2 {
+        set iteration = iteration + 1;
+        defer record(7);
+        if iteration == 1 { continue; }
+        break;
+    }
+    if ORDER != 21345677 { return 5; }
+
+    let nested_returned: i64 = nested_return_with_defer();
+    if nested_returned != 42 or ORDER != 2134567798 { return 6; }
+    void_return_with_defer();
+    if ORDER != 21345677981 { return 7; }
+
+    for index in 0..3 {
+        defer record(2);
+        if index == 0 { continue; }
+        if index == 1 { break; }
+    }
+    if ORDER != 2134567798122 { return 8; }
+    let values: [i64] = [3, 4];
+    for value in values {
+        defer record(value);
+    }
+    if ORDER != 213456779812234 { return 9; }
+    return 0;
+}

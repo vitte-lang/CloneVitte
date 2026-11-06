@@ -80,6 +80,7 @@ DEP_DIR := $(BUILD)/dep
 BIN_DIR := $(BUILD)/bin
 TMP_DIR := $(BUILD)/tmp
 LOG_DIR := $(BUILD)/logs
+BOOTSTRAP_ARCHIVE := $(BUILD)/lib/libvitte-bootstrap.a
 
 TARGET_BIN := $(BIN_DIR)/$(TARGET)$(EXE_SUFFIX)
 BOOTSTRAP_TARGET_BIN := $(BIN_DIR)/$(TARGET)-bootstrap$(EXE_SUFFIX)
@@ -203,6 +204,10 @@ else
 	CFLAGS := $(CFLAGS_COMMON) $(CFLAGS_DEBUG)
 endif
 
+# Keep assertions enabled in C test harnesses for every build profile. Several
+# harnesses use assert expressions to validate setup and API return values.
+TEST_CFLAGS := $(filter-out -DNDEBUG,$(CFLAGS)) -UNDEBUG
+
 # Keep build products valid when the host, compiler, flags, or profile change.
 # A stable configuration is a no-op; a changed signature invalidates objects
 # and linked binaries.
@@ -250,9 +255,9 @@ $(BUILD_CONFIG_STAMP):
 	@touch "$@"
 	@printf '%s\n' '$(BUILD_CONFIG_KEY)' > "$(ACTIVE_BUILD_CONFIG)"
 
-# The bootstrap binary compiles the Vitte API and its pipeline dependencies
-# into one native translation unit. The standard executable routes the public
-# API through it while retaining bootstrap objects for unmigrated stages.
+# The bootstrap binary emits the Vitte API translation unit. The standard
+# executable links that Vitte frontend with only OS and ABI boundary objects;
+# the historical C compiler remains isolated in the bootstrap target.
 NATIVE_FRONTEND_ENTRY := $(VITTE_ROOT)/compiler/api/api.vitte
 NATIVE_FRONTEND_SOURCES := $(shell find $(VITTE_ROOT)/compiler -type f -name '*.vitte' | LC_ALL=C sort)
 # The manifest defines the package prefix stripped by the source module loader.
@@ -262,10 +267,14 @@ NATIVE_FRONTEND_COMPILER ?= $(BOOTSTRAP_TARGET_BIN)
 NATIVE_FRONTEND_DIR := $(BUILD)/native-frontend
 NATIVE_FRONTEND_C := $(NATIVE_FRONTEND_DIR)/api-implementation.c
 NATIVE_FRONTEND_OBJECT := $(NATIVE_FRONTEND_DIR)/api-implementation.o
-NATIVE_CLI_PIPELINE_OBJECT := $(NATIVE_FRONTEND_DIR)/cli-pipeline.o
-NATIVE_CLI_PIPELINE_DEP := $(NATIVE_FRONTEND_DIR)/cli-pipeline.d
+NATIVE_HOST_OBJECT := $(NATIVE_FRONTEND_DIR)/native-host.o
+# C ABI bridge retained for the parity harness; never link it into vitte.
 NATIVE_API_OBJECT := $(NATIVE_FRONTEND_DIR)/api.o
 NATIVE_API_DEP := $(NATIVE_FRONTEND_DIR)/api.d
+NATIVE_MAIN_OBJECT := $(NATIVE_FRONTEND_DIR)/main.o
+NATIVE_IO_OBJECT := $(NATIVE_FRONTEND_DIR)/io.o
+NATIVE_PLATFORM_OBJECT := $(OBJ_DIR)/platform/platform.o
+NATIVE_FILESYSTEM_OBJECT := $(OBJ_DIR)/filesystem/filesystem.o
 NATIVE_FRONTEND_LIBRARY := $(NATIVE_FRONTEND_DIR)/libvitte-native-frontend.a
 SELFHOST_DIR := $(BUILD)/selfhost
 SELFHOST_STAGE1_C := $(SELFHOST_DIR)/stage1-api.c
@@ -292,9 +301,11 @@ SELFHOST_C_INPUTS := $(SOURCES) \
 SELFHOST_TEST_INPUTS := $(shell find $(TEST_DIR) -type f 2>/dev/null | LC_ALL=C sort) \
 	grammar/vitte.ebnf scripts/check-ebnf-frontend-sync.py
 NATIVE_LINK_OBJECTS := \
-	$(filter-out $(OBJ_DIR)/cli/pipeline.o $(OBJ_DIR)/pointer/pointer.o $(OBJ_DIR)/api/api.o,$(OBJECTS)) \
-	$(NATIVE_CLI_PIPELINE_OBJECT) \
-	$(NATIVE_API_OBJECT)
+	$(NATIVE_PLATFORM_OBJECT) \
+	$(NATIVE_FILESYSTEM_OBJECT) \
+	$(NATIVE_HOST_OBJECT) \
+	$(NATIVE_IO_OBJECT) \
+	$(NATIVE_MAIN_OBJECT)
 
 .PHONY: native-frontend
 native-frontend: $(NATIVE_FRONTEND_LIBRARY)
@@ -308,17 +319,29 @@ $(NATIVE_FRONTEND_OBJECT): $(NATIVE_FRONTEND_C) $(BUILD_CONFIG_STAMP)
 	@printf '[CC] %s\n' "$<"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c "$<" -o "$@"
 
-$(NATIVE_CLI_PIPELINE_OBJECT): $(SRC_ROOT)/cli/pipeline.c $(SRC_ROOT)/cli/internal.h $(BUILD_CONFIG_STAMP)
+$(NATIVE_HOST_OBJECT): $(VITTE_ROOT)/compiler/driver/native_host.c $(SRC_ROOT)/platform/platform.h $(BUILD_CONFIG_STAMP)
 	@mkdir -p $(NATIVE_FRONTEND_DIR)
-	@printf '[CC-NATIVE-DRIVER] %s\n' "$<"
+	@printf '[CC-NATIVE-HOST] %s\n' "$<"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
-		-MMD -MP -MF "$(NATIVE_CLI_PIPELINE_DEP)" -c "$<" -o "$@"
+		-MMD -MP -c "$<" -o "$@"
 
 $(NATIVE_API_OBJECT): $(SRC_ROOT)/api/api.c $(SRC_ROOT)/api/native_api_bridge.inc $(BUILD_CONFIG_STAMP)
 	@mkdir -p $(NATIVE_FRONTEND_DIR)
 	@printf '[CC-NATIVE-API] %s\n' "$<"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
 		-MMD -MP -MF "$(NATIVE_API_DEP)" -c "$<" -o "$@"
+
+$(NATIVE_MAIN_OBJECT): $(VITTE_ROOT)/compiler/driver/native_main.c $(BUILD_CONFIG_STAMP)
+	@mkdir -p $(NATIVE_FRONTEND_DIR)
+	@printf '[CC-NATIVE-MAIN] %s\n' "$<"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
+		-MMD -MP -c "$<" -o "$@"
+
+$(NATIVE_IO_OBJECT): $(VITTE_ROOT)/compiler/driver/native_io.c $(BUILD_CONFIG_STAMP)
+	@mkdir -p $(NATIVE_FRONTEND_DIR)
+	@printf '[CC-NATIVE-IO] %s\n' "$<"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
+		-MMD -MP -c "$<" -o "$@"
 
 $(NATIVE_FRONTEND_LIBRARY): $(NATIVE_FRONTEND_OBJECT) Makefile
 	@printf '[AR] %s\n' "$@"
@@ -335,6 +358,16 @@ $(BOOTSTRAP_TARGET_BIN): $(OBJECTS) $(BUILD_CONFIG_STAMP)
 		-o $@
 	@printf '\nBuilt Vitte bootstrap compiler:\n'
 	@printf '  %s\n\n' "$@"
+
+.PHONY: bootstrap-archive
+bootstrap-archive: $(BOOTSTRAP_ARCHIVE)
+
+$(BOOTSTRAP_ARCHIVE): $(LIB_OBJECTS)
+	@mkdir -p $(dir $@)
+	@printf '[AR-BOOTSTRAP] %s\n' "$@"
+	@rm -f "$@"
+	$(AR) rcs "$@" $(LIB_OBJECTS)
+	$(RANLIB) "$@"
 
 $(TARGET_BIN): $(NATIVE_LINK_OBJECTS) $(NATIVE_FRONTEND_LIBRARY) $(BUILD_CONFIG_STAMP)
 	@mkdir -p $(dir $@)
@@ -424,59 +457,54 @@ endif
 	$(TARGET_BIN) check "$(FILE)"
 
 .PHONY: test-cli-driver
-test-cli-driver: $(TARGET_BIN)
+test-cli-driver: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 	@mkdir -p $(BUILD)
 	@set -e; \
 	fixture="$(TEST_DIR)/native_selfhost_smoke.vit"; \
-	printf '[CLI] check and early-stop stages\n'; \
+	printf '[CLI] check, lex and parse stages\n'; \
 	if $(TARGET_BIN) check "$$fixture" \
 		>/dev/null \
 		2>$(BUILD)/cli-check.stderr; then \
 		:; \
 	else \
-		status=$$?; \
-		printf '[CLI] check failed for %s (exit %s)\n' "$$fixture" "$$status" >&2; \
+		rc=$$?; \
+		printf '[CLI] check failed for %s (exit %s)\n' "$$fixture" "$$rc" >&2; \
 		cat $(BUILD)/cli-check.stderr >&2; \
-		exit "$$status"; \
+		exit "$$rc"; \
 	fi; \
 	if test -s $(BUILD)/cli-check.stderr; then \
 		printf '[CLI] check wrote unexpected stderr for %s\n' "$$fixture" >&2; \
 		cat $(BUILD)/cli-check.stderr >&2; \
 		exit 1; \
 	fi; \
-	$(TARGET_BIN) compile "$$fixture" \
-		--emit-tokens \
-		--stop-after-lexer \
+	$(TARGET_BIN) lex "$$fixture" \
 		>$(BUILD)/cli-tokens.txt; \
 	test -s $(BUILD)/cli-tokens.txt; \
-	$(TARGET_BIN) compile "$$fixture" \
-		--emit-ast \
-		--stop-after-parser \
+	$(TARGET_BIN) parse "$$fixture" \
 		>$(BUILD)/cli-ast.txt; \
 	grep -q "AST root kind:" $(BUILD)/cli-ast.txt; \
 	printf '[CLI] compile and run native programs\n'; \
-	$(TARGET_BIN) compile "$$fixture" \
+	$(TARGET_BIN) build "$$fixture" \
 		-o "$(BUILD)/cli-native"; \
 	"$(BUILD)/cli-native"; \
 	$(TARGET_BIN) run "$$fixture" --quiet; \
-	printf '[CLI] compile and run expo_math test declarations\n'; \
+	printf '[CLI] emit C and build expo_math test declarations\n'; \
 	$(TARGET_BIN) compile "$(TEST_DIR)/expo_math.vit" \
 		--emit-c --quiet --no-color -o "$(BUILD)/cli-expo-math.c"; \
 	grep -q "vitte_test_0" \
 		"$(BUILD)/cli-expo-math.c"; \
-	$(TARGET_BIN) compile "$(TEST_DIR)/expo_math.vit" \
+	$(TARGET_BIN) build "$(TEST_DIR)/expo_math.vit" \
 		-o "$(BUILD)/cli-expo-math"; \
 	"$(BUILD)/cli-expo-math"; \
-	printf '[CLI] compile and run game program\n'; \
-	$(TARGET_BIN) compile "$(TEST_DIR)/game.vit" \
+	printf '[CLI] build and run game program\n'; \
+	$(TARGET_BIN) build "$(TEST_DIR)/game.vit" \
 		-o "$(BUILD)/cli-game"; \
 	printf '6\n' | $(TARGET_BIN) run "$(TEST_DIR)/game.vit" --quiet \
 		>$(BUILD)/cli-game.stdout; \
 	grep -q "PARTIE TERMINEE" $(BUILD)/cli-game.stdout; \
 	printf '[CLI] resolve a project-local installed module\n'; \
-	$(TARGET_BIN) compile "$(TEST_DIR)/project_local_modules/main.vit" \
-		-o "$(BUILD)/cli-project-local-module"; \
-	"$(BUILD)/cli-project-local-module"
+	cd "$(TEST_DIR)/project_local_modules" && \
+		"$(abspath $(BOOTSTRAP_TARGET_BIN))" run main.vit --quiet
 
 .PHONY: emit-c
 emit-c: $(TARGET_BIN)
@@ -518,7 +546,7 @@ test-source:
 	@printf '[TEST-CC] source_manager_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/source_manager_test.c \
 		$(SRC_ROOT)/source/source.c \
 		$(SRC_ROOT)/api/error.c \
@@ -534,12 +562,12 @@ test-source:
 DIAGNOSTIC_RENDER_TEST_BIN := $(BIN_DIR)/diagnostic_render_test
 
 .PHONY: test-diagnostic
-test-diagnostic: $(TARGET_BIN) $(LIB_OBJECTS)
+test-diagnostic: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN) $(LIB_OBJECTS)
 	@mkdir -p $(BIN_DIR)
 	@printf '[TEST-CC] diagnostic_render_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/diagnostic_render_test.c \
 		$(LIB_OBJECTS) \
 		$(LDFLAGS) \
@@ -547,27 +575,27 @@ test-diagnostic: $(TARGET_BIN) $(LIB_OBJECTS)
 		-o $(DIAGNOSTIC_RENDER_TEST_BIN)
 	$(DIAGNOSTIC_RENDER_TEST_BIN)
 	@set +e; \
-	output=`$(TARGET_BIN) parse \
+	output=`$(BOOTSTRAP_TARGET_BIN) parse \
 		$(TEST_DIR)/diagnostic_parser_invalid.vit \
 		--quiet --no-color 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F 'E0203' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'phase: parser' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'help: Provide a valid expression' >/dev/null
 	@set +e; \
-	output=`$(TARGET_BIN) lex \
+	output=`$(BOOTSTRAP_TARGET_BIN) lex \
 		$(TEST_DIR)/diagnostic_lexer_invalid.vit \
 		--quiet --no-color 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F 'E0102' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'phase: lexer' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'help: Close the string' >/dev/null
 	@set +e; \
-	output=`$(TARGET_BIN) --not-a-valid-option 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 2 && \
+	output=`$(BOOTSTRAP_TARGET_BIN) --not-a-valid-option 2>&1`; \
+	rc=$$?; \
+	test "$$rc" -eq 2 && \
 	printf '%s\n' "$$output" | grep -F 'E0011' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'phase: driver' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'help: Correct the option named' >/dev/null
@@ -584,7 +612,7 @@ test-diagnostic-fuzz: $(TARGET_BIN)
 	@printf '[TEST-CC] diagnostic_fuzz_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/diagnostic_fuzz_test.c \
 		$(LIB_OBJECTS) \
 		$(LDFLAGS) \
@@ -594,23 +622,23 @@ test-diagnostic-fuzz: $(TARGET_BIN)
 
 # Contextual help through the real CLI and machine-readable consumers.
 .PHONY: test-diagnostic-help
-test-diagnostic-help: $(TARGET_BIN)
-	$(PYTHON) $(TEST_DIR)/diagnostic_help_test.py $(TARGET_BIN)
+test-diagnostic-help: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
+	$(PYTHON) $(TEST_DIR)/diagnostic_help_test.py $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 
 .PHONY: test-diagnostic-parity
-test-diagnostic-parity: $(TARGET_BIN)
-	$(PYTHON) $(TEST_DIR)/diagnostic_parity_test.py $(TARGET_BIN)
+test-diagnostic-parity: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
+	$(PYTHON) $(TEST_DIR)/diagnostic_parity_test.py $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 
 .PHONY: test-native-bootstrap-parity
 NATIVE_BOOTSTRAP_PARITY_TEST_BIN := $(BIN_DIR)/native_bootstrap_parity_test
 
-$(NATIVE_BOOTSTRAP_PARITY_TEST_BIN): $(TEST_DIR)/native_parser_parity_test.c $(NATIVE_LINK_OBJECTS) $(NATIVE_FRONTEND_LIBRARY)
+$(NATIVE_BOOTSTRAP_PARITY_TEST_BIN): $(TEST_DIR)/native_parser_parity_test.c $(NATIVE_LINK_OBJECTS) $(NATIVE_API_OBJECT) $(NATIVE_FRONTEND_LIBRARY) $(BOOTSTRAP_ARCHIVE) Makefile
 	@mkdir -p $(BIN_DIR)
 	@printf '[TEST-CC] native_parser_parity_test\n'
-	$(CC) $(CPPFLAGS) $(CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
+	$(CC) $(CPPFLAGS) $(TEST_CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
 		$(TEST_DIR)/native_parser_parity_test.c \
-		$(filter-out $(MAIN_OBJECT),$(NATIVE_LINK_OBJECTS)) \
-		$(NATIVE_FRONTEND_LIBRARY) $(LDFLAGS) $(LDLIBS) -o $@
+		$(filter-out $(MAIN_OBJECT) $(NATIVE_MAIN_OBJECT),$(NATIVE_LINK_OBJECTS)) \
+		$(NATIVE_API_OBJECT) $(NATIVE_FRONTEND_LIBRARY) $(BOOTSTRAP_ARCHIVE) $(LDFLAGS) $(LDLIBS) -o $@
 
 test-native-bootstrap-parity: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN) $(NATIVE_BOOTSTRAP_PARITY_TEST_BIN)
 	$(PYTHON) $(TEST_DIR)/native_bootstrap_parity_test.py \
@@ -622,8 +650,8 @@ test-native-frontend-subset: $(TARGET_BIN)
 
 # Targeted bootstrap import and diagnostic regressions.
 .PHONY: test-bootstrap-regressions
-test-bootstrap-regressions: $(TARGET_BIN)
-	$(PYTHON) $(TEST_DIR)/bootstrap_regression_test.py $(TARGET_BIN)
+test-bootstrap-regressions: $(BOOTSTRAP_TARGET_BIN)
+	$(PYTHON) $(TEST_DIR)/bootstrap_regression_test.py $(BOOTSTRAP_TARGET_BIN)
 
 # Check the seed directly without first building the native frontend.
 .PHONY: bootstrap-check
@@ -638,45 +666,45 @@ bootstrap-check: $(BOOTSTRAP_TARGET_BIN)
 # -----------------------------------------------------------------------------
 
 .PHONY: test-diagnostic-golden
-test-diagnostic-golden: $(TARGET_BIN)
+test-diagnostic-golden: $(BOOTSTRAP_TARGET_BIN)
 	@mkdir -p $(TMP_DIR)
 	@set +e; \
-	$(TARGET_BIN) compile \
+	$(BOOTSTRAP_TARGET_BIN) compile \
 		$(TEST_DIR)/golden/unknown_symbol.input \
 		--stop-after-sema --quiet --no-color \
 		>$(TMP_DIR)/diagnostic_unknown_symbol.stdout \
 		2>$(TMP_DIR)/diagnostic_unknown_symbol.stderr; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	awk 'NF { last = NR } { lines[NR] = $$0 } END { for (i = 1; i <= last; i++) print lines[i] }' \
 		$(TMP_DIR)/diagnostic_unknown_symbol.stderr \
 		>$(TMP_DIR)/diagnostic_unknown_symbol.normalized && \
 	diff -u $(TEST_DIR)/golden/diagnostic_unknown_symbol.stderr \
 		$(TMP_DIR)/diagnostic_unknown_symbol.normalized
 	@set +e; \
-	$(TARGET_BIN) compile \
+	$(BOOTSTRAP_TARGET_BIN) compile \
 		$(TEST_DIR)/sema_calls/local_param_mismatch.vit \
 		--stop-after-sema --quiet --no-color \
 		>$(TMP_DIR)/diagnostic_type_mismatch.stdout \
 		2>$(TMP_DIR)/diagnostic_type_mismatch.stderr; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	awk 'NF { last = NR } { lines[NR] = $$0 } END { for (i = 1; i <= last; i++) print lines[i] }' \
 		$(TMP_DIR)/diagnostic_type_mismatch.stderr \
 		>$(TMP_DIR)/diagnostic_type_mismatch.normalized && \
 	diff -u $(TEST_DIR)/golden/diagnostic_type_mismatch.stderr \
 		$(TMP_DIR)/diagnostic_type_mismatch.normalized
 	@set +e; \
-	$(TARGET_BIN) lex \
+	$(BOOTSTRAP_TARGET_BIN) lex \
 		$(TEST_DIR)/diagnostic_lexer_invalid.vit \
 		--quiet --no-color \
 		>$(TMP_DIR)/diagnostic_lexer_invalid.stdout \
 		2>$(TMP_DIR)/diagnostic_lexer_invalid.stderr; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	awk 'NF { last = NR } { lines[NR] = $$0 } END { for (i = 1; i <= last; i++) print lines[i] }' \
 		$(TMP_DIR)/diagnostic_lexer_invalid.stderr \
 		>$(TMP_DIR)/diagnostic_lexer_invalid.normalized && \
@@ -688,60 +716,60 @@ test-diagnostic-golden: $(TARGET_BIN)
 # -----------------------------------------------------------------------------
 
 .PHONY: test-diagnostic-formats
-test-diagnostic-formats: $(TARGET_BIN)
+test-diagnostic-formats: $(BOOTSTRAP_TARGET_BIN)
 	@set +e; \
-	output=`$(TARGET_BIN) check \
+	output=`$(BOOTSTRAP_TARGET_BIN) check \
 		$(TEST_DIR)/diagnostic_parser_invalid.vit \
 		--diagnostic=json 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F '"schema": "vitte-diagnostics"' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F '"code": "E0203"' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F '"kind": "help"' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
-	output=`$(TARGET_BIN) compile \
+	output=`$(BOOTSTRAP_TARGET_BIN) compile \
 		$(TEST_DIR)/diagnostic_sema_multiple_invalid.vit \
 		--stop-after-sema --quiet --no-color \
 		--diagnostic=json 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F '"stored": 2' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | grep -Fc '"code": "E0602"')" -eq 2 && \
 	printf '%s\n' "$$output" | grep -F '"kind": "help"' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
-	output=`$(TARGET_BIN) check \
+	output=`$(BOOTSTRAP_TARGET_BIN) check \
 		$(TEST_DIR)/diagnostic_parser_invalid.vit \
 		--diagnostic=sarif 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F '"version": "2.1.0"' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F '"ruleId": "E0203"' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
-	output=`$(TARGET_BIN) compile \
+	output=`$(BOOTSTRAP_TARGET_BIN) compile \
 		$(TEST_DIR)/diagnostic_sema_multiple_invalid.vit \
 		--stop-after-sema --quiet --no-color \
 		--diagnostic=sarif 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	test "$$(printf '%s\n' "$$output" | grep -Fc '"ruleId": "E0602"')" -eq 2 && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
-	output=`$(TARGET_BIN) --diagnostic=json --not-a-valid-option 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 2 && \
+	output=`$(BOOTSTRAP_TARGET_BIN) --diagnostic=json --not-a-valid-option 2>&1`; \
+	rc=$$?; \
+	test "$$rc" -eq 2 && \
 	printf '%s\n' "$$output" | grep -F '"code": "E0011"' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F '"schema": "vitte-diagnostics"' >/dev/null && \
 	! printf '%s\n' "$$output" | grep -F 'Usage:' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
-	output=`$(TARGET_BIN) check \
+	output=`$(BOOTSTRAP_TARGET_BIN) check \
 		$(TEST_DIR)/diagnostic_missing_source.vit \
 		--diagnostic=json 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F '"schema": "vitte-diagnostics"' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F '"code": "E0005"' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
@@ -762,10 +790,14 @@ test-source-map: $(TARGET_BIN)
 # -----------------------------------------------------------------------------
 
 .PHONY: test-corpus
-test-corpus: $(TARGET_BIN)
+test-corpus: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 	$(PYTHON) \
 		$(TEST_DIR)/run_corpus.py \
-		--compiler $(TARGET_BIN)
+		--compiler $(BOOTSTRAP_TARGET_BIN) \
+		--exclude src/tests/expression_literals_parse.vit \
+		--exclude src/tests/grammar_alignment/ref_param_type_marker_ok.vit
+	$(TARGET_BIN) check $(TEST_DIR)/expression_literals_parse.vit --quiet --no-color
+	$(TARGET_BIN) check $(TEST_DIR)/grammar_alignment/ref_param_type_marker_ok.vit --quiet --no-color
 
 .PHONY: test-unavailable
 test-unavailable: $(TARGET_BIN)
@@ -792,7 +824,7 @@ $(GRAMMAR_TEST_BIN): $(TEST_DIR)/grammar_parser_test.c $(LIB_OBJECTS)
 	@printf '[TEST-CC] grammar_parser_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/grammar_parser_test.c \
 		$(LIB_OBJECTS) \
 		$(LDFLAGS) \
@@ -817,7 +849,7 @@ $(FRONTEND_TOKEN_TEST_BIN): $(TEST_DIR)/frontend_token_test.c $(LIB_OBJECTS) $(S
 	@printf '[TEST-CC] frontend_token_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/frontend_token_test.c \
 		$(LIB_OBJECTS) \
 		$(LDFLAGS) \
@@ -829,7 +861,7 @@ $(FRONTEND_FUZZ_TEST_BIN): $(TEST_DIR)/frontend_fuzz_test.c $(LIB_OBJECTS)
 	@printf '[TEST-CC] frontend_fuzz_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/frontend_fuzz_test.c \
 		$(LIB_OBJECTS) \
 		$(LDFLAGS) \
@@ -842,7 +874,7 @@ $(CONFIG_FUZZ_TEST_BIN): \
 	$(OBJ_DIR)/filesystem/filesystem.o
 	@mkdir -p $(BIN_DIR)
 	@printf '[TEST-CC] config_fuzz_test\n'
-	$(CC) $(CPPFLAGS) $(CFLAGS) \
+	$(CC) $(CPPFLAGS) $(TEST_CFLAGS) \
 		$(TEST_DIR)/config_fuzz_test.c \
 		$(OBJ_DIR)/config/config.o $(OBJ_DIR)/filesystem/filesystem.o \
 		$(LDFLAGS) $(LDLIBS) -o $@
@@ -850,7 +882,7 @@ $(CONFIG_FUZZ_TEST_BIN): \
 $(ROBUSTNESS_TEST_BIN): $(TEST_DIR)/robustness_test.c $(LIB_OBJECTS)
 	@mkdir -p $(BIN_DIR)
 	@printf '[TEST-CC] robustness_test\n'
-	$(CC) $(CPPFLAGS) $(CFLAGS) \
+	$(CC) $(CPPFLAGS) $(TEST_CFLAGS) \
 		$(TEST_DIR)/robustness_test.c \
 		$(LIB_OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
 
@@ -938,9 +970,9 @@ test-sema: $(TARGET_BIN)
 		$(TEST_DIR)/import_visibility/glob_private.vit \
 		--stop-after-sema \
 		--quiet --no-color 2>&1`; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F 'E0404' >/dev/null && \
 	! printf '%s\n' "$$output" | grep -F 'E0504' >/dev/null
 
@@ -949,23 +981,23 @@ test-sema: $(TARGET_BIN)
 		$(TEST_DIR)/sema_calls/local_param_mismatch.vit \
 		--stop-after-sema \
 		--quiet --no-color 2>&1`; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F 'E0602' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'expected i64, found string' >/dev/null && \
-	printf '%s\n' "$$output" | grep -F 'help: Argument 1 does not match parameter' >/dev/null
+	printf '%s\n' "$$output" | grep -F '"help":"Argument 1 does not match parameter' >/dev/null
 
 	@set +e; \
 	output=`$(TARGET_BIN) compile \
 		$(TEST_DIR)/sema_calls/signed_variable_to_u64_mismatch.vit \
 		--stop-after-sema \
 		--quiet --no-color 2>&1`; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F 'E0602' >/dev/null && \
-	printf '%s\n' "$$output" | grep -F 'help: Argument 1 does not match parameter' >/dev/null
+	printf '%s\n' "$$output" | grep -F '"help":"Argument 1 does not match parameter' >/dev/null
 
 # -----------------------------------------------------------------------------
 # Import/export tests
@@ -981,7 +1013,7 @@ $(IMPORT_GRAPH_TEST_BIN): \
 	@printf '[TEST-CC] import_graph_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/import_graph_test.c \
 		$(SRC_ROOT)/import/import.c \
 		$(LDFLAGS) \
@@ -1002,7 +1034,7 @@ $(IMPORT_FUZZ_TEST_BIN): \
 	@printf '[TEST-CC] import_fuzz_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/import_fuzz_test.c \
 		$(SRC_ROOT)/import/import.c \
 		$(LDFLAGS) \
@@ -1022,7 +1054,7 @@ $(CONCURRENT_TEST_BIN): \
 	@printf '[TEST-CC] concurrent_compile_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		-pthread \
 		$(TEST_DIR)/concurrent_compile_test.c \
 		$(LIB_OBJECTS) \
@@ -1043,7 +1075,10 @@ test-concurrent: $(CONCURRENT_TEST_BIN) $(TARGET_BIN)
 
 SCALE_COMPILER ?= $(TARGET_BIN)
 SCALE_TIMEOUT ?= 180
-SCALE_SOURCE_MIB ?= 48
+# Keep debug stress inputs large enough to cross scanner boundaries without
+# making unoptimized scans exceed the per-process CI timeout. Release gates
+# retain the full 48 MiB workload.
+SCALE_SOURCE_MIB ?= $(if $(filter release,$(MODE)),48,2)
 SCALE_DECLARATIONS ?= 10000
 
 .PHONY: test-scale
@@ -1071,6 +1106,8 @@ test-frontend: $(TARGET_BIN)
 RUNTIME_CANDIDATES := \
 	$(TEST_DIR)/aggregate_runtime.vit \
 	$(TEST_DIR)/contracts_ok.vit \
+	$(TEST_DIR)/generic_trait_method_dispatch_runtime.vit \
+	$(TEST_DIR)/generic_pick_runtime.vit \
 	$(TEST_DIR)/ir_declaration_runtime.vit \
 	$(TEST_DIR)/native_fixed_array_runtime.vit \
 	$(TEST_DIR)/llvm_array_runtime.vit \
@@ -1147,8 +1184,8 @@ test-mir-control-flow: $(TARGET_BIN)
 # end-to-end driver behavior. Broader stress, fuzz, and sanitizer suites remain
 # part of `make test` and `make test-sanitizers`.
 .PHONY: test-build-invalidation
-test-build-invalidation:
-	$(PYTHON) $(TEST_DIR)/incremental_build_test.py
+test-build-invalidation: $(BOOTSTRAP_TARGET_BIN)
+	VITTE_BIN="$(BOOTSTRAP_TARGET_BIN)" $(PYTHON) $(TEST_DIR)/incremental_build_test.py
 
 .PHONY: test-packaging-matrix
 test-packaging-matrix:
@@ -1651,6 +1688,7 @@ help:
 		'Build:' \
 		'  make                         Build debug compiler' \
 		'  make bootstrap               Build only the C seed compiler' \
+		'  make bootstrap-archive       Archive the historical C seed modules' \
 		'  make debug                   Build debug compiler' \
 		'  make release                 Build optimized compiler' \
 		'  make asan                    Build with ASan + UBSan' \

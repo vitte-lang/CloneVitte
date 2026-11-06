@@ -1,0 +1,40 @@
+trait NumericMarker {}
+trait StableMarker {}
+
+impl NumericMarker for i64 {}
+impl StableMarker for i64 {}
+
+form Guarded<T: NumericMarker + StableMarker> {
+    value: T,
+}
+
+form WhereGuarded<T> where T: NumericMarker + StableMarker {
+    value: T,
+}
+
+form Box<T> {
+    value: T,
+}
+
+trait Container {}
+impl<T> Container for Box<T> where T: NumericMarker + StableMarker {}
+
+proc keep<T: NumericMarker + StableMarker>(value: T) -> T {
+    return value;
+}
+
+proc keep_where<T>(value: T) -> T where T: NumericMarker + StableMarker {
+    return value;
+}
+
+proc contain<T: Container>(value: T) -> T {
+    return value;
+}
+
+proc main() -> i64 {
+    let guarded = Guarded<i64> { value: keep(40) };
+    let where_guarded = WhereGuarded<i64> { value: keep_where(41) };
+    let box = Box<i64> { value: where_guarded.value };
+    if guarded.value != 40 { return 1; }
+    return contain(box).value - 41;
+}

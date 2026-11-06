@@ -105,12 +105,15 @@ use compiler::parser::parser::{
     ASTNodeId,
     ParserToken,
     ParserTokenSpan,
+    PARSER_AST_FLAG_COMPTIME,
+    PARSER_AST_FLAG_ASYNC,
     vitte_parser_destroy,
     vitte_parser_get_node,
     vitte_parser_init,
     vitte_parser_node_token,
     vitte_parser_fingerprint,
     vitte_parser_run_native,
+    vitte_parser_error_name,
     vitte_parser_diagnostic_at,
     vitte_parser_diagnostic_count
 };
@@ -133,6 +136,7 @@ use compiler::sema::sema::{
 };
 use compiler::scope::scope::{
     Scope,
+    Symbol,
     vitte_scope_get_symbol
 };
 
@@ -188,10 +192,13 @@ export form NativePipelineResult {
     generated_source: string,
     lexer_error: LexerError,
     parser_error: u32,
+    parser_code: string,
+    parser_detail: string,
     sema_error: u32,
     hir_error: u32,
     ir_error: u32,
     codegen_error: u32,
+    codegen_detail: string,
     token_count: usize,
     parser_diagnostic_count: usize,
     sema_diagnostic_count: usize,
@@ -454,9 +461,10 @@ proc native_pipeline_sema_has_type_context(code: SemaDiagnosticCode) -> bool {
 
 proc native_pipeline_cstring(value: *const char) -> string {
     if value == null { return ""; }
+    let value_bytes = value as *const u8;
     let mut length: usize = 0;
-    while value[length] != 0 { set length += 1; }
-    return string.from_bytes(value as *mut u8, length);
+    while value_bytes[length] != 0 { set length += 1; }
+    return string.from_bytes(value_bytes as *mut u8, length);
 }
 
 proc native_pipeline_c_string(value: string) -> *const char {
@@ -633,14 +641,14 @@ proc native_pipeline_export_diagnostics(
         let mut related_label: *const char = null;
         if (*source_diagnostic).type_context == SemaTypeContextKind.Argument {
             probable_cause = native_pipeline_c_string("the argument does not satisfy the parameter type");
-            let context_symbol = if (*source_diagnostic).context_symbol_id == 0 {
+            let context_symbol: *const Symbol = if (*source_diagnostic).context_symbol_id == 0 {
                 null
             } else {
                 vitte_scope_get_symbol((&((*sema).scopes)) as *const Scope, (*source_diagnostic).context_symbol_id)
             };
             if context_symbol != null {
                 symbol = (*context_symbol).name as *const char;
-                let parameter_name = string.from_bytes((*context_symbol).name as *mut u8, (*context_symbol).name_length);
+                let parameter_name: string = string.from_bytes((*context_symbol).name as *mut u8, (*context_symbol).name_length);
                 set context_text = "argument " + native_pipeline_size_to_string((*source_diagnostic).context_index) +
                     " / parameter `" + parameter_name + "`";
                 let declaration_span = (*context_symbol).span;
@@ -677,7 +685,7 @@ proc native_pipeline_export_diagnostics(
                 native_pipeline_c_string("the assigned value does not satisfy the target type")
             };
             set context_text = "assignment / mutable binding";
-            let assignment_symbol = if (*source_diagnostic).context_symbol_id == 0 {
+            let assignment_symbol: *const Symbol = if (*source_diagnostic).context_symbol_id == 0 {
                 null
             } else {
                 vitte_scope_get_symbol(
@@ -713,22 +721,22 @@ proc native_pipeline_export_diagnostics(
             }
         } elif (*source_diagnostic).type_context == SemaTypeContextKind.Field {
             probable_cause = native_pipeline_c_string("the field value does not satisfy the declared field type");
-            let field_declaration = vitte_parser_get_node(
+            let field_declaration: *const ASTNode = vitte_parser_get_node(
                 (*sema).parser,
                 (*source_diagnostic).context_index as ASTNodeId
             );
             if field_declaration != null {
                 if (*field_declaration).child_count != 0 and (*field_declaration).children != null {
-                    let field_name_node = vitte_parser_get_node(
+                    let field_name_node: *const ASTNode = vitte_parser_get_node(
                         (*sema).parser,
                         (*field_declaration).children[0]
                     );
-                    let field_name_token = vitte_parser_node_token(
+                    let field_name_token: *const ParserToken = vitte_parser_node_token(
                         (*sema).parser,
                         field_name_node
                     );
                     if field_name_token != null {
-                        let field_name = string.from_bytes(
+                        let field_name: string = string.from_bytes(
                             (*field_name_token).lexeme,
                             (*field_name_token).length
                         );
@@ -915,8 +923,8 @@ export proc native_pipeline_emit_c17_unit(
     if codegen == null or unit == null or backend_data == null or (*unit).input == null {
         return false;
     }
-    let input = (*unit).input as *const NativePipelineC17Input;
-    let backend = &mut *(backend_data as *mut NativePipelineC17Backend);
+    let input: *const NativePipelineC17Input = (*unit).input as *const NativePipelineC17Input;
+    let backend: *mut NativePipelineC17Backend = &mut *(backend_data as *mut NativePipelineC17Backend);
     if input == null or ((*input).parser == null and (*input).ast_fallback) or
        ((*input).ir == null and not (*input).ast_fallback) {
         return false;
@@ -998,15 +1006,15 @@ proc native_pipeline_emit_c17(
         );
     }
 
-    let mut backend = NativePipelineC17Backend { output: failed_output };
-    let input = NativePipelineC17Input {
+    let mut backend: NativePipelineC17Backend = NativePipelineC17Backend { output: failed_output };
+    let input: NativePipelineC17Input = NativePipelineC17Input {
         parser: parser as *const Parser,
         ir: if ir == null { null } else { ir? as *const IRContext },
         ast_fallback: ast_fallback
     };
     let mut interface: CodegenBackendInterface = CodegenBackendInterface {};
     set interface.emit_unit = native_pipeline_emit_c17_unit;
-    let unit = CodegenUnit {
+    let unit: CodegenUnit = CodegenUnit {
         id: 1,
         name: native_pipeline_c_string("main"),
         input: (&input) as *const NativePipelineC17Input as *const u8,
@@ -1040,12 +1048,12 @@ proc native_pipeline_emit_c17(
 /// lowerers.
 proc native_pipeline_form_supported(parser: &Parser, node: &ASTNode) -> bool {
     if node.child_count == 0 or parser.nodes == null { return false; }
-    let form_name_node = vitte_parser_get_node(parser, node.children[0]);
-    let form_name_token = if form_name_node == null { null } else { vitte_parser_node_token(parser, form_name_node) };
+    let form_name_node: *const ASTNode = vitte_parser_get_node(parser, node.children[0]);
+    let form_name_token: *const ParserToken = if form_name_node == null { null } else { vitte_parser_node_token(parser, form_name_node) };
     if form_name_token == null { return false; }
     let mut index: usize = 1;
     while index < node.child_count {
-        let part = vitte_parser_get_node(parser, node.children[index]);
+        let part: *const ASTNode = vitte_parser_get_node(parser, node.children[index]);
         if part == null or part.kind == ASTNodeKind.GenericParam or part.kind == ASTNodeKind.WhereClause { return false; }
         if part.kind != ASTNodeKind.FieldDecl or part.child_count != 2 { return false; }
         if not native_pipeline_form_field_type_supported(
@@ -1066,7 +1074,7 @@ proc native_pipeline_form_named_type_supported(
     if node == null or owner_name == null or
        (node.kind != ASTNodeKind.Identifier and node.kind != ASTNodeKind.Path) or
        (node.kind == ASTNodeKind.Path and node.child_count != 1) { return false; }
-    let named_token = vitte_parser_node_token(parser, node);
+    let named_token: *const ParserToken = vitte_parser_node_token(parser, node);
     if named_token == null { return false; }
     let builtin = named_token.lexeme == "i64" or named_token.lexeme == "i32" or
         named_token.lexeme == "u64" or named_token.lexeme == "usize" or
@@ -1084,12 +1092,12 @@ proc native_pipeline_form_named_type_supported(
     while declaration_index < parser.node_count {
         let declaration = &parser.nodes[declaration_index];
         if (declaration.kind == ASTNodeKind.FormDecl or declaration.kind == ASTNodeKind.PickDecl) and declaration.child_count != 0 {
-            let declaration_name = vitte_parser_get_node(parser, declaration.children[0]);
-            let declaration_token = if declaration_name == null { null } else { vitte_parser_node_token(parser, declaration_name) };
+            let declaration_name: *const ASTNode = vitte_parser_get_node(parser, declaration.children[0]);
+            let declaration_token: *const ParserToken = if declaration_name == null { null } else { vitte_parser_node_token(parser, declaration_name) };
             if declaration_token != null and declaration_token.length == named_token.length and declaration_token.lexeme == named_token.lexeme {
                 let mut part_index: usize = 1;
                 while part_index < declaration.child_count {
-                    let part = vitte_parser_get_node(parser, declaration.children[part_index]);
+                    let part: *const ASTNode = vitte_parser_get_node(parser, declaration.children[part_index]);
                     if part == null or part.kind == ASTNodeKind.GenericParam or part.kind == ASTNodeKind.WhereClause {
                         return false;
                     }
@@ -1108,7 +1116,7 @@ proc native_pipeline_form_field_type_supported(
     type_id: ASTNodeId,
     owner_name: *const ParserToken
 ) -> bool {
-    let node = vitte_parser_get_node(parser, type_id);
+    let node: *const ASTNode = vitte_parser_get_node(parser, type_id);
     if node == null { return false; }
     if node.kind == ASTNodeKind.TypeExpr {
         return node.child_count == 1 and native_pipeline_form_field_type_supported(
@@ -1126,7 +1134,7 @@ proc native_pipeline_form_field_type_supported(
     }
     if node.kind == ASTNodeKind.ArrayType {
         if node.child_count != 2 { return false; }
-        let length = vitte_parser_get_node(parser, node.children[0]);
+        let length: *const ASTNode = vitte_parser_get_node(parser, node.children[0]);
         if length == null or length.kind != ASTNodeKind.IntegerLiteral { return false; }
         return native_pipeline_form_field_type_supported(
             parser,
@@ -1142,8 +1150,92 @@ proc native_pipeline_requires_ast_codegen(parser: &Parser) -> bool {
     let mut index: usize = 0;
     while index < parser.node_count {
         let node = &parser.nodes[index];
+        if node.attribute_count != 0 {
+            return true;
+        }
+        if (node.node_flags & PARSER_AST_FLAG_COMPTIME) != 0 {
+            return true;
+        }
+        // HIR/IR do not yet represent imported module declarations. Keep
+        // qualified imports on the C17 AST path, which resolves and emits
+        // their source modules as part of the compilation unit.
+        if node.kind == ASTNodeKind.UseDecl { return true; }
+        if node.kind == ASTNodeKind.ExternProcDecl {
+            let declaration_token: *const ParserToken = vitte_parser_node_token(parser, node);
+            if declaration_token != null and
+               (*declaration_token).lexeme == "intrinsic" {
+                return true;
+            }
+        }
+        // These legacy string builtins are implemented by the C17 AST
+        // emitter, while native sema and IR lowering still lack their
+        // builtin declarations and operations.
+        if node.kind == ASTNodeKind.CallExpr and node.child_count != 0 {
+            let callee: *const ASTNode = vitte_parser_get_node(parser, node.children[0]);
+            let name_node: *const ASTNode = if callee != null and callee.kind == ASTNodeKind.Path and
+                callee.child_count != 0 {
+                vitte_parser_get_node(parser, callee.children[callee.child_count - 1])
+            } else { callee };
+            let name: *const ParserToken = vitte_parser_node_token(parser, name_node);
+            if name != null and ((*name).lexeme == "trim" or
+               (*name).lexeme == "starts_with" or (*name).lexeme == "ends_with") {
+                return true;
+            }
+        }
         if node.kind == ASTNodeKind.FormDecl and not native_pipeline_form_supported(parser, node) { return true; }
         if node.kind == ASTNodeKind.TestDecl { return true; }
+        if node.kind == ASTNodeKind.AwaitExpr { return true; }
+        if (node.kind == ASTNodeKind.ProcDecl or node.kind == ASTNodeKind.ExternProcDecl) and
+           (node.node_flags & PARSER_AST_FLAG_ASYNC) != 0 {
+            return true;
+        }
+        if node.kind == ASTNodeKind.AssertStmt { return true; }
+        if node.kind == ASTNodeKind.DeferStmt { return true; }
+        if node.kind == ASTNodeKind.UnsafeBlock { return true; }
+        if node.kind == ASTNodeKind.AsmStmt { return true; }
+        set index += 1;
+    }
+    return false;
+}
+
+proc native_pipeline_has_print_call(parser: &Parser) -> bool {
+    if parser.nodes == null { return false; }
+    let mut index: usize = 0;
+    while index < parser.node_count {
+        let node = &parser.nodes[index];
+        if node.kind == ASTNodeKind.CallExpr and node.child_count != 0 {
+            let callee: *const ASTNode = vitte_parser_get_node(parser, node.children[0]);
+            let name_node = if callee != null and callee.kind == ASTNodeKind.Path and
+                callee.child_count != 0 {
+                vitte_parser_get_node(parser, callee.children[callee.child_count - 1])
+            } else {
+                callee
+            };
+            let name: *const ParserToken = vitte_parser_node_token(parser, name_node);
+            if name != null and (*name).lexeme == "print" { return true; }
+        }
+        set index += 1;
+    }
+    return false;
+}
+
+proc native_pipeline_requires_generic_pick_ast_codegen(parser: &Parser) -> bool {
+    if parser.nodes == null { return false; }
+    let mut index: usize = 0;
+    while index < parser.node_count {
+        let node = &parser.nodes[index];
+        if node.kind == ASTNodeKind.PickDecl {
+            let mut child_index: usize = 1;
+            while child_index < node.child_count {
+                let child: *const ASTNode = vitte_parser_get_node(parser, node.children[child_index]);
+                if child != null and
+                   (child.kind == ASTNodeKind.GenericParam or
+                    child.kind == ASTNodeKind.WhereClause) {
+                    return true;
+                }
+                set child_index += 1;
+            }
+        }
         set index += 1;
     }
     return false;
@@ -1157,7 +1249,7 @@ proc native_pipeline_has_generic_form_declaration(parser: &Parser) -> bool {
         if declaration.kind == ASTNodeKind.FormDecl {
             let mut child_index: usize = 1;
             while child_index < declaration.child_count {
-                let child = vitte_parser_get_node(parser, declaration.children[child_index]);
+                let child: *const ASTNode = vitte_parser_get_node(parser, declaration.children[child_index]);
                 if child != null and child.kind == ASTNodeKind.GenericParam { return true; }
                 set child_index += 1;
             }
@@ -1167,7 +1259,7 @@ proc native_pipeline_has_generic_form_declaration(parser: &Parser) -> bool {
     return false;
 }
 
-/// References and checked optional unwraps use C17 AST code generation because
+/// References and optional operators use C17 AST code generation because
 /// native HIR/IR lowering does not preserve their address and null-check
 /// behavior. Keep this separate from the legacy semantic fallback so these
 /// programs retain native type diagnostics.
@@ -1176,7 +1268,11 @@ proc native_pipeline_requires_reference_codegen(parser: &Parser) -> bool {
     let mut index: usize = 0;
     while index < parser.node_count {
         let node = &parser.nodes[index];
-        if node.kind == ASTNodeKind.ReferenceType or node.kind == ASTNodeKind.TryExpr { return true; }
+        if node.kind == ASTNodeKind.ReferenceType or node.kind == ASTNodeKind.TryExpr or
+           (node.kind == ASTNodeKind.BinaryExpr and
+            node.operator_kind == TokenKind.QuestionQuestion) {
+            return true;
+        }
         if node.kind == ASTNodeKind.UnaryExpr and node.operator_kind == TokenKind.Amp { return true; }
         set index += 1;
     }
@@ -1197,10 +1293,9 @@ proc native_pipeline_requires_attribute_codegen(parser: &Parser) -> bool {
 }
 
 /// Generic calls that the native IR cannot specialize yet are emitted through
-/// the C17 AST monomorphizer. Restrict detection to unqualified calls whose
-/// generic declaration is in this source unit; imported and qualified calls
-/// keep their normal resolution path.
-proc native_pipeline_has_local_generic_proc_call(parser: &Parser) -> bool {
+/// the C17 AST monomorphizer. Match the terminal name of qualified calls too;
+/// the AST emitter resolves those paths against module declarations and aliases.
+proc native_pipeline_has_generic_proc_call(parser: &Parser) -> bool {
     if parser.nodes == null { return false; }
     let mut declaration_index: usize = 0;
     while declaration_index < parser.node_count {
@@ -1211,7 +1306,7 @@ proc native_pipeline_has_local_generic_proc_call(parser: &Parser) -> bool {
             let mut has_generic_parameter = false;
             let mut child_index: usize = 1;
             while child_index < declaration.child_count {
-                let child = vitte_parser_get_node(
+                let child: *const ASTNode = vitte_parser_get_node(
                     parser,
                     declaration.children[child_index]
                 );
@@ -1222,8 +1317,8 @@ proc native_pipeline_has_local_generic_proc_call(parser: &Parser) -> bool {
                 set child_index += 1;
             }
             if has_generic_parameter {
-                let name = vitte_parser_get_node(parser, declaration.children[0]);
-                let name_token = if name == null { null } else {
+                let name: *const ASTNode = vitte_parser_get_node(parser, declaration.children[0]);
+                let name_token: *const ParserToken = if name == null { null } else {
                     vitte_parser_node_token(parser, name)
                 };
                 if name_token != null {
@@ -1231,14 +1326,17 @@ proc native_pipeline_has_local_generic_proc_call(parser: &Parser) -> bool {
                     while call_index < parser.node_count {
                         let call = &parser.nodes[call_index];
                         if call.kind == ASTNodeKind.CallExpr and call.child_count != 0 {
-                            let callee = vitte_parser_get_node(parser, call.children[0]);
+                            let callee: *const ASTNode = vitte_parser_get_node(parser, call.children[0]);
                             if callee != null and
                                (callee.kind == ASTNodeKind.Identifier or
-                                (callee.kind == ASTNodeKind.Path and callee.child_count == 1)) {
-                                let call_name_node = if callee.kind == ASTNodeKind.Path {
-                                    vitte_parser_get_node(parser, callee.children[0])
+                                (callee.kind == ASTNodeKind.Path and callee.child_count != 0)) {
+                                let call_name_node: *const ASTNode = if callee.kind == ASTNodeKind.Path {
+                                    vitte_parser_get_node(
+                                        parser,
+                                        callee.children[callee.child_count - 1]
+                                    )
                                 } else { callee };
-                                let call_name = if call_name_node == null { null } else {
+                                let call_name: *const ParserToken = if call_name_node == null { null } else {
                                     vitte_parser_node_token(parser, call_name_node)
                                 };
                                 if call_name != null and
@@ -1351,10 +1449,13 @@ proc native_pipeline_result(
         generated_source: "",
         lexer_error: lexer_error,
         parser_error: 0,
+        parser_code: "",
+        parser_detail: "",
         sema_error: 0,
         hir_error: 0,
         ir_error: 0,
         codegen_error: 0,
+        codegen_detail: "",
         token_count: token_count,
         parser_diagnostic_count: 0,
         sema_diagnostic_count: 0,
@@ -1533,10 +1634,15 @@ proc native_pipeline_run_with_config(
     let mut parser: Parser = Parser {};
     if not vitte_parser_init(&mut parser, parser_tokens.as_ptr(), parser_tokens.len()) {
         let parser_error = parser.last_error as u32;
+        let parser_code = native_pipeline_parser_code(parser.last_error);
+        let parser_detail = "native parser initialization failed: " +
+            vitte_parser_error_name(parser.last_error);
         vitte_parser_destroy(&mut parser);
         vitte_lexer_destroy(&mut lexer);
         let mut result = native_pipeline_result(Status.ErrorParse, NativePipelinePhase.Lexed, LexerError.None, token_count, lexer_hash, false);
         set result.parser_error = parser_error;
+        set result.parser_code = parser_code;
+        set result.parser_detail = parser_detail;
         set result.native_parser_attempted = true;
         return result;
     }
@@ -1544,8 +1650,27 @@ proc native_pipeline_run_with_config(
     let parsed = vitte_parser_run_native(&mut parser);
     let parser_diagnostics = vitte_parser_diagnostic_count(&parser);
     let parser_error = parser.last_error as u32;
+    let parser_error_kind = parser.last_error;
     let parser_hash = native_pipeline_parser_fingerprint(&mut parser);
     if not parsed {
+        let mut parser_detail = "native parser rejected the source: " +
+            vitte_parser_error_name(parser_error_kind);
+        let first_diagnostic = vitte_parser_diagnostic_at(&parser, 0);
+        if first_diagnostic != null {
+            let diagnostic_span = (*first_diagnostic).span;
+            if diagnostic_span.valid {
+                set parser_detail += " at byte " +
+                    native_pipeline_size_to_string(diagnostic_span.begin);
+            }
+            if (*first_diagnostic).expected != TokenKind.Invalid {
+                set parser_detail += "; expected " +
+                    vitte_token_kind_name((*first_diagnostic).expected);
+            }
+            if (*first_diagnostic).found != TokenKind.Invalid {
+                set parser_detail += "; found " +
+                    vitte_token_kind_name((*first_diagnostic).found);
+            }
+        }
         let _ = native_pipeline_export_diagnostics(
             &parser,
             null,
@@ -1560,6 +1685,8 @@ proc native_pipeline_run_with_config(
         vitte_lexer_destroy(&mut lexer);
         let mut result = native_pipeline_result(Status.ErrorParse, NativePipelinePhase.Lexed, LexerError.None, token_count, lexer_hash, false);
         set result.parser_error = parser_error;
+        set result.parser_code = native_pipeline_parser_code(parser_error_kind);
+        set result.parser_detail = parser_detail;
         set result.parser_diagnostic_count = parser_diagnostics;
         set result.parser_fingerprint = parser_hash;
         set result.native_parser_attempted = true;
@@ -1590,11 +1717,16 @@ proc native_pipeline_run_with_config(
     }
 
     let semantic_fallback = native_pipeline_requires_ast_codegen(&parser);
-    let ast_fallback = semantic_fallback or
+    let print_ast_fallback = action == NATIVE_FRONTEND_ACTION_COMPILE and
+        native_pipeline_has_print_call(&parser);
+    let generic_pick_ast_fallback = action == NATIVE_FRONTEND_ACTION_COMPILE and
+        native_pipeline_requires_generic_pick_ast_codegen(&parser);
+    let ast_fallback = semantic_fallback or print_ast_fallback or
         native_pipeline_requires_reference_codegen(&parser) or
-        native_pipeline_requires_attribute_codegen(&parser);
+        native_pipeline_requires_attribute_codegen(&parser) or
+        generic_pick_ast_fallback;
     let generic_proc_c17_fallback = action == NATIVE_FRONTEND_ACTION_COMPILE and
-        native_pipeline_has_local_generic_proc_call(&parser);
+        native_pipeline_has_generic_proc_call(&parser);
 
     let mut sema: Sema = Sema {};
     if not vitte_sema_init(&mut sema, &parser) {
@@ -1883,6 +2015,7 @@ proc native_pipeline_run_with_config(
     set result.generated_source_bytes = if output.success { output.source.length } else { 0 as usize };
     set result.codegen_fingerprint = if output.success { native_pipeline_fingerprint(output.source) } else { 0 as u64 };
     set result.codegen_error = output.codegen_error as u32;
+    set result.codegen_detail = output.error;
     if output.success {
         set result.generated_source = output.source;
         if generated_source != null { set *generated_source = output.source.as_ptr() as *mut u8; }
@@ -1900,6 +2033,24 @@ export proc native_pipeline_run(
     file_id: u64
 ) -> NativePipelineResult {
     return native_pipeline_run_with_config(source, source_length, file_id, NATIVE_FRONTEND_ACTION_COMPILE, null, null, null, null, null, null);
+}
+
+/// Check a source file through parsing and semantic analysis without lowering
+/// it into HIR or invoking a code generator.
+export proc native_pipeline_check(
+    source: ?str,
+    source_length: usize,
+    file_id: u64
+) -> NativePipelineResult {
+    return native_pipeline_run_with_config(source, source_length, file_id, NATIVE_FRONTEND_ACTION_CHECK, null, null, null, null, null, null);
+}
+
+export proc native_pipeline_emit_ir(
+    source: ?str,
+    source_length: usize,
+    file_id: u64
+) -> NativePipelineResult {
+    return native_pipeline_run_with_config(source, source_length, file_id, NATIVE_FRONTEND_ACTION_EMIT_IR, null, null, null, null, null, null);
 }
 
 /// Run the native driver before the CLI compatibility backend. Return 1 when
@@ -2057,4 +2208,3 @@ export proc vitte_native_frontend_execute_with_diagnostics(
 export proc vitte_native_frontend_release_output(generated_source: *mut u8) {
     if generated_source != null { deallocate(generated_source); }
 }
-

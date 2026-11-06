@@ -1,0 +1,6 @@
+extern proc srand(seed: u32);
+
+proc main() -> i64 {
+    srand(42 as u32);
+    return 0;
+}
