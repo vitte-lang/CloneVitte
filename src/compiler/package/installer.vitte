@@ -499,11 +499,34 @@ export proc vitte_package_install(name: string, requested_version: ?string, glob
         "-xzf".as_ptr() as *const u8,
         archive_path.as_ptr() as *const u8,
         "-C".as_ptr() as *const u8,
-        stage_path.as_ptr() as *const u8,
-        "--strip-components".as_ptr() as *const u8,
-        "1".as_ptr() as *const u8
+        stage_path.as_ptr() as *const u8
     ];
-    if not package_process("tar", extraction_arguments) or not package_metadata_matches(stage_path, release) {
+    if not package_process("tar", extraction_arguments) {
+        package_report("vitte install: archive layout or package metadata is invalid");
+        package_discard_bool(package_remove_tree(stage_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+        return 1;
+    }
+    let mut extracted_listing: FilesystemDirectoryList = FilesystemDirectoryList {
+        entries: null,
+        count: 0,
+        capacity: 0
+    };
+    let listing_result = vitte_filesystem_list_directory(stage_path, 2, &mut extracted_listing);
+    let mut extracted_package_path = "";
+    if listing_result.error == FilesystemError.None {
+        if extracted_listing.count == 1 {
+            if extracted_listing.entries[0].kind == FilesystemKind.Directory {
+                set extracted_package_path = vitte_filesystem_join(
+                    stage_path,
+                    extracted_listing.entries[0].name
+                );
+            }
+        }
+    }
+    vitte_filesystem_directory_list_destroy(&mut extracted_listing);
+    if extracted_package_path == "" or not package_metadata_matches(extracted_package_path, release) {
         package_report("vitte install: archive layout or package metadata is invalid");
         package_discard_bool(package_remove_tree(stage_path));
         package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
@@ -523,7 +546,7 @@ export proc vitte_package_install(name: string, requested_version: ?string, glob
         }
         set old_target_moved = true;
     }
-    if vitte_filesystem_rename(stage_path, target_path).error != FilesystemError.None {
+    if vitte_filesystem_rename(extracted_package_path, target_path).error != FilesystemError.None {
         if old_target_moved { package_discard_filesystem_result(vitte_filesystem_rename(backup_path, target_path)); }
         package_report("vitte install: cannot activate the downloaded package");
         package_discard_bool(package_remove_tree(stage_path));
@@ -531,6 +554,7 @@ export proc vitte_package_install(name: string, requested_version: ?string, glob
         package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
         return 1;
     }
+    package_discard_bool(package_remove_tree(stage_path));
     if not global_install and not package_write_project_records(current_directory, release) {
         package_discard_bool(package_remove_tree(target_path));
         if old_target_moved { package_discard_filesystem_result(vitte_filesystem_rename(backup_path, target_path)); }

@@ -15,6 +15,18 @@ if [ -z "$GMAKE" ]; then
   fi
 fi
 
+# The bootstrap driver launches `cc` directly; make and the native driver use
+# CC. Put the selected compiler behind that portable command name as well.
+if [ "$CC" != "cc" ]; then
+  cc_path=$(command -v "$CC")
+  cc_shim_dir="${TMPDIR:-/tmp}/vitte-posix-cc-$$"
+  mkdir "$cc_shim_dir"
+  ln -s "$cc_path" "$cc_shim_dir/cc"
+  PATH="$cc_shim_dir:$PATH"
+  export PATH
+  trap 'rm -f "$cc_shim_dir/cc"; rmdir "$cc_shim_dir" 2>/dev/null || true' 0
+fi
+
 printf '[POSIX-VM] host: '
 uname -a
 printf '[POSIX-VM] make: '

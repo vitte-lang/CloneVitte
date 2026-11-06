@@ -34,6 +34,7 @@ extern proc vitte_native_host_process_run(
     arguments: *const *const u8,
     argument_count: usize
 ) -> i32;
+extern proc vitte_native_environment_value(name: string) -> ?str;
 
 extern proc vitte_native_fs_file_open(path: *const u8, mode: *const u8) -> *mut u8;
 extern proc vitte_native_fs_file_write(data: *const u8, length: usize, file: *mut u8) -> usize;
@@ -134,6 +135,15 @@ export proc vitte_driver_run_host_toolchain(
     let mut source_created = false;
     let mut object_created = false;
     let mut executable_created = false;
+    let mut compiler_program: string = "cc";
+    let configured_compiler = vitte_native_environment_value("CC");
+    if configured_compiler != null {
+        let selected_compiler = configured_compiler?;
+        if selected_compiler != "" {
+            set compiler_program = selected_compiler;
+        }
+    }
+
     if vitte_native_host_temp_path(0, source_buffer, HOST_TEMP_PATH_CAPACITY) == 0 {
         host_tools_cleanup(
             source_buffer, object_buffer, executable_buffer,
@@ -228,7 +238,7 @@ export proc vitte_driver_run_host_toolchain(
     set compile_argument_count += 1;
 
     let compile_status = host_tools_run_arguments(
-        "cc".as_ptr() as *const u8,
+        compiler_program.as_ptr() as *const u8,
         compile_arguments,
         compile_argument_count
     );
@@ -267,7 +277,11 @@ export proc vitte_driver_run_host_toolchain(
         set link_arguments[0] = object_buffer;
         set link_arguments[1] = "-o".as_ptr() as *mut u8;
         set link_arguments[2] = link_output as *mut u8;
-        let link_status = host_tools_run_arguments("cc".as_ptr() as *const u8, link_arguments, 3);
+        let link_status = host_tools_run_arguments(
+            compiler_program.as_ptr() as *const u8,
+            link_arguments,
+            3
+        );
         deallocate(link_arguments as *mut u8);
         if link_status != 1 {
             host_tools_cleanup(

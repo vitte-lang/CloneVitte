@@ -51,8 +51,8 @@ jobs:
         with:
           release: "11.1"
           copyback: false
-          prepare: /usr/sbin/pkg_add -u gmake curl
-          run: GMAKE=gmake CC=cc sh scripts/ci/posix-vm-smoke.sh
+          prepare: /usr/sbin/pkg_add -u gmake curl gcc14
+          run: GMAKE=gmake CC=/usr/pkg/gcc14/bin/gcc sh scripts/ci/posix-vm-smoke.sh
 
       - name: Build and run on Solaris
         if: matrix.name == 'Solaris'
@@ -78,5 +78,8 @@ jobs:
         with:
           release: "202610-build"
           copyback: false
-          prepare: pkg install curl
+          prepare: |
+            if ! command -v curl >/dev/null 2>&1; then
+              pkg install curl
+            fi
           run: GMAKE=gmake CC=gcc sh scripts/ci/posix-vm-smoke.sh
