@@ -128,14 +128,15 @@ conditions suivantes seront réunies :
 
 Le bootstrap peut servir de compilateur seed pendant la construction et rester
 archivé pour cette étape. Il ne peut ni participer au lien de `vitte`, ni
-prendre en charge une commande à l’exécution. Le travail en cours a déjà
-raccordé l’entrée du processus au dispatcher Vitte et limité les objets
-sélectionnés par le lien principal aux adaptateurs de frontière. La compilation
-release du frontend natif et la génération C17 de l’API passent désormais.
-`vitte install` est maintenant dispatché vers un module Vitte avec vérification
-SHA-256 et mise à jour transactionnelle des fichiers du projet. L’audit détaillé
-des symboles et les gates de parité/self-host sur Linux, macOS et Windows restent
-à confirmer.
+prendre en charge une commande à l’exécution. L’entrée du processus est
+raccordée au dispatcher Vitte et les objets du lien principal sont limités aux
+adaptateurs de frontière. La compilation release du frontend natif et la
+génération C17 de l’API passent. `vitte install` est dispatché vers un module
+Vitte avec vérification SHA-256 et mise à jour transactionnelle des fichiers du
+projet. Au 6 novembre 2026, les gates multiplateformes de parité, corpus,
+self-host et installation ont été observés verts sur Linux, macOS et Windows.
+L’audit détaillé des symboles du binaire principal reste à réaliser avant de
+déclarer le compilateur Vitte autonome à 100 %.
 
 Les stages vérifiés sont mémorisés sous `build/selfhost/`. Pour reprendre après
 un échec, relancez directement la cible du stage concerné :
@@ -210,6 +211,27 @@ Les vérifications d’installation des paquets attendent la réussite de ce gat
 et le job agrégé `Release readiness` échoue si les tests compilateur, self-host
 ou paquets échouent ou sont ignorés. Les preuves self-host sont publiées comme
 artefacts Actions par système.
+
+#### Résultats observés au 6 novembre 2026
+
+Pour le commit [`5524ea2`](https://github.com/vitte-lang/vitte/commit/5524ea27737df6e609dc5207b069bc1c74d6edef), le [run CI 42256984186](https://github.com/vitte-lang/vitte/actions/runs/42256984186) a donné les résultats suivants :
+
+| Gate | Résultat observé |
+| --- | --- |
+| Parité native, corpus compilateur et self-host stages 0–3 | Réussi sur Linux, macOS et Windows (3/3 jobs). |
+| Construction et installation du paquet natif | Réussi sur Linux (`.deb`), macOS (`.pkg`/`.dmg`) et Windows (NSIS) (3/3 jobs). Les smokes d’installation réelle et `vitte install json` ont réussi sur les trois systèmes. |
+| Matrice multiplateforme demandée | **100 % : 6/6 jobs** (3 self-host et 3 installation de paquets). |
+| Gate agrégé `Release readiness` | **Échec ; le statut global n’est pas à 100 %.** |
+
+La cause du statut global est le test plus large `test-sema` du job `Compiler
+and runtime`. La fixture `src/tests/import_visibility/glob_private.vit` doit
+retourner le code 1 avec le diagnostic `E0404` et sans `E0504` ([assertion du
+Makefile](https://github.com/vitte-lang/vitte/blob/5524ea27737df6e609dc5207b069bc1c74d6edef/Makefile#L964)). Au run indiqué,
+le compilateur a retourné le code 1, mais n’a produit aucune sortie de
+diagnostic ; l’assertion a donc échoué. Les étapes suivantes de ce job ont été
+ignorées, puis `Release readiness` a échoué. La matrice multiplateforme est
+verte, mais le gate de publication complet et le critère d’autonomie à 100 % ne
+sont pas encore validés.
 
 La branche `main` exige maintenant le statut `Release readiness`, avec les
 vérifications à jour et sans contournement administrateur. Les règles de
