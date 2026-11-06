@@ -508,7 +508,7 @@ export proc vitte_symbol_record_write(context: *mut SymbolContext, symbol_id: Sy
 export proc vitte_symbol_record_address_taken(context: *mut SymbolContext, symbol_id: SymbolId) -> bool { return symbol_record_flag(context, symbol_id, SYMBOL_FLAG_ADDRESS_TAKEN); }
 export proc vitte_symbol_hash_name(name: *const u8, length: usize) -> u64 {
     if name == null { return 0; }
-    let mut hash = SYMBOL_FNV_OFFSET; let mut index: usize = 0;
+    let mut hash: u64 = SYMBOL_FNV_OFFSET; let mut index: usize = 0;
     while index < length { set hash = (hash ^ (name[index] as u64)) * SYMBOL_FNV_PRIME; set index += 1; }
     return hash;
 }
@@ -531,7 +531,7 @@ export proc vitte_symbol_validate(context: *mut SymbolContext) -> bool {
 export proc vitte_symbol_fingerprint(context: *mut SymbolContext) -> u64 {
     if not symbol_context_usable(context) { return 0; }
     set (*context).stats.hash_runs = symbol_sat_add((*context).stats.hash_runs, 1);
-    let mut hash = SYMBOL_FNV_OFFSET; let mut index: usize = 0;
+    let mut hash: u64 = SYMBOL_FNV_OFFSET; let mut index: usize = 0;
     while index < (*context).symbol_count {
         let item = &((*context).symbols[index]); let mut name_index: usize = 0;
         set hash = (hash ^ item.id) * SYMBOL_FNV_PRIME; set hash = (hash ^ (item.kind as u64)) * SYMBOL_FNV_PRIME;

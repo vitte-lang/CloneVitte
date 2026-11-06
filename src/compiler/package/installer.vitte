@@ -77,7 +77,7 @@ proc package_temp_path() -> string {
         deallocate(buffer);
         return "";
     }
-    let result = string.from_bytes(buffer, length);
+    let result: string = string.from_bytes(buffer, length);
     deallocate(buffer);
     return result;
 }
@@ -90,7 +90,7 @@ proc package_user_modules_root() -> string {
         deallocate(buffer);
         return "";
     }
-    let result = string.from_bytes(buffer, length);
+    let result: string = string.from_bytes(buffer, length);
     deallocate(buffer);
     return result;
 }
@@ -99,7 +99,7 @@ proc package_safe_name(name: string) -> bool {
     if name.len() == 0 or name.len() >= 128 { return false; }
     let mut index: usize = 0;
     while index < name.len() {
-        let character = name[index];
+        let character: char = name[index] as char;
         if not ((character >= 'a' and character <= 'z') or
                 (character >= 'A' and character <= 'Z') or
                 (character >= '0' and character <= '9') or
@@ -113,11 +113,13 @@ proc package_safe_name(name: string) -> bool {
 
 proc package_parse_version(text: string, output: *mut PackageVersion) -> bool {
     if output == null or text.len() == 0 { return false; }
-    let mut values: [u32; 3];
+    let mut major: u32 = 0;
+    let mut minor: u32 = 0;
+    let mut patch: u32 = 0;
     let mut index: usize = 0;
     let mut field: usize = 0;
     while field < 3 {
-        let start = index;
+        let start: usize = index;
         let mut value: u64 = 0;
         while index < text.len() and text[index] >= '0' and text[index] <= '9' {
             value = value * 10 + ((text[index] as u8 - ('0' as u8)) as u64);
@@ -125,7 +127,9 @@ proc package_parse_version(text: string, output: *mut PackageVersion) -> bool {
             set index += 1;
         }
         if index == start or (index - start > 1 and text[start] == '0') { return false; }
-        set values[field] = value as u32;
+        if field == 0 { set major = value as u32; }
+        elif field == 1 { set minor = value as u32; }
+        else { set patch = value as u32; }
         if field < 2 {
             if index >= text.len() or text[index] != '.' { return false; }
             set index += 1;
@@ -133,7 +137,7 @@ proc package_parse_version(text: string, output: *mut PackageVersion) -> bool {
         set field += 1;
     }
     if index != text.len() { return false; }
-    set *output = PackageVersion { major: values[0], minor: values[1], patch: values[2] };
+    set *output = PackageVersion { major: major, minor: minor, patch: patch };
     return true;
 }
 
@@ -199,11 +203,12 @@ proc package_resolve_release(
     release: *mut PackageRelease
 ) -> bool {
     if release == null { return false; }
+    let requested_version_value: ?string = requested_version;
     let mut registry: FilesystemBuffer;
     let read_result = vitte_filesystem_read_file(registry_path, PACKAGE_REGISTRY_LIMIT, &mut registry);
     if read_result.error != FilesystemError.None { return false; }
-    let contents = string.from_bytes(registry.data, registry.length);
-    let mut best_version = PackageVersion { major: 0, minor: 0, patch: 0 };
+    let contents: string = string.from_bytes(registry.data, registry.length);
+    let mut best_version: PackageVersion = PackageVersion { major: 0, minor: 0, patch: 0 };
     let mut found = false;
     let mut start: usize = 0;
     while start < contents.len() {
@@ -212,11 +217,11 @@ proc package_resolve_release(
         let line: string = contents.slice(start, end);
         set start = end + 1;
         if line.len() == 0 or line[0] == '#' { continue; }
-        let name_field = package_field(line, 0);
-        let version_field = package_field(line, 1);
-        let compatible_field = package_field(line, 2);
-        let url_field = package_field(line, 3);
-        let hash_field = package_field(line, 4);
+        let name_field: ?string = package_field(line, 0);
+        let version_field: ?string = package_field(line, 1);
+        let compatible_field: ?string = package_field(line, 2);
+        let url_field: ?string = package_field(line, 3);
+        let hash_field: ?string = package_field(line, 4);
         if name_field == null or version_field == null or compatible_field == null or
            url_field == null or hash_field == null { continue; }
         let release_name = name_field?;
@@ -227,7 +232,7 @@ proc package_resolve_release(
         if package_field(line, 5) != null or release_name != name or
            release_url.len() <= 8 or release_url.slice(0, 8) != "https://" or
            not package_compatible(release_compatibility, compiler_version) or
-           (requested_version != null and release_version != requested_version?) or
+           (requested_version_value != null and release_version != requested_version_value?) or
            release_hash.len() != 64 {
             continue;
         }
@@ -237,7 +242,7 @@ proc package_resolve_release(
             if package_hex_value(release_hash[hash_index] as u8) < 0 { set valid_hash = false; break; }
             set hash_index += 1;
         }
-        let mut parsed_version = PackageVersion { major: 0, minor: 0, patch: 0 };
+        let mut parsed_version: PackageVersion = PackageVersion { major: 0, minor: 0, patch: 0 };
         if not valid_hash or not package_parse_version(release_version, &mut parsed_version) { continue; }
         if not found or package_version_compare(parsed_version, best_version) > 0 {
             set *release = PackageRelease {
@@ -275,7 +280,7 @@ proc package_remove_tree(path: string) -> bool {
     if metadata.kind != FilesystemKind.Directory {
         return vitte_filesystem_remove_file(path).error == FilesystemError.None;
     }
-    let mut listing = FilesystemDirectoryList {
+    let mut listing: FilesystemDirectoryList = FilesystemDirectoryList {
         entries: null,
         count: 0,
         capacity: 0
@@ -298,7 +303,7 @@ proc package_remove_tree(path: string) -> bool {
 proc package_read_text(path: string, maximum: usize, output: *mut string) -> bool {
     if output == null { return false; }
     let mut file: FilesystemBuffer;
-    let result = vitte_filesystem_read_file(path, maximum, &mut file);
+    let result: FilesystemResult = vitte_filesystem_read_file(path, maximum, &mut file);
     if result.error != FilesystemError.None { return false; }
     set *output = string.from_bytes(file.data, file.length);
     vitte_filesystem_buffer_destroy(&mut file);
@@ -403,13 +408,14 @@ proc package_download(url: string, path: string) -> bool {
 
 /// Install a verified stable release into the current project or user module root.
 export proc vitte_package_install(name: string, requested_version: ?string, global_install: bool) -> i32 {
+    let requested_version_value: ?string = requested_version;
     if not package_safe_name(name) {
         package_report("vitte install: invalid package name");
         return 2;
     }
-    if requested_version != null {
-        let mut parsed = PackageVersion { major: 0, minor: 0, patch: 0 };
-        if not package_parse_version(requested_version?, &mut parsed) {
+    if requested_version_value != null {
+        let mut parsed: PackageVersion = PackageVersion { major: 0, minor: 0, patch: 0 };
+        if not package_parse_version(requested_version_value?, &mut parsed) {
             package_report("vitte install: version must be a stable x.y.z version");
             return 2;
         }
@@ -446,7 +452,7 @@ export proc vitte_package_install(name: string, requested_version: ?string, glob
         package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
         return 1;
     }
-    let mut release = PackageRelease { name: "", version: "", download_url: "", sha256: "" };
+    let mut release: PackageRelease = PackageRelease { name: "", version: "", download_url: "", sha256: "" };
     if not package_resolve_release(registry_path, name, requested_version, version_string(), &mut release) {
         package_report("vitte install: no stable compatible release found for this package");
         package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));

@@ -1177,8 +1177,8 @@ test-mir-control-flow: $(TARGET_BIN)
 # end-to-end driver behavior. Broader stress, fuzz, and sanitizer suites remain
 # part of `make test` and `make test-sanitizers`.
 .PHONY: test-build-invalidation
-test-build-invalidation:
-	$(PYTHON) $(TEST_DIR)/incremental_build_test.py
+test-build-invalidation: $(BOOTSTRAP_TARGET_BIN)
+	VITTE_BIN="$(BOOTSTRAP_TARGET_BIN)" $(PYTHON) $(TEST_DIR)/incremental_build_test.py
 
 .PHONY: test-packaging-matrix
 test-packaging-matrix:

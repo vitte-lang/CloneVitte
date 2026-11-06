@@ -496,7 +496,7 @@ export proc vitte_diagnostic_registry_entry_is_valid(entry_value: *const Diagnos
 }
 
 export proc vitte_diagnostic_registry_validate(result: *mut DiagnosticRegistryValidation) -> Status {
-    let mut local = DiagnosticRegistryValidation {
+    let mut local: DiagnosticRegistryValidation = DiagnosticRegistryValidation {
         valid: true,
         entry_count: DIAGNOSTIC_REGISTRY.len(),
         invalid_entry_count: 0,
@@ -506,7 +506,7 @@ export proc vitte_diagnostic_registry_validate(result: *mut DiagnosticRegistryVa
     };
     let mut index: usize = 0;
     while index < DIAGNOSTIC_REGISTRY.len() {
-        let registry_entry = &DIAGNOSTIC_REGISTRY[index];
+        let registry_entry: &DiagnosticRegistryEntry = &DIAGNOSTIC_REGISTRY[index];
         if not vitte_diagnostic_registry_entry_is_valid(registry_entry) {
             set local.invalid_entry_count += 1;
             if local.first_invalid_index == REGISTRY_INDEX_NONE { set local.first_invalid_index = index; }
@@ -562,7 +562,7 @@ export proc vitte_diagnostic_registry_apply(diagnostic_value: *mut Diagnostic) -
 export proc vitte_diagnostic_registry_entry_fingerprint(entry_value: *const DiagnosticRegistryEntry) -> u64 {
     if entry_value == null { return 0; }
     let registry_entry = *entry_value;
-    let mut hash = REGISTRY_FNV_OFFSET;
+    let mut hash: u64 = REGISTRY_FNV_OFFSET;
     set hash = registry_text_hash(hash, registry_entry.internal_code);
     set hash = registry_text_hash(hash, registry_entry.public_code);
     set hash = registry_text_hash(hash, registry_entry.category);
@@ -575,10 +575,10 @@ export proc vitte_diagnostic_registry_entry_fingerprint(entry_value: *const Diag
 }
 
 export proc vitte_diagnostic_registry_fingerprint() -> u64 {
-    let mut hash = REGISTRY_FNV_OFFSET;
+    let mut hash: u64 = REGISTRY_FNV_OFFSET;
     let mut index: usize = 0;
     while index < DIAGNOSTIC_REGISTRY.len() {
-        let registry_entry = &DIAGNOSTIC_REGISTRY[index];
+        let registry_entry: &DiagnosticRegistryEntry = &DIAGNOSTIC_REGISTRY[index];
         set hash = registry_text_hash(hash, (*registry_entry).internal_code);
         set hash = registry_text_hash(hash, (*registry_entry).public_code);
         set hash = registry_text_hash(hash, (*registry_entry).category);

@@ -1057,7 +1057,7 @@ proc parser_parse_use_declaration(parser: *mut Parser, incoming_node_flags: u32)
                     }
                     return PARSER_INVALID_NODE_ID;
                 }
-                let mut alias = PARSER_INVALID_NODE_ID;
+                let mut alias: ASTNodeId = PARSER_INVALID_NODE_ID;
                 if parser_is_as_keyword(parser) {
                     parser_advance(parser);
                     set alias = parser_parse_identifier_node(parser);
@@ -1121,7 +1121,7 @@ proc parser_parse_use_declaration(parser: *mut Parser, incoming_node_flags: u32)
         }
     } else if parser_is_as_keyword(parser) {
         parser_advance(parser);
-        let alias = parser_parse_identifier_node(parser);
+        let alias: ASTNodeId = parser_parse_identifier_node(parser);
         if alias == PARSER_INVALID_NODE_ID or
            not parser_node_append_child(parser, declaration, alias) {
             return PARSER_INVALID_NODE_ID;
@@ -1200,7 +1200,7 @@ proc parser_parse_export_clause(parser: *mut Parser) -> ASTNodeId {
                 return PARSER_INVALID_NODE_ID;
             }
 
-            let mut alias = PARSER_INVALID_NODE_ID;
+            let mut alias: ASTNodeId = PARSER_INVALID_NODE_ID;
             if parser_is_as_keyword(parser) {
                 parser_advance(parser);
                 set alias = parser_parse_identifier_node(parser);
@@ -1339,7 +1339,7 @@ proc parser_has_generic_suffix_at(
     required_follow: TokenKind
 ) -> bool {
     if parser == null { return false; }
-    let start = parser_peek(parser, start_offset);
+    let start: *const ParserToken = parser_peek(parser, start_offset);
     if start == null or (*start).kind != TokenKind.Less {
         return false;
     }
@@ -1542,7 +1542,7 @@ proc parser_parse_generic_parameter(parser: *mut Parser) -> ASTNodeId {
 
     if parser_check(parser, TokenKind.Colon) {
         parser_advance(parser);
-        let mut bound = parser_parse_type_expression(parser);
+        let mut bound: ASTNodeId = parser_parse_type_expression(parser);
         if bound == PARSER_INVALID_NODE_ID or
            not parser_node_append_child(parser, parameter, bound) {
             return PARSER_INVALID_NODE_ID;
@@ -1675,7 +1675,7 @@ proc parser_parse_where_clause(parser: *mut Parser, owner: ASTNodeId) -> bool {
 
         let mut relation: TokenKind = TokenKind.Colon;
         let mut trait_bound = false;
-        let mut bound = PARSER_INVALID_NODE_ID;
+        let mut bound: ASTNodeId = PARSER_INVALID_NODE_ID;
         if parser_check(parser, TokenKind.Colon) {
             parser_advance(parser);
             set trait_bound = true;
@@ -1843,7 +1843,7 @@ proc parser_parse_type_expression_inner(
                 parser_advance(parser);
                 parser_advance(parser);
             }
-            let parameter_type = parser_parse_type_expression_with_pending(parser, pending_generic_closers);
+            let parameter_type: ASTNodeId = parser_parse_type_expression_with_pending(parser, pending_generic_closers);
             if parameter_type == PARSER_INVALID_NODE_ID or
                not parser_node_append_child(parser, procedure_type, parameter_type) {
                 return PARSER_INVALID_NODE_ID;
@@ -1978,7 +1978,7 @@ proc parser_parse_type_expression_inner(
         parser_advance(parser);
         let first_item = parser_current(parser);
         if first_item != null and (*first_item).kind != TokenKind.IntegerLiteral {
-            let element_type = parser_parse_type_expression_with_pending(parser, pending_generic_closers);
+            let element_type: ASTNodeId = parser_parse_type_expression_with_pending(parser, pending_generic_closers);
             if element_type == PARSER_INVALID_NODE_ID {
                 return element_type;
             }
@@ -1989,7 +1989,7 @@ proc parser_parse_type_expression_inner(
                    parser_expect(parser, TokenKind.RightBracket) == null {
                     return PARSER_INVALID_NODE_ID;
                 }
-                let array_type = parser_add_node(
+                let array_type: ASTNodeId = parser_add_node(
                     parser,
                     ASTNodeKind.ArrayType,
                     parser_type_span(parser, begin_token)
@@ -2021,7 +2021,7 @@ proc parser_parse_type_expression_inner(
            parser_expect(parser, TokenKind.RightBracket) == null {
             return PARSER_INVALID_NODE_ID;
         }
-        let element_type = parser_parse_type_expression_with_pending(parser, pending_generic_closers);
+        let element_type: ASTNodeId = parser_parse_type_expression_with_pending(parser, pending_generic_closers);
         if element_type == PARSER_INVALID_NODE_ID {
             return element_type;
         }
@@ -2870,7 +2870,7 @@ proc parser_parse_pattern_sequence(
 }
 
 proc parser_parse_pattern_struct_fields(parser: *mut Parser, begin: usize) -> ASTNodeId {
-    let fields = parser_add_node(
+    let fields: ASTNodeId = parser_add_node(
         parser,
         ASTNodeKind.Pattern,
         parser_span_from_range(parser, begin, (*parser).position)
@@ -3128,7 +3128,7 @@ proc parser_parse_pattern_atom(parser: *mut Parser) -> ASTNodeId {
         }
         if parser_check(parser, TokenKind.LeftBrace) {
             parser_advance(parser);
-            let fields = parser_parse_pattern_struct_fields(parser, begin);
+            let fields: ASTNodeId = parser_parse_pattern_struct_fields(parser, begin);
             if fields == PARSER_INVALID_NODE_ID { return fields; }
             let structure = parser_add_node(
                 parser,
@@ -3199,7 +3199,7 @@ proc parser_recover_match_arm(parser: *mut Parser, start_position: usize) {
 }
 
 proc parser_parse_match_statement(parser: *mut Parser) -> ASTNodeId {
-    let start = parser_current(parser);
+    let start: *const ParserToken = parser_current(parser);
     if start == null or parser_expect(parser, TokenKind.KwMatch) == null {
         return PARSER_INVALID_NODE_ID;
     }
@@ -3343,7 +3343,7 @@ proc parser_parse_statement(parser: *mut Parser) -> ASTNodeId {
 }
 
 proc parser_parse_assert_statement(parser: *mut Parser) -> ASTNodeId {
-    let start = parser_current(parser);
+    let start: *const ParserToken = parser_current(parser);
     if start == null or parser_expect(parser, TokenKind.KwAssert) == null or
        parser_expect(parser, TokenKind.LeftParen) == null {
         return PARSER_INVALID_NODE_ID;
@@ -3896,7 +3896,7 @@ proc parser_parse_postfix_expression(parser: *mut Parser) -> ASTNodeId {
                   not parser_check(parser, TokenKind.RightBrace) {
                 let field_start = parser_current(parser);
                 let field_name = parser_parse_identifier_node(parser);
-                let mut field_value = PARSER_INVALID_NODE_ID;
+                let mut field_value: ASTNodeId = PARSER_INVALID_NODE_ID;
                 if field_name != PARSER_INVALID_NODE_ID and
                    parser_expect(parser, TokenKind.Colon) != null {
                     set field_value = parser_parse_expression(parser);
@@ -4143,7 +4143,7 @@ proc parser_parse_cast_expression(parser: *mut Parser) -> ASTNodeId {
             return PARSER_INVALID_NODE_ID;
         }
         let expression_span: ParserSpan = (*expression_node).span;
-        let target_type = parser_parse_type_expression(parser);
+        let target_type: ASTNodeId = parser_parse_type_expression(parser);
         if target_type == PARSER_INVALID_NODE_ID {
             return target_type;
         }
@@ -4411,7 +4411,7 @@ proc parser_parse_type_declaration(
 
     if not is_opaque and parser_check(parser, TokenKind.Colon) {
         parser_advance(parser);
-        let mut bound = parser_parse_type_expression(parser);
+        let mut bound: ASTNodeId = parser_parse_type_expression(parser);
         if bound == PARSER_INVALID_NODE_ID or
            not parser_node_append_child(parser, declaration, bound) {
             return PARSER_INVALID_NODE_ID;
@@ -4496,7 +4496,7 @@ proc parser_parse_form_declaration(
     while not parser_at_end(parser) and not parser_check(parser, TokenKind.RightBrace) {
         let field_begin: usize = (*parser).position;
         let field_name = parser_parse_identifier_node(parser);
-        let mut field_type = PARSER_INVALID_NODE_ID;
+        let mut field_type: ASTNodeId = PARSER_INVALID_NODE_ID;
         if field_name != PARSER_INVALID_NODE_ID and
            parser_expect(parser, TokenKind.Colon) != null {
             set field_type = parser_parse_type_expression(parser);
@@ -4794,7 +4794,7 @@ proc parser_parse_procedure_parameters(
         }
 
         let parameter_name = parser_parse_pattern(parser);
-        let mut parameter_type = PARSER_INVALID_NODE_ID;
+        let mut parameter_type: ASTNodeId = PARSER_INVALID_NODE_ID;
         if parameter_name != PARSER_INVALID_NODE_ID and
            parser_expect(parser, TokenKind.Colon) != null {
             set parameter_type = parser_parse_type_expression(parser);
@@ -5099,7 +5099,7 @@ proc parser_parse_impl_declaration_inner(
 
     if parser_check(parser, TokenKind.KwFor) {
         parser_advance(parser);
-        let target_type = parser_parse_type_expression(parser);
+        let target_type: ASTNodeId = parser_parse_type_expression(parser);
         if target_type == PARSER_INVALID_NODE_ID or
            not parser_node_append_child(parser, declaration, target_type) {
             return PARSER_INVALID_NODE_ID;
@@ -6766,7 +6766,7 @@ proc parser_hash_text(hash: u64, text: string) -> u64 {
 export proc vitte_parser_fingerprint(parser: *mut Parser) -> u64 {
     if not parser_context_valid(parser) { return 0; }
     set (*parser).stats.hash_runs = parser_u64_add_sat((*parser).stats.hash_runs, 1);
-    let mut hash = PARSER_FNV_OFFSET;
+    let mut hash: u64 = PARSER_FNV_OFFSET;
     hash = parser_hash_u64(hash, 2);
     hash = parser_hash_u64(hash, 0);
     hash = parser_hash_u64(hash, 0);

@@ -8,6 +8,7 @@ use compiler::source::source::{
 };
 use compiler::diagnostic::diagnostic::{
     Diagnostic,
+    DiagnosticAnnotation,
     DiagnosticAnnotationKind,
     DiagnosticContractKind,
     DiagnosticLabelStyle,
@@ -396,7 +397,7 @@ proc help_explicit_annotation(
     }
     let mut index: usize = 0;
     while index < diagnostic_value.annotations.len() {
-        let annotation = &diagnostic_value.annotations[index];
+        let annotation: &DiagnosticAnnotation = &diagnostic_value.annotations[index];
         if annotation.kind == DiagnosticAnnotationKind.Help and
            help_text_present(annotation.message) {
             return annotation.message;
@@ -446,7 +447,7 @@ proc help_quote_fragment(text: string, maximum: usize) -> string {
     let mut written: usize = 0;
 
     while index < bytes.len() and written < maximum {
-        let byte = bytes[index];
+        let byte: u8 = bytes[index];
 
         if byte < 32 as u8 or byte == 127 as u8 {
             set index += 1;
@@ -594,7 +595,7 @@ proc help_source_excerpt(
         return "";
     }
 
-    let mut source_slice = SourceSlice {
+    let mut source_slice: SourceSlice = SourceSlice {
         data: "",
         length: 0,
         source_id: diagnostic_value.source_id,
@@ -687,10 +688,10 @@ proc help_byte_is_space(value: char) -> bool {
 proc help_trim(text: string) -> string {
     let mut begin: usize = 0;
     let mut end: usize = text.len();
-    while begin < end and help_byte_is_space(text[begin]) {
+    while begin < end and help_byte_is_space(text[begin] as char) {
         set begin += 1;
     }
-    while end > begin and help_byte_is_space(text[end - 1]) {
+    while end > begin and help_byte_is_space(text[end - 1] as char) {
         set end -= 1;
     }
     if begin == end {
@@ -750,7 +751,7 @@ proc help_extract_expected_token(reason: string) -> HelpExpectedTokens {
     }
 
     let suffix_position = help_find_bytes(trimmed, ", found ");
-    let expected_end = if suffix_position ==
+    let expected_end: usize = if suffix_position ==
         18446744073709551615 as usize {
         bytes.len()
     } else {

@@ -31,6 +31,7 @@ use compiler::parser::parser::{
     PARSER_AST_FLAG_COMPTIME,
     PARSER_AST_FLAG_FUNCTION_TYPE_HAS_RETURN,
     PARSER_AST_FLAG_GLOB_IMPORT,
+    PARSER_AST_FLAG_PUBLIC,
     PARSER_AST_FLAG_TYPE_QUERY_TYPE_OPERAND,
     vitte_parser_node_is_async,
     vitte_parser_get_node,
@@ -42,6 +43,7 @@ use compiler::unicode::unicode::{
     vitte_unicode_decode_utf8,
     vitte_unicode_encode_utf8,
 };
+use vitte::core::memory::{allocate, deallocate};
 use vitte::core::pointer;
 
 const AST_EMIT_MAX_DEPTH: usize = 256;
@@ -74,6 +76,7 @@ form C17AstProcSymbol {
     namespace: string,
     node_id: ASTNodeId,
     external: bool,
+    public: bool,
 }
 
 form C17AstGlobalSymbol {
@@ -89,6 +92,12 @@ form C17AstAliasSymbol {
     namespace: string,
     declaration_id: ASTNodeId,
     target_id: ASTNodeId,
+}
+
+form C17AstImportSymbol {
+    name: string,
+    qualified_name: string,
+    namespace: string,
 }
 
 form C17AstFormSymbol {
@@ -165,10 +174,13 @@ form C17AstResolvedType {
 form C17AstEmitter {
     parser: &Parser,
     options: &C17AstEmitOptions,
-    source: string,
+    source_buffer: *mut u8,
+    source_length: usize,
+    source_capacity: usize,
     error: string,
     failed: bool,
     return_void: bool,
+    inline_static_initializer: bool,
     current_return_type: ?&ASTNode,
     deferred_nodes: [ASTNodeId; 512],
     deferred_count: usize,
@@ -189,6 +201,8 @@ form C17AstEmitter {
     global_count: usize,
     aliases: [C17AstAliasSymbol; 1024],
     alias_count: usize,
+    imports: [C17AstImportSymbol; 1024],
+    import_count: usize,
     forms: [C17AstFormSymbol; 1024],
     form_count: usize,
     opaques: [C17AstOpaqueSymbol; 1024],
@@ -328,9 +342,58 @@ proc ast_reject_unsupported_attributes(emitter: &mut C17AstEmitter) {
 }
 
 proc ast_write(emitter: &mut C17AstEmitter, text: string) {
-    if not emitter.failed {
-        set emitter.source += text;
+    if emitter.failed or text.len() == 0 { return; }
+    if emitter.source_length >= usize.MAX - 1 or
+       text.len() > usize.MAX - emitter.source_length - 1 {
+        ast_fail(emitter, "generated C17 source length overflow");
+        return;
     }
+    let required = emitter.source_length + text.len() + 1;
+    if emitter.source_capacity < required {
+        let mut capacity = if emitter.source_capacity == 0 { 4096 as usize } else { emitter.source_capacity };
+        while capacity < required {
+            if capacity > usize.MAX / 2 { set capacity = required; break; }
+            set capacity *= 2;
+        }
+        let replacement = allocate(capacity);
+        if replacement == null {
+            ast_fail(emitter, "could not allocate C17 source buffer");
+            return;
+        }
+        let mut copied: usize = 0;
+        while copied < emitter.source_length {
+            set replacement[copied] = emitter.source_buffer[copied];
+            set copied += 1;
+        }
+        deallocate(emitter.source_buffer);
+        set emitter.source_buffer = replacement;
+        set emitter.source_capacity = capacity;
+    }
+    let bytes = text.as_bytes();
+    let mut index: usize = 0;
+    while index < bytes.len() {
+        set emitter.source_buffer[emitter.source_length + index] = bytes[index];
+        set index += 1;
+    }
+    set emitter.source_length += bytes.len();
+    set emitter.source_buffer[emitter.source_length] = 0;
+}
+
+proc ast_finish_source(emitter: &mut C17AstEmitter) -> string {
+    if emitter.source_buffer == null { return ""; }
+    let source: string = string.from_bytes(emitter.source_buffer as *const u8, emitter.source_length);
+    deallocate(emitter.source_buffer);
+    set emitter.source_buffer = null;
+    set emitter.source_length = 0;
+    set emitter.source_capacity = 0;
+    return source;
+}
+
+proc ast_discard_source(emitter: &mut C17AstEmitter) {
+    deallocate(emitter.source_buffer);
+    set emitter.source_buffer = null;
+    set emitter.source_length = 0;
+    set emitter.source_capacity = 0;
 }
 
 proc ast_node(emitter: &C17AstEmitter, id: ASTNodeId) -> ?&ASTNode {
@@ -440,6 +503,31 @@ proc ast_mangle(text: string, prefix: string) -> string {
     return result;
 }
 
+proc ast_exported_proc_c_name(name: string, qualified_name: string) -> string {
+    if name == "main" {
+        return ast_mangle(qualified_name, "vitte_fn_");
+    }
+    if (name.len() >= "api_".len() and name.slice(0, "api_".len()) == "api_") or
+       (name.len() >= "vitte_api_".len() and
+        name.slice(0, "vitte_api_".len()) == "vitte_api_") {
+        return name;
+    }
+    let mut result: string = "";
+    let mut index: usize = 0;
+    while index < qualified_name.len() {
+        let byte: u8 = qualified_name[index] as u8;
+        if byte == 58 and index + 1 < qualified_name.len() and
+           (qualified_name[index + 1] as u8) == 58 {
+            set result += "_";
+            set index += 2;
+        } else {
+            set result += string.from_byte(byte);
+            set index += 1;
+        }
+    }
+    return result;
+}
+
 proc ast_hex_digit(value: u8) -> u8 {
     if value < 10 { return (48 + value) as u8; }
     return (55 + value) as u8;
@@ -495,6 +583,77 @@ proc ast_type_decl_target(emitter: &C17AstEmitter, declaration: &ASTNode) -> ?&A
     return target;
 }
 
+proc ast_add_import_symbol(
+    emitter: &mut C17AstEmitter,
+    name: string,
+    qualified_name: string,
+    namespace: string
+) {
+    if name.len() == 0 or qualified_name.len() == 0 { return; }
+    if emitter.import_count >= AST_EMIT_MAX_SYMBOLS {
+        ast_fail(emitter, "import symbol table is full");
+        return;
+    }
+    set emitter.imports[emitter.import_count] = C17AstImportSymbol {
+        name: name,
+        qualified_name: qualified_name,
+        namespace: namespace,
+    };
+    set emitter.import_count += 1;
+}
+
+proc ast_collect_use_imports(
+    emitter: &mut C17AstEmitter,
+    use_node: &ASTNode,
+    namespace: string
+) {
+    if (use_node.node_flags & (PARSER_AST_FLAG_GLOB_IMPORT | PARSER_AST_FLAG_PUBLIC)) != 0 or
+       use_node.child_count == 0 { return; }
+    let base: ?&ASTNode = ast_child(emitter, use_node, 0);
+    if base == null or base?.kind != ASTNodeKind.Path or base?.child_count == 0 {
+        return;
+    }
+    let base_path: string = ast_path_text(emitter, base);
+    if use_node.child_count == 1 {
+        let name: string = ast_token_text(
+            emitter,
+            ast_child(emitter, base, base?.child_count - 1)
+        );
+        ast_add_import_symbol(emitter, name, base_path, namespace);
+        return;
+    }
+    let first_item: ?&ASTNode = ast_child(emitter, use_node, 1);
+    if first_item != null and first_item?.kind == ASTNodeKind.Identifier {
+        ast_add_import_symbol(
+            emitter,
+            ast_token_text(emitter, first_item),
+            base_path,
+            namespace
+        );
+        return;
+    }
+    let mut item_index: usize = 1;
+    while item_index < use_node.child_count and not emitter.failed {
+        let item: ?&ASTNode = ast_child(emitter, use_node, item_index);
+        if item != null and item?.kind == ASTNodeKind.Path and item?.child_count != 0 {
+            let target_path: string = base_path + "::" + ast_path_text(emitter, item);
+            let mut local_name: string = ast_token_text(
+                emitter,
+                ast_child(emitter, item, item?.child_count - 1)
+            );
+            if item_index + 1 < use_node.child_count {
+                let possible_alias: ?&ASTNode = ast_child(emitter, use_node, item_index + 1);
+                if possible_alias != null and possible_alias?.kind == ASTNodeKind.Identifier {
+                    set local_name = ast_token_text(emitter, possible_alias);
+                    set item_index += 1;
+                }
+            }
+            ast_add_import_symbol(emitter, local_name, target_path, namespace);
+        }
+        set item_index += 1;
+    }
+}
+
 proc ast_collect_symbols(
     emitter: &mut C17AstEmitter,
     scope: &ASTNode,
@@ -530,6 +689,8 @@ proc ast_collect_symbols(
             } elif body == null {
                 set active_space = ast_join_space(active_space, ast_path_text(emitter, path));
             }
+        } elif declaration_node.kind == ASTNodeKind.UseDecl {
+            ast_collect_use_imports(emitter, declaration_node, active_space);
         } elif declaration_node.kind == ASTNodeKind.ProcDecl or declaration_node.kind == ASTNodeKind.ExternProcDecl {
             let name_node = ast_child(emitter, declaration_node, 0);
             let name = ast_token_text(emitter, name_node);
@@ -543,6 +704,7 @@ proc ast_collect_symbols(
                 namespace: active_space,
                 node_id: declaration_node.id,
                 external: declaration_node.kind == ASTNodeKind.ExternProcDecl,
+                public: (declaration_node.node_flags & PARSER_AST_FLAG_PUBLIC) != 0,
             };
             if not emitter.procedures.push(symbol) {
                 ast_fail(emitter, "unable to grow procedure symbol table");
@@ -844,7 +1006,7 @@ proc ast_collect_generic_impl_methods_in_scope(
                                 target_node,
                                 target_arg_index + 1
                             );
-                            let argument_path = if target_argument != null and
+                            let argument_path: ?&ASTNode = if target_argument != null and
                                 target_argument?.kind == ASTNodeKind.TypeExpr {
                                 ast_child(emitter, target_argument, 0)
                             } else {
@@ -906,7 +1068,7 @@ proc ast_collect_generic_impl_methods_in_scope(
                                         emitter,
                                         ast_child(emitter, method, 0)
                                     );
-                                    let target_type = (*form_instance).c_name;
+                                    let target_type: string = (*form_instance).c_name;
                                     let qualified_method =
                                         "impl@" + trait_type? + "@" + target_type +
                                         "::" + method_name;
@@ -1017,7 +1179,7 @@ proc ast_collect_impl_methods_in_scope(
                     active_space,
                     0
                 );
-                let target_type = ast_type_text(
+                let target_type: ?string = ast_type_text(
                     emitter,
                     target_node,
                     active_space,
@@ -1115,7 +1277,7 @@ proc ast_canonical_import_path(emitter: &C17AstEmitter, path: ?&ASTNode) -> stri
            (use_node.node_flags & PARSER_AST_FLAG_GLOB_IMPORT) == 0 and
            use_node.child_count >= 1 and use_node.child_count <= 2 {
             let module_path = ast_child(emitter, use_node, 0);
-            let alias_node = if use_node.child_count == 2 {
+            let alias_node: ?&ASTNode = if use_node.child_count == 2 {
                 ast_child(emitter, use_node, 1)
             } else if module_path != null and module_path?.kind == ASTNodeKind.Path and
                       module_path?.child_count != 0 {
@@ -1417,6 +1579,25 @@ proc ast_global_path_index(emitter: &C17AstEmitter, path: string) -> usize {
     return usize.MAX;
 }
 
+proc ast_global_initializer(emitter: &C17AstEmitter, declaration: ?&ASTNode) -> ?&ASTNode {
+    if declaration == null or
+       (declaration?.kind != ASTNodeKind.ConstDecl and declaration?.kind != ASTNodeKind.StaticDecl) {
+        return null;
+    }
+    let mut initializer: ?&ASTNode = null;
+    let mut child_index: usize = 1;
+    while child_index < declaration?.child_count {
+        let child = ast_child(emitter, declaration, child_index);
+        if child != null and child?.kind != ASTNodeKind.TypeExpr and
+           child?.kind != ASTNodeKind.PointerType and child?.kind != ASTNodeKind.ReferenceType and
+           child?.kind != ASTNodeKind.ArrayType and child?.kind != ASTNodeKind.OptionalType {
+            set initializer = child;
+        }
+        set child_index += 1;
+    }
+    return initializer;
+}
+
 proc ast_alias_index(emitter: &C17AstEmitter, name: string, namespace: string) -> usize {
     let wanted = ast_qualified_name(name, namespace);
     let mut found: usize = usize.MAX;
@@ -1425,6 +1606,23 @@ proc ast_alias_index(emitter: &C17AstEmitter, name: string, namespace: string) -
         if emitter.aliases[index].qualified_name == wanted { return index; }
         if emitter.aliases[index].name == name {
             if found != usize.MAX { return usize.MAX; }
+            set found = index;
+        }
+        set index += 1;
+    }
+    return found;
+}
+
+proc ast_import_index(emitter: &C17AstEmitter, name: string, namespace: string) -> usize {
+    let mut found: usize = usize.MAX;
+    let mut index: usize = 0;
+    while index < emitter.import_count {
+        let imported: &C17AstImportSymbol = &emitter.imports[index];
+        if imported.name == name and imported.namespace == namespace {
+            if found != usize.MAX and
+               emitter.imports[found].qualified_name != imported.qualified_name {
+                return usize.MAX;
+            }
             set found = index;
         }
         set index += 1;
@@ -1480,6 +1678,26 @@ proc ast_form_index(emitter: &C17AstEmitter, name: string, namespace: string) ->
         set index += 1;
     }
     return found;
+}
+
+proc ast_resolved_form_index(
+    emitter: &C17AstEmitter,
+    name: string,
+    namespace: string
+) -> usize {
+    let direct_index = ast_form_index(emitter, name, namespace);
+    if direct_index != usize.MAX or ast_has_namespace_separator(name) {
+        return direct_index;
+    }
+    let import_index = ast_import_index(emitter, name, namespace);
+    if import_index == usize.MAX {
+        return usize.MAX;
+    }
+    return ast_form_index(
+        emitter,
+        emitter.imports[import_index].qualified_name,
+        namespace
+    );
 }
 
 proc ast_opaque_index(emitter: &C17AstEmitter, name: string, namespace: string) -> usize {
@@ -2362,7 +2580,7 @@ proc ast_find_prior_local_decl(
        emitter.generic_call_owner_id == 0 {
         return null;
     }
-    let function = ast_node(emitter, emitter.generic_call_owner_id);
+    let function: ?&ASTNode = ast_node(emitter, emitter.generic_call_owner_id);
     if function == null { return null; }
     let name = ast_path_text(emitter, name_node);
     let mut index: usize = 1;
@@ -2565,6 +2783,41 @@ proc ast_expression_type_node(
                 );
             }
         }
+        let global_index: usize = if node?.kind == ASTNodeKind.Path and node?.child_count > 1 {
+            ast_global_path_index(
+                emitter,
+                ast_canonical_import_path(emitter, node)
+            )
+        } else {
+            ast_global_index(emitter, ast_path_text(emitter, node), namespace)
+        };
+        if global_index != usize.MAX {
+            let global_declaration = ast_node(
+                emitter,
+                emitter.globals[global_index].node_id
+            );
+            if global_declaration != null {
+                let mut child_index: usize = 1;
+                while child_index < global_declaration?.child_count {
+                    let child = ast_child(emitter, global_declaration, child_index);
+                    if child != null and
+                       (child?.kind == ASTNodeKind.TypeExpr or
+                        child?.kind == ASTNodeKind.PointerType or
+                        child?.kind == ASTNodeKind.ReferenceType or
+                        child?.kind == ASTNodeKind.ArrayType or
+                        child?.kind == ASTNodeKind.OptionalType) {
+                        return child;
+                    }
+                    set child_index += 1;
+                }
+                return ast_expression_type_node(
+                    emitter,
+                    ast_global_initializer(emitter, global_declaration),
+                    emitter.globals[global_index].namespace,
+                    depth + 1
+                );
+            }
+        }
         return ast_generic_call_parameter_type(emitter, node);
     }
     if node?.kind == ASTNodeKind.GroupExpr {
@@ -2585,7 +2838,7 @@ proc ast_expression_type_node(
     }
     if node?.kind == ASTNodeKind.UnaryExpr and
        node?.operator_kind == TokenKind.Star {
-        let operand_type = ast_expression_type_node(
+        let operand_type: ?&ASTNode = ast_expression_type_node(
             emitter,
             ast_child(emitter, node, 0),
             namespace,
@@ -2598,6 +2851,16 @@ proc ast_expression_type_node(
         }
         return null;
     }
+    if node?.kind == ASTNodeKind.UnaryExpr and
+       (node?.operator_kind == TokenKind.Amp or
+        node?.operator_kind == TokenKind.KwRef) {
+        return ast_expression_type_node(
+            emitter,
+            ast_child(emitter, node, 0),
+            namespace,
+            depth + 1
+        );
+    }
     if node?.kind == ASTNodeKind.CastExpr {
         return ast_child(emitter, node, 1);
     }
@@ -2605,7 +2868,7 @@ proc ast_expression_type_node(
         return ast_child(emitter, node, 0);
     }
     if node?.kind == ASTNodeKind.TryExpr {
-        let operand_type = ast_expression_type_node(
+        let operand_type: ?&ASTNode = ast_expression_type_node(
             emitter,
             ast_child(emitter, node, 0),
             namespace,
@@ -2648,7 +2911,7 @@ proc ast_expression_type_node(
             while child_index < procedure?.child_count and argument_index < node?.child_count {
                 let parameter = ast_child(emitter, procedure, child_index);
                 if parameter != null and parameter?.kind == ASTNodeKind.Parameter {
-                    let parameter_type = ast_child(emitter, parameter, 1);
+                    let parameter_type: ?&ASTNode = ast_child(emitter, parameter, 1);
                     if ast_type_syntax_equal(
                         emitter,
                         return_type,
@@ -2671,6 +2934,34 @@ proc ast_expression_type_node(
         }
         return return_type;
     }
+    if node?.kind == ASTNodeKind.IndexExpr {
+        let indexed_type = ast_expression_type_node(
+            emitter,
+            ast_child(emitter, node, 0),
+            namespace,
+            depth + 1
+        );
+        let resolved_indexed_type = ast_resolve_type_alias(
+            emitter,
+            indexed_type,
+            namespace
+        );
+        let concrete_indexed_type = resolved_indexed_type.node;
+        if concrete_indexed_type == null { return null; }
+        if concrete_indexed_type?.kind == ASTNodeKind.PointerType or
+           concrete_indexed_type?.kind == ASTNodeKind.ReferenceType {
+            return ast_child(emitter, concrete_indexed_type, 0);
+        }
+        if concrete_indexed_type?.kind == ASTNodeKind.ArrayType {
+            if concrete_indexed_type?.child_count == 1 {
+                return ast_child(emitter, concrete_indexed_type, 0);
+            }
+            if concrete_indexed_type?.child_count == 2 {
+                return ast_child(emitter, concrete_indexed_type, 1);
+            }
+        }
+        return null;
+    }
     if node?.kind == ASTNodeKind.MemberExpr {
         let object = ast_child(emitter, node, 0);
         let member = ast_child(emitter, node, 1);
@@ -2683,6 +2974,16 @@ proc ast_expression_type_node(
         let resolved = ast_resolve_type_alias(emitter, object_type, namespace);
         let mut aggregate_type = resolved.node;
         if aggregate_type != null and
+           aggregate_type?.kind == ASTNodeKind.OptionalType and
+           aggregate_type?.child_count == 1 {
+            let optional_payload = ast_child(emitter, aggregate_type, 0);
+            if optional_payload != null and
+               (optional_payload?.kind == ASTNodeKind.PointerType or
+                optional_payload?.kind == ASTNodeKind.ReferenceType) {
+                set aggregate_type = optional_payload;
+            }
+        }
+        if aggregate_type != null and
            (aggregate_type?.kind == ASTNodeKind.PointerType or
             aggregate_type?.kind == ASTNodeKind.ReferenceType) {
             set aggregate_type = ast_child(emitter, aggregate_type, 0);
@@ -2694,7 +2995,7 @@ proc ast_expression_type_node(
         if aggregate_path == null or aggregate_path?.kind != ASTNodeKind.Path {
             return null;
         }
-        let form_index = ast_form_index(
+        let form_index = ast_resolved_form_index(
             emitter,
             ast_path_text(emitter, aggregate_path),
             resolved.namespace
@@ -2806,7 +3107,7 @@ proc ast_emit_coalesce_temporaries(
        node?.operator_kind == TokenKind.QuestionQuestion and
        ast_child(emitter, node, 0)?.kind != ASTNodeKind.NullLiteral {
         let operand = ast_child(emitter, node, 0);
-        let operand_type = ast_expression_type_node(
+        let operand_type: ?&ASTNode = ast_expression_type_node(
             emitter,
             operand,
             namespace,
@@ -2836,7 +3137,7 @@ proc ast_emit_coalesce_temporaries(
         set index += 1;
     }
     if node?.kind == ASTNodeKind.LetStmt and node?.child_count >= 2 {
-        let binding = ast_child(emitter, node, 0);
+        let binding: ?&ASTNode = ast_child(emitter, node, 0);
         let name = ast_token_text(emitter, binding);
         let mut declared_type: ?&ASTNode = null;
         let mut initializer: ?&ASTNode = null;
@@ -2855,7 +3156,7 @@ proc ast_emit_coalesce_temporaries(
             }
             set child_index += 1;
         }
-        let local_type = if declared_type != null {
+        let local_type: ?&ASTNode = if declared_type != null {
             declared_type
         } else {
             ast_expression_type_node(emitter, initializer, namespace, depth + 1)
@@ -2939,7 +3240,7 @@ proc ast_type_text(
         return child_text? + " *";
     }
     if node.kind == ASTNodeKind.ArrayType {
-        if node.child_count != 1 {
+        if node.child_count != 1 and node.child_count != 2 {
             return null;
         }
         return "VitteArray";
@@ -2978,7 +3279,7 @@ proc ast_type_text(
                     ast_count_kind(emitter, declaration?, ASTNodeKind.GenericParam)
                 } else { 0 as usize };
                 if parameter_count != 0 {
-                    let argument_count = node.child_count - 1;
+                    let argument_count: usize = node.child_count - 1;
                     if argument_count != parameter_count or declaration == null {
                         return null;
                     }
@@ -3031,7 +3332,7 @@ proc ast_type_text(
                         let element_parameter = ast_generic_alias_parameter_index(
                             emitter, declaration?, element
                         );
-                        let element_text = if element_parameter != usize.MAX {
+                        let element_text: ?string = if element_parameter != usize.MAX {
                             ast_type_text(
                                 emitter,
                                 ast_child(emitter, node, element_parameter + 1),
@@ -3168,10 +3469,155 @@ proc ast_type_text(
         if name == "f64" { return "double"; }
         if name == "char" { return "uint32_t"; }
         if name == "str" or name == "string" { return "const char *"; }
+
+        // Unqualified type names can refer to declarations imported with a
+        // `use` statement. Resolve aliases and aggregate names through the
+        // collected symbol tables before qualifying the spelling with the
+        // current namespace; otherwise imported types are emitted as
+        // nonexistent declarations in the importing module.
+        let import_index: usize = ast_import_index(emitter, name, namespace);
+        let alias_index: usize = if import_index != usize.MAX {
+            ast_alias_index(emitter, emitter.imports[import_index].qualified_name, "")
+        } else {
+            ast_alias_index(emitter, name, namespace)
+        };
+        if alias_index != usize.MAX {
+            let alias: &C17AstAliasSymbol = &emitter.aliases[alias_index];
+            let alias_target = ast_node(emitter, alias.target_id);
+            let declaration = ast_node(emitter, alias.declaration_id);
+            let generic_count: usize = if declaration == null {
+                0 as usize
+            } else {
+                ast_count_kind(emitter, declaration?, ASTNodeKind.GenericParam)
+            };
+            if alias_target != null and
+               alias_target?.kind == ASTNodeKind.TypeExpr and
+               alias_target?.operator_kind == TokenKind.KwProc and
+               generic_count == 0 {
+                return ast_mangle(alias.qualified_name, "vitte_type_");
+            }
+            if alias_target != null and alias_target?.id != node?.id and
+               generic_count == 0 {
+                return ast_type_text(
+                    emitter,
+                    alias_target,
+                    alias.namespace,
+                    depth + 1
+                );
+            }
+            return ast_mangle(alias.qualified_name, "vitte_type_");
+        }
+        let imported_name: string = if import_index != usize.MAX {
+            emitter.imports[import_index].qualified_name
+        } else {
+            name
+        };
+        let imported_namespace: string = if import_index != usize.MAX {
+            ""
+        } else {
+            namespace
+        };
+        let form_index = ast_form_index(emitter, imported_name, imported_namespace);
+        if form_index != usize.MAX {
+            return ast_mangle(
+                emitter.forms[form_index].qualified_name,
+                "vitte_type_"
+            );
+        }
+        let pick_index = ast_pick_index(emitter, imported_name, imported_namespace);
+        if pick_index != usize.MAX {
+            return ast_mangle(
+                emitter.picks[pick_index].qualified_name,
+                "vitte_type_"
+            );
+        }
+        let opaque_index = ast_opaque_index(emitter, imported_name, imported_namespace);
+        if opaque_index != usize.MAX {
+            return ast_mangle(
+                emitter.opaques[opaque_index].qualified_name,
+                "vitte_type_"
+            );
+        }
     }
     let raw = ast_path_text(emitter, path);
     let qualified: string = if path.child_count == 1 { ast_qualified_name(raw, namespace) } else { raw };
     return ast_mangle(qualified, "vitte_type_");
+}
+
+proc ast_type_name_text(
+    emitter: &mut C17AstEmitter,
+    node: ?&ASTNode,
+    namespace: string,
+    depth: usize
+) -> ?string {
+    if node == null or depth > AST_EMIT_MAX_DEPTH {
+        return null;
+    }
+    if node?.kind == ASTNodeKind.TypeExpr or
+       node?.kind == ASTNodeKind.PointerType or
+       node?.kind == ASTNodeKind.ReferenceType or
+       node?.kind == ASTNodeKind.ArrayType or
+       node?.kind == ASTNodeKind.OptionalType {
+        return ast_type_text(emitter, node, namespace, depth + 1);
+    }
+    if node?.kind != ASTNodeKind.Identifier and node?.kind != ASTNodeKind.Path {
+        return null;
+    }
+    let raw = ast_path_text(emitter, node);
+    let import_index: usize = if node?.kind == ASTNodeKind.Path and node?.child_count == 1 {
+        ast_import_index(emitter, raw, namespace)
+    } else {
+        usize.MAX
+    };
+    let qualified_name: string = if import_index != usize.MAX {
+        emitter.imports[import_index].qualified_name
+    } elif node?.kind == ASTNodeKind.Path and node?.child_count > 1 {
+        ast_canonical_import_path(emitter, node)
+    } else {
+        raw
+    };
+    let type_namespace: string = if import_index != usize.MAX or
+        ast_has_namespace_separator(qualified_name) {
+        ""
+    } else {
+        namespace
+    };
+    let alias_index = ast_alias_index(
+        emitter,
+        qualified_name,
+        type_namespace
+    );
+    if alias_index != usize.MAX {
+        let alias = &emitter.aliases[alias_index];
+        return ast_type_text(
+            emitter,
+            ast_node(emitter, alias.target_id),
+            alias.namespace,
+            depth + 1
+        );
+    }
+    let form_index = ast_form_index(emitter, qualified_name, type_namespace);
+    if form_index != usize.MAX {
+        return ast_mangle(
+            emitter.forms[form_index].qualified_name,
+            "vitte_type_"
+        );
+    }
+    let pick_index = ast_pick_index(emitter, qualified_name, type_namespace);
+    if pick_index != usize.MAX {
+        return ast_mangle(
+            emitter.picks[pick_index].qualified_name,
+            "vitte_type_"
+        );
+    }
+    let opaque_index = ast_opaque_index(emitter, qualified_name, type_namespace);
+    if opaque_index != usize.MAX {
+        return ast_mangle(
+            emitter.opaques[opaque_index].qualified_name,
+            "vitte_type_"
+        );
+    }
+    return null;
 }
 
 /// Resolve the concrete element C type of a generic alias chain ending in a
@@ -3255,9 +3701,15 @@ proc ast_generic_alias_slice_element_text(
 }
 
 proc ast_emit_type(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace: string) {
-    let text = ast_type_text(emitter, node, namespace, 0);
+    let text: ?string = ast_type_text(emitter, node, namespace, 0);
     if text == null {
-        ast_fail(emitter, "unsupported or malformed type in C17 AST emitter");
+        let line: usize = if node == null { 0 as usize } else { node?.span.line };
+        let kind: u64 = if node == null { 0 as u64 } else { node?.kind as u64 };
+        ast_fail(
+            emitter,
+            "unsupported or malformed type in C17 AST emitter at line " +
+                line.to_string() + " (kind " + kind.to_string() + ") in " + namespace
+        );
         return;
     }
     ast_write(emitter, text?);
@@ -3320,10 +3772,13 @@ proc ast_infer_type_text(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
     if node.kind == ASTNodeKind.GroupExpr or node.kind == ASTNodeKind.AwaitExpr { return ast_infer_type_text(emitter, ast_child(emitter, node, 0), namespace, depth + 1); }
     if node.kind == ASTNodeKind.Path or node.kind == ASTNodeKind.Identifier {
         let name = ast_path_text(emitter, node);
-        if node.kind == ASTNodeKind.Path and node.child_count != 1 { return null; }
-        let local_index = ast_local_index(emitter, name);
+        let local_index: usize = if node.kind == ASTNodeKind.Path and node.child_count != 1 {
+            usize.MAX
+        } else {
+            ast_local_index(emitter, name)
+        };
         if local_index != usize.MAX {
-            let local = &emitter.locals[local_index];
+            let local: &C17AstLocal = &emitter.locals[local_index];
             if local.type_id != 0 {
                 let resolved = ast_resolve_type_alias(emitter, ast_node(emitter, local.type_id), namespace);
                 let mut inferred_node = resolved.node;
@@ -3363,7 +3818,7 @@ proc ast_infer_type_text(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                 depth + 1
             );
         }
-        let parameter_type = ast_generic_call_parameter_type(emitter, node);
+        let parameter_type: ?&ASTNode = ast_generic_call_parameter_type(emitter, node);
         if parameter_type != null {
             return ast_type_text(
                 emitter,
@@ -3372,15 +3827,59 @@ proc ast_infer_type_text(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                 depth + 1
             );
         }
+        let global_index: usize = if node.kind == ASTNodeKind.Path and node.child_count > 1 {
+            ast_global_path_index(
+                emitter,
+                ast_canonical_import_path(emitter, node)
+            )
+        } else {
+            ast_global_index(emitter, name, namespace)
+        };
+        if global_index != usize.MAX {
+            let global_type = ast_expression_type_node(
+                emitter,
+                node,
+                namespace,
+                depth + 1
+            );
+            return ast_type_text(
+                emitter,
+                global_type,
+                emitter.globals[global_index].namespace,
+                depth + 1
+            );
+        }
         return null;
     }
     if node.kind == ASTNodeKind.UnaryExpr {
         if node.operator_kind == TokenKind.Bang or node.operator_kind == TokenKind.KwNot { return "bool"; }
+        if node.operator_kind == TokenKind.Amp or node.operator_kind == TokenKind.KwRef {
+            let operand_type = ast_infer_type_text(
+                emitter,
+                ast_child(emitter, node, 0),
+                namespace,
+                depth + 1
+            );
+            if operand_type == null { return null; }
+            return operand_type? + " *";
+        }
+        if node.operator_kind == TokenKind.Star {
+            let operand_type = ast_infer_type_text(
+                emitter,
+                ast_child(emitter, node, 0),
+                namespace,
+                depth + 1
+            );
+            if operand_type != null and operand_type?.len() >= 2 and
+               operand_type?[operand_type?.len() - 1] == '*' {
+                return operand_type?.slice(0, operand_type?.len() - 2);
+            }
+        }
         return ast_infer_type_text(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
     }
     if node.kind == ASTNodeKind.BinaryExpr {
         if node.operator_kind == TokenKind.Plus {
-            let left_type = ast_infer_type_text(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
+            let left_type: ?string = ast_infer_type_text(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
             if left_type != null and left_type? == "const char *" {
                 return "const char *";
             }
@@ -3472,6 +3971,14 @@ proc ast_infer_type_text(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
         if then_type != null and else_type != null and then_type? == else_type? {
             return then_type;
         }
+        if then_type != null and else_type != null {
+            if then_type? == "void *" and ast_c_type_is_pointer(else_type) {
+                return else_type;
+            }
+            if else_type? == "void *" and ast_c_type_is_pointer(then_type) {
+                return then_type;
+            }
+        }
         return null;
     }
     if node.kind == ASTNodeKind.FormExpr {
@@ -3486,6 +3993,32 @@ proc ast_infer_type_text(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
         let callee = ast_child(emitter, node, 0);
         if callee != null and callee?.kind == ASTNodeKind.MemberExpr {
             let method = ast_token_text(emitter, ast_child(emitter, callee, 1));
+            if method == "as_ptr" {
+                let receiver_type = ast_infer_type_text(
+                    emitter,
+                    ast_child(emitter, callee, 0),
+                    namespace,
+                    depth + 1
+                );
+                if receiver_type != null and receiver_type? == "const char *" {
+                    return "const char *";
+                }
+                if receiver_type != null and
+                   (receiver_type? == "VitteArray" or
+                    ast_c_type_is_pointer(receiver_type)) {
+                    return "void *";
+                }
+            }
+            if method == "to_string" {
+                return "const char *";
+            }
+            if method == "slice" or method == "from" or
+               method == "from_bytes" or method == "from_byte" {
+                return "const char *";
+            }
+            if method == "len" {
+                return "size_t";
+            }
             if method == "bytes" or method == "as_bytes" {
                 let receiver_type = ast_infer_type_text(
                     emitter,
@@ -3500,6 +4033,20 @@ proc ast_infer_type_text(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
         }
     }
     if node.kind == ASTNodeKind.CallExpr and node.child_count != 0 {
+        let callee = ast_child(emitter, node, 0);
+        if callee != null and callee?.kind == ASTNodeKind.MemberExpr {
+            let method = ast_token_text(emitter, ast_child(emitter, callee, 1));
+            let receiver = ast_child(emitter, callee, 0);
+            if (method == "slice" and node.child_count == 3) or
+               (method == "from" and node.child_count == 2 and
+                ast_path_text(emitter, receiver) == "string") or
+               (method == "from_byte" and node.child_count == 2 and
+                ast_path_text(emitter, receiver) == "string") or
+               (method == "from_bytes" and node.child_count == 3 and
+                ast_path_text(emitter, receiver) == "string") {
+                return "const char *";
+            }
+        }
         return ast_generic_call_result_type_text(
             emitter,
             node,
@@ -3579,7 +4126,7 @@ proc ast_generic_call_result_type_text(
                     procedure,
                     parameter_index
                 );
-                let parameter_type = ast_child(emitter, parameter, 1);
+                let parameter_type: ?&ASTNode = ast_child(emitter, parameter, 1);
                 let argument = ast_child(emitter, call, parameter_index + 1);
                 let argument_node = ast_expression_type_node(
                     emitter,
@@ -3624,7 +4171,7 @@ proc ast_generic_call_result_type_text(
             procedure,
             parameter_index
         );
-        let parameter_type = ast_child(emitter, parameter, 1);
+        let parameter_type: ?&ASTNode = ast_child(emitter, parameter, 1);
         if ast_type_syntax_equal(
             emitter,
             return_type,
@@ -3658,8 +4205,61 @@ proc ast_generic_call_result_type_text(
 
 proc ast_c_type_is_pointer(type_text: ?string) -> bool {
     if type_text == null { return false; }
-    let text = type_text?;
+    let text: string = type_text?;
     return text.len() != 0 and text[text.len() - 1] == '*';
+}
+
+proc ast_member_field_is_pointer(
+    emitter: &mut C17AstEmitter,
+    member: ?&ASTNode,
+    namespace: string
+) -> bool {
+    if member == null or member?.kind != ASTNodeKind.MemberExpr {
+        return false;
+    }
+    let receiver_type = ast_infer_type_text(
+        emitter,
+        ast_child(emitter, member, 0),
+        namespace,
+        1
+    );
+    if receiver_type == null { return false; }
+    let mut aggregate_name: string = receiver_type?;
+    if aggregate_name.len() >= 2 and
+       aggregate_name[aggregate_name.len() - 1] == '*' {
+        set aggregate_name = aggregate_name.slice(
+            0,
+            aggregate_name.len() - 2
+        );
+    }
+    let member_name = ast_token_text(
+        emitter,
+        ast_child(emitter, member, 1)
+    );
+    let mut form_index: usize = 0;
+    while form_index < emitter.form_count {
+        let form_symbol = &emitter.forms[form_index];
+        if ast_mangle(form_symbol.qualified_name, "vitte_type_") == aggregate_name {
+            let form_node = ast_node(emitter, form_symbol.node_id);
+            let mut field_index: usize = 1;
+            while form_node != null and field_index < form_node?.child_count {
+                let field = ast_child(emitter, form_node, field_index);
+                if field != null and field?.kind == ASTNodeKind.FieldDecl and
+                   ast_token_text(emitter, ast_child(emitter, field, 0)) == member_name {
+                    return ast_c_type_is_pointer(ast_type_text(
+                        emitter,
+                        ast_child(emitter, field, 1),
+                        form_symbol.namespace,
+                        1
+                    ));
+                }
+                set field_index += 1;
+            }
+            return false;
+        }
+        set form_index += 1;
+    }
+    return false;
 }
 
 proc ast_emit_source_line(emitter: &mut C17AstEmitter, node: ?&ASTNode) {
@@ -3667,10 +4267,11 @@ proc ast_emit_source_line(emitter: &mut C17AstEmitter, node: ?&ASTNode) {
         return;
     }
     let path = emitter.options.source_path?;
-    let line: usize = if node.span.line != 0 { node.span.line } else {
+    let mut line: usize = node.span.line;
+    if line == 0 {
         let token = ast_token(emitter, node);
-        if token != null { token.line } else { 0 }
-    };
+        set line = if token != null { token.line } else { 0 as usize };
+    }
     if line == 0 or path.len() == 0 {
         return;
     }
@@ -3700,7 +4301,52 @@ proc ast_emit_indent(emitter: &mut C17AstEmitter, depth: usize) {
     }
 }
 
-proc ast_emit_name_expr(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace: string) {
+proc ast_emit_global_reference(
+    emitter: &mut C17AstEmitter,
+    global_index: usize,
+    depth: usize
+) {
+    if global_index >= emitter.global_count {
+        ast_fail(emitter, "global reference is outside the symbol table");
+        return;
+    }
+    let declaration = ast_node(emitter, emitter.globals[global_index].node_id);
+    if not emitter.inline_static_initializer or declaration == null or
+       declaration?.kind != ASTNodeKind.ConstDecl {
+        ast_write(
+            emitter,
+            ast_mangle(emitter.globals[global_index].qualified_name, "vitte_global_")
+        );
+        return;
+    }
+    if depth > AST_EMIT_MAX_DEPTH {
+        ast_fail(emitter, "constant initializer nesting exceeds the C17 emitter depth limit");
+        return;
+    }
+    let initializer = ast_global_initializer(emitter, declaration);
+    if initializer == null {
+        ast_fail(
+            emitter,
+            "constant global " + emitter.globals[global_index].name + " has no initializer"
+        );
+        return;
+    }
+    ast_write(emitter, "(");
+    ast_emit_expression(
+        emitter,
+        initializer,
+        emitter.globals[global_index].namespace,
+        depth + 1
+    );
+    ast_write(emitter, ")");
+}
+
+proc ast_emit_name_expr(
+    emitter: &mut C17AstEmitter,
+    node: ?&ASTNode,
+    namespace: string,
+    depth: usize
+) {
     if node == null {
         ast_fail(emitter, "missing name expression");
         return;
@@ -3714,7 +4360,7 @@ proc ast_emit_name_expr(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
         let canonical_path = ast_canonical_import_path(emitter, node);
         let global_path_index = ast_global_path_index(emitter, canonical_path);
         if global_path_index != usize.MAX {
-            ast_write(emitter, ast_mangle(emitter.globals[global_path_index].qualified_name, "vitte_global_"));
+            ast_emit_global_reference(emitter, global_path_index, depth);
             return;
         }
         let pick_variant = ast_pick_variant_from_path(emitter, node, namespace);
@@ -3733,7 +4379,8 @@ proc ast_emit_name_expr(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
             } else {
                 C17AstResolvedType { node: null, namespace: namespace }
             };
-            if local.is_reference or (resolved.node != null and resolved.node?.kind == ASTNodeKind.ReferenceType) {
+            if local.is_reference or
+               (resolved.node != null and resolved.node?.kind == ASTNodeKind.ReferenceType) {
                 ast_write(emitter, "(*" + symbol + ")");
             } else {
                 ast_write(emitter, symbol);
@@ -3742,7 +4389,7 @@ proc ast_emit_name_expr(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
         }
         let global_index = ast_global_index(emitter, raw, namespace);
         if global_index != usize.MAX {
-            ast_write(emitter, ast_mangle(emitter.globals[global_index].qualified_name, "vitte_global_"));
+            ast_emit_global_reference(emitter, global_index, depth);
             return;
         }
         let procedure_index = ast_proc_index(emitter, raw, namespace);
@@ -3750,6 +4397,14 @@ proc ast_emit_name_expr(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
             let procedure: &C17AstProcSymbol = &emitter.procedures[procedure_index];
             if procedure.external {
                 ast_write(emitter, procedure.name);
+            } elif procedure.public {
+                ast_write(
+                    emitter,
+                    ast_exported_proc_c_name(
+                        procedure.name,
+                        procedure.qualified_name
+                    )
+                );
             } else {
                 ast_write(emitter, ast_mangle(procedure.qualified_name, "vitte_fn_"));
             }
@@ -3767,6 +4422,15 @@ proc ast_emit_name_expr(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
     if procedure_index != usize.MAX {
         let procedure: &C17AstProcSymbol = &emitter.procedures[procedure_index];
         if procedure.external { ast_write(emitter, procedure.name); }
+        elif procedure.public {
+            ast_write(
+                emitter,
+                ast_exported_proc_c_name(
+                    procedure.name,
+                    procedure.qualified_name
+                )
+            );
+        }
         else { ast_write(emitter, ast_mangle(procedure.qualified_name, "vitte_fn_")); }
         return;
     }
@@ -3823,6 +4487,12 @@ proc ast_emit_integer_literal(emitter: &mut C17AstEmitter, node: ?&ASTNode) {
     if suffix == "u64" or suffix == "usize" { ast_write(emitter, "ULL"); }
     elif suffix == "i64" or suffix == "isize" { ast_write(emitter, "LL"); }
     elif suffix == "u32" or suffix == "u16" or suffix == "u8" { ast_write(emitter, "U"); }
+    elif suffix == "" and number.len() >= 20 and
+         not (number.len() >= 2 and number.slice(0, 2) == "0x") {
+        // Unsuffixed decimal values beyond INT64_MAX are inferred as unsigned
+        // by Vitte; give the C literal the matching type explicitly.
+        ast_write(emitter, "ULL");
+    }
 }
 
 proc ast_emit_float_literal(emitter: &mut C17AstEmitter, node: ?&ASTNode) {
@@ -4000,6 +4670,17 @@ proc ast_pick_type_name(emitter: &C17AstEmitter, left: ?&ASTNode, namespace: str
     if pick_index != usize.MAX {
         return emitter.picks[pick_index].qualified_name;
     }
+    let import_index = ast_import_index(emitter, name, namespace);
+    if import_index != usize.MAX {
+        let imported_pick_index = ast_pick_index(
+            emitter,
+            emitter.imports[import_index].qualified_name,
+            ""
+        );
+        if imported_pick_index != usize.MAX {
+            return emitter.picks[imported_pick_index].qualified_name;
+        }
+    }
     return "";
 }
 
@@ -4011,7 +4692,7 @@ proc ast_builtin_limit_constant(
     if left == null {
         return null;
     }
-    let type_path = if left?.kind == ASTNodeKind.TypeExpr and left?.child_count == 1 {
+    let type_path: ?&ASTNode = if left?.kind == ASTNodeKind.TypeExpr and left?.child_count == 1 {
         ast_child(emitter, left, 0)
     } else {
         left
@@ -4058,6 +4739,41 @@ proc ast_pick_variant_from_path(
     if path == null { return null; }
     let raw = ast_path_text(emitter, path);
     if raw.len() == 0 { return null; }
+    if path?.kind == ASTNodeKind.Path and path?.child_count >= 2 {
+        let mut type_name: string = "";
+        let mut segment_index: usize = 0;
+        while segment_index + 1 < path?.child_count {
+            if segment_index != 0 { set type_name += "::"; }
+            set type_name += ast_token_text(
+                emitter,
+                ast_child(emitter, path, segment_index)
+            );
+            set segment_index += 1;
+        }
+        let variant_name = ast_token_text(
+            emitter,
+            ast_child(emitter, path, path?.child_count - 1)
+        );
+        let mut pick_index = ast_pick_index(emitter, type_name, namespace);
+        if pick_index == usize.MAX {
+            let import_index = ast_import_index(emitter, type_name, namespace);
+            if import_index != usize.MAX {
+                set pick_index = ast_pick_index(
+                    emitter,
+                    emitter.imports[import_index].qualified_name,
+                    ""
+                );
+            }
+        }
+        if pick_index != usize.MAX {
+            let imported_variant = ast_pick_variant_symbol(
+                emitter,
+                emitter.picks[pick_index].qualified_name,
+                variant_name
+            );
+            if imported_variant != null { return imported_variant; }
+        }
+    }
     let mut scoped_found: ?string = null;
     let mut fallback_found: ?string = null;
     let mut scoped_ambiguous: bool = false;
@@ -4208,12 +4924,59 @@ proc ast_emit_array_literal(
     ast_write(emitter, "}, " + node.child_count.to_string() + ", sizeof(" + element_text? + "))");
 }
 
+proc ast_emit_expression_reference_pointer_value(
+    emitter: &mut C17AstEmitter,
+    node: ?&ASTNode,
+    namespace: string,
+    depth: usize
+) -> bool {
+    if node == null { return false; }
+    if node?.kind == ASTNodeKind.GroupExpr {
+        return ast_emit_expression_reference_pointer_value(
+            emitter,
+            ast_child(emitter, node, 0),
+            namespace,
+            depth + 1
+        );
+    }
+    if node?.kind != ASTNodeKind.Identifier and node?.kind != ASTNodeKind.Path {
+        return false;
+    }
+    let local_index = ast_local_index(emitter, ast_path_text(emitter, node));
+    if local_index == usize.MAX { return false; }
+    let local: &C17AstLocal = &emitter.locals[local_index];
+    let type_node: ?&ASTNode = if local.type_id != 0 {
+        ast_resolve_type_alias(
+            emitter,
+            ast_node(emitter, local.type_id),
+            namespace
+        ).node
+    } else {
+        null
+    };
+    if not local.is_reference and
+       (type_node == null or type_node?.kind != ASTNodeKind.ReferenceType) {
+        return false;
+    }
+    ast_write(emitter, ast_mangle(ast_path_text(emitter, node), "vitte_local_"));
+    return true;
+}
+
 proc ast_node_is_null_literal(node: ?&ASTNode) -> bool {
     if node == null {
         return false;
     }
     if node?.kind == ASTNodeKind.NullLiteral {
         return true;
+    }
+    return false;
+}
+
+proc ast_expression_is_character(emitter: &C17AstEmitter, node: ?&ASTNode) -> bool {
+    if node == null { return false; }
+    if node?.kind == ASTNodeKind.CharacterLiteral { return true; }
+    if node?.kind == ASTNodeKind.CastExpr and node?.child_count == 2 {
+        return ast_path_text(emitter, ast_child(emitter, node, 1)) == "char";
     }
     return false;
 }
@@ -4229,7 +4992,7 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
         return;
     }
     match node.kind {
-        case ASTNodeKind.Identifier | ASTNodeKind.Path => ast_emit_name_expr(emitter, node, namespace),
+        case ASTNodeKind.Identifier | ASTNodeKind.Path => ast_emit_name_expr(emitter, node, namespace, depth),
         case ASTNodeKind.SelfExpr => ast_write(emitter, ast_mangle("self", "vitte_local_")),
         case ASTNodeKind.IntegerLiteral => ast_emit_integer_literal(emitter, node),
         case ASTNodeKind.FloatLiteral => ast_emit_float_literal(emitter, node),
@@ -4250,7 +5013,17 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
             if (node.node_flags & PARSER_AST_FLAG_TYPE_QUERY_TYPE_OPERAND) != 0 {
                 ast_emit_type(emitter, operand, namespace);
             } else {
-                ast_emit_expression(emitter, operand, namespace, depth + 1);
+                let type_name = ast_type_name_text(
+                    emitter,
+                    operand,
+                    namespace,
+                    depth + 1
+                );
+                if type_name != null {
+                    ast_write(emitter, type_name?);
+                } else {
+                    ast_emit_expression(emitter, operand, namespace, depth + 1);
+                }
             }
             ast_write(emitter, ")");
         },
@@ -4302,16 +5075,18 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                 return;
             }
             ast_write(emitter, "(" + type_name? + "){ ");
+            if node.child_count == 1 { ast_write(emitter, "0"); }
             let generic_instance_index = ast_generic_form_instance_index(emitter, type_name?);
-            let form_declaration: ?&ASTNode = if generic_instance_index != usize.MAX {
-                ast_node(
+            let mut form_declaration: ?&ASTNode = null;
+            if generic_instance_index != usize.MAX {
+                set form_declaration = ast_node(
                     emitter,
                     emitter.forms[
                         emitter.generic_forms[generic_instance_index].form_index
                     ].node_id
-                )
+                );
             } else {
-                let form_index = if form_path?.kind == ASTNodeKind.TypeExpr {
+                let form_index: usize = if form_path?.kind == ASTNodeKind.TypeExpr {
                     ast_form_index(
                         emitter,
                         ast_path_text(emitter, ast_child(emitter, form_path, 0)),
@@ -4321,11 +5096,12 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                     ast_form_index(emitter, ast_path_text(emitter, form_path), namespace)
                 };
                 if form_index != usize.MAX {
-                    ast_node(emitter, emitter.forms[form_index].node_id)
-                } else {
-                    null
+                    set form_declaration = ast_node(
+                        emitter,
+                        emitter.forms[form_index].node_id
+                    );
                 }
-            };
+            }
             let mut index: usize = 1;
             while index < node.child_count and not emitter.failed {
                 let field = ast_child(emitter, node, index);
@@ -4387,6 +5163,36 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                 ast_fail(emitter, "unsupported unary operator");
                 return;
             }
+            if node.operator_kind == TokenKind.Star {
+                let operand = ast_child(emitter, node, 0);
+                if operand != null and
+                   (operand?.kind == ASTNodeKind.Identifier or
+                    operand?.kind == ASTNodeKind.Path) {
+                    let local_index = ast_local_index(
+                        emitter,
+                        ast_path_text(emitter, operand)
+                    );
+                    if local_index != usize.MAX {
+                        let local: &C17AstLocal = &emitter.locals[local_index];
+                        let local_type: C17AstResolvedType = if local.type_id != 0 {
+                            ast_resolve_type_alias(
+                                emitter,
+                                ast_node(emitter, local.type_id),
+                                namespace
+                            )
+                        } else {
+                            C17AstResolvedType { node: null, namespace: namespace }
+                        };
+                        if local.is_reference or
+                           (local_type.node != null and
+                            local_type.node?.kind == ASTNodeKind.ReferenceType) {
+                            // Name emission already dereferences reference locals.
+                            ast_emit_expression(emitter, operand, namespace, depth + 1);
+                            return;
+                        }
+                    }
+                }
+            }
             ast_write(emitter, op? + "(");
             ast_emit_expression(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
             ast_write(emitter, ")");
@@ -4404,7 +5210,7 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                     ast_emit_expression(emitter, right, namespace, depth + 1);
                     return;
                 }
-                let operand_type = ast_expression_type_node(
+                let operand_type: ?&ASTNode = ast_expression_type_node(
                     emitter,
                     left,
                     namespace,
@@ -4449,7 +5255,7 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
             }
             if node.kind == ASTNodeKind.BinaryExpr and
                (node.operator_kind == TokenKind.EqualEqual or node.operator_kind == TokenKind.BangEqual) {
-                let left_type = ast_infer_type_text(emitter, left, namespace, 0);
+                let left_type: ?string = ast_infer_type_text(emitter, left, namespace, 0);
                 if not ast_node_is_null_literal(right) and
                    not ast_node_is_null_literal(left) and
                    left_type != null and left_type? == "const char *" {
@@ -4463,11 +5269,43 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                     return;
                 }
             }
+            let mut compare_pointer_values: bool = false;
+            if node.kind == ASTNodeKind.BinaryExpr and
+               (node.operator_kind == TokenKind.EqualEqual or
+                node.operator_kind == TokenKind.BangEqual) {
+                let left_node_type = ast_expression_type_node(
+                    emitter,
+                    left,
+                    namespace,
+                    depth + 1
+                );
+                let right_node_type = ast_expression_type_node(
+                    emitter,
+                    right,
+                    namespace,
+                    depth + 1
+                );
+                let left_pointer = ast_parameter_is_pointer_representation(
+                    emitter,
+                    left_node_type,
+                    namespace
+                );
+                let right_pointer = ast_parameter_is_pointer_representation(
+                    emitter,
+                    right_node_type,
+                    namespace
+                );
+                set compare_pointer_values = (left_pointer and right_pointer) or
+                    (left_pointer and ast_node_is_null_literal(right)) or
+                    (right_pointer and ast_node_is_null_literal(left));
+            }
             if node.kind == ASTNodeKind.BinaryExpr and node.operator_kind == TokenKind.Plus {
-                let left_type = ast_infer_type_text(emitter, left, namespace, 0);
-                let right_type = ast_infer_type_text(emitter, right, namespace, 0);
+                let left_type: ?string = ast_infer_type_text(emitter, left, namespace, 0);
+                let right_type: ?string = ast_infer_type_text(emitter, right, namespace, 0);
                 if left_type != null and left_type? == "const char *" {
-                    if right_type != null and right_type? == "const char *" {
+                    // A validated user-procedure call can return a string even
+                    // when the AST fallback cannot infer its result type.
+                    if right_type == null or right_type? == "const char *" {
                         ast_write(emitter, "vitte_string_concat(");
                         ast_emit_expression(emitter, left, namespace, depth + 1);
                         ast_write(emitter, ", ");
@@ -4475,14 +5313,66 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                         ast_write(emitter, ")");
                         return;
                     }
-                    ast_fail(emitter, "string concatenation with a non-string value is not supported yet");
+                    if ast_expression_is_character(emitter, right) or
+                       (right_type != null and right_type? == "uint32_t") {
+                        ast_write(emitter, "vitte_string_concat_char(");
+                        ast_emit_expression(emitter, left, namespace, depth + 1);
+                        ast_write(emitter, ", (char)(");
+                        ast_emit_expression(emitter, right, namespace, depth + 1);
+                        ast_write(emitter, "))");
+                        return;
+                    }
+                    let right_description = if right_type == null { "unknown" } else { right_type? };
+                    ast_fail(
+                        emitter,
+                        "string concatenation at AST node " + (node.id as usize).to_string() +
+                        " has a non-string right operand " + ast_token_text(emitter, right) +
+                        " of type " + right_description
+                    );
+                    return;
+                }
+            }
+            if node.kind == ASTNodeKind.AssignExpr and
+               node.operator_kind == TokenKind.PlusEqual {
+                let left_type: ?string = ast_infer_type_text(
+                    emitter,
+                    left,
+                    namespace,
+                    depth + 1
+                );
+                let right_type: ?string = ast_infer_type_text(
+                    emitter,
+                    right,
+                    namespace,
+                    depth + 1
+                );
+                if left_type != null and left_type? == "const char *" and
+                   (right_type == null or right_type? == "const char *" or
+                    ast_expression_is_character(emitter, right)) {
+                    ast_write(emitter, "(");
+                    ast_emit_expression(emitter, left, namespace, depth + 1);
+                    ast_write(emitter, " = ");
+                    if ast_expression_is_character(emitter, right) {
+                        ast_write(emitter, "vitte_string_concat_char(");
+                    } else {
+                        ast_write(emitter, "vitte_string_concat(");
+                    }
+                    ast_emit_expression(emitter, left, namespace, depth + 1);
+                    ast_write(emitter, ", ");
+                    ast_emit_expression(emitter, right, namespace, depth + 1);
+                    if ast_expression_is_character(emitter, right) {
+                        ast_write(emitter, ")");
+                    } else {
+                        ast_write(emitter, ")");
+                    }
+                    ast_write(emitter, ")");
                     return;
                 }
             }
             if node.kind == ASTNodeKind.AssignExpr and
                node.operator_kind == TokenKind.Equal and
                right != null and right?.kind == ASTNodeKind.ArrayExpr {
-                let expected_type = ast_expression_type_node(
+                let expected_type: ?&ASTNode = ast_expression_type_node(
                     emitter,
                     left,
                     namespace,
@@ -4503,15 +5393,70 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                     return;
                 }
             }
+            let mut assign_pointer_value: bool = false;
+            if node.kind == ASTNodeKind.AssignExpr and
+               node.operator_kind == TokenKind.Equal {
+                let expected_type: ?&ASTNode = ast_expression_type_node(
+                    emitter,
+                    left,
+                    namespace,
+                    depth + 1
+                );
+                let left_local_index: usize = if left != null and
+                    (left?.kind == ASTNodeKind.Identifier or
+                     (left?.kind == ASTNodeKind.Path and left?.child_count == 1)) {
+                    ast_local_index(emitter, ast_path_text(emitter, left))
+                } else {
+                    usize.MAX
+                };
+                let mut left_is_reference_binding: bool = false;
+                if left_local_index != usize.MAX {
+                    let local: &C17AstLocal = &emitter.locals[left_local_index];
+                    if local.is_reference { set left_is_reference_binding = true; }
+                    if local.type_id != 0 {
+                        let local_type = ast_node(emitter, local.type_id);
+                        if local_type != null and
+                           local_type?.kind == ASTNodeKind.ReferenceType {
+                            set left_is_reference_binding = true;
+                        }
+                    }
+                }
+                set assign_pointer_value = not left_is_reference_binding and
+                    ast_parameter_is_pointer_representation(
+                        emitter,
+                        expected_type,
+                        namespace
+                    );
+            }
             let op = ast_operator_text(node.operator_kind);
             if op == null {
                 ast_fail(emitter, "unsupported binary or assignment operator");
                 return;
             }
             ast_write(emitter, "(");
-            ast_emit_expression(emitter, left, namespace, depth + 1);
+            if compare_pointer_values and not ast_emit_expression_reference_pointer_value(
+                emitter,
+                left,
+                namespace,
+                depth + 1
+            ) {
+                ast_emit_expression(emitter, left, namespace, depth + 1);
+            } else if not compare_pointer_values {
+                ast_emit_expression(emitter, left, namespace, depth + 1);
+            }
             ast_write(emitter, " " + op? + " ");
-            ast_emit_expression(emitter, right, namespace, depth + 1);
+            if compare_pointer_values or assign_pointer_value {
+                if not ast_emit_expression_reference_pointer_value(
+                    emitter,
+                    right,
+                    namespace,
+                    depth + 1
+                ) {
+                    ast_emit_expression(emitter, right, namespace, depth + 1);
+                }
+            } else {
+                ast_emit_expression(emitter, right, namespace, depth + 1);
+            }
             ast_write(emitter, ")");
         },
         case ASTNodeKind.TryExpr => {
@@ -4528,7 +5473,11 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
             );
             if optional_type == null or optional_type?.kind != ASTNodeKind.OptionalType or
                optional_type?.child_count != 1 {
-                ast_fail(emitter, "optional unwrap needs a resolvable optional operand type");
+                ast_fail(
+                    emitter,
+                    "optional unwrap needs a resolvable optional operand type at line " +
+                        node.span.line.to_string() + " for " + ast_path_text(emitter, operand)
+                );
                 return;
             }
             let owner_type: ?&ASTNode = if operand != null and operand?.kind == ASTNodeKind.MemberExpr {
@@ -4565,13 +5514,35 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                 ast_fail(emitter, "cast expression must have a value and a target type");
                 return;
             }
-            let target_type = ast_type_text(emitter, ast_child(emitter, node, 1), namespace, 0);
-            let source_type = ast_infer_type_text(emitter, ast_child(emitter, node, 0), namespace, 0);
-            let pointer_to_pointer = ast_c_type_is_pointer(target_type) and ast_c_type_is_pointer(source_type);
+            let target_type: ?string = ast_type_text(emitter, ast_child(emitter, node, 1), namespace, 0);
+            let source_type: ?string = ast_infer_type_text(emitter, ast_child(emitter, node, 0), namespace, 0);
+            let source_node_type = ast_expression_type_node(
+                emitter,
+                ast_child(emitter, node, 0),
+                namespace,
+                depth + 1
+            );
+            let pointer_to_pointer = ast_c_type_is_pointer(target_type) and
+                (ast_c_type_is_pointer(source_type) or
+                 ast_parameter_is_pointer_representation(
+                     emitter,
+                     source_node_type,
+                     namespace
+                 ));
             ast_write(emitter, "(");
             ast_emit_type(emitter, ast_child(emitter, node, 1), namespace);
             ast_write(emitter, if pointer_to_pointer { ")(void *)( " } else { ")( " });
-            ast_emit_expression(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
+            if ast_c_type_is_pointer(target_type) and
+               not ast_emit_expression_reference_pointer_value(
+                   emitter,
+                   ast_child(emitter, node, 0),
+                   namespace,
+                   depth + 1
+               ) {
+                ast_emit_expression(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
+            } elif not ast_c_type_is_pointer(target_type) {
+                ast_emit_expression(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
+            }
             ast_write(emitter, " )");
         },
         case ASTNodeKind.AwaitExpr => {
@@ -4721,7 +5692,7 @@ proc ast_emit_form_field_declarator(
     }
     if type_node?.kind == ASTNodeKind.ArrayType and type_node?.child_count == 2 {
         let length = ast_child(emitter, type_node, 0);
-        let element_type = ast_child(emitter, type_node, 1);
+        let element_type: ?&ASTNode = ast_child(emitter, type_node, 1);
         if length == null or element_type == null {
             ast_fail(emitter, "fixed form array field is malformed");
             return;
@@ -4747,7 +5718,11 @@ proc ast_emit_if_expression(emitter: &mut C17AstEmitter, node: &ASTNode, namespa
     let then_branch = ast_child(emitter, node, 1);
     let else_branch = ast_child(emitter, node, 2);
     if then_branch == null or then_branch.kind != ASTNodeKind.BlockExpr or then_branch.child_count != 1 or else_branch == null {
-        ast_fail(emitter, "conditional expression branches must each yield a value");
+        ast_fail(
+            emitter,
+            "conditional expression branches must each yield a value at line " +
+                node.span.line.to_string() + " in " + namespace
+        );
         return;
     }
     ast_write(emitter, "(");
@@ -4757,7 +5732,11 @@ proc ast_emit_if_expression(emitter: &mut C17AstEmitter, node: &ASTNode, namespa
     ast_write(emitter, " : ");
     if else_branch.kind == ASTNodeKind.BlockExpr {
         if else_branch.child_count != 1 {
-            ast_fail(emitter, "else block expression must yield one value");
+            ast_fail(
+                emitter,
+                "else block expression must yield one value at line " +
+                    node.span.line.to_string() + " in " + namespace
+            );
             return;
         }
         ast_emit_expression(emitter, ast_child(emitter, else_branch, 0), namespace, depth + 1);
@@ -4789,7 +5768,7 @@ proc ast_call_parameter_type(
 }
 
 proc ast_call_argument_needs_address(
-    emitter: &C17AstEmitter,
+    emitter: &mut C17AstEmitter,
     argument: ?&ASTNode,
     namespace: string
 ) -> bool {
@@ -4801,15 +5780,121 @@ proc ast_call_argument_needs_address(
        (argument?.operator_kind == TokenKind.Amp or argument?.operator_kind == TokenKind.KwRef) {
         return false;
     }
+    if argument?.kind == ASTNodeKind.CallExpr and argument?.child_count > 0 {
+        let callee = ast_child(emitter, argument, 0);
+        if callee != null and callee?.kind == ASTNodeKind.MemberExpr {
+            let receiver = ast_child(emitter, callee, 0);
+            let receiver_name = ast_path_text(emitter, receiver);
+            let method = ast_token_text(emitter, ast_child(emitter, callee, 1));
+            let import_index: usize = if receiver != null and
+                (receiver?.kind == ASTNodeKind.Identifier or
+                 (receiver?.kind == ASTNodeKind.Path and receiver?.child_count == 1)) {
+                ast_import_index(emitter, receiver_name, namespace)
+            } else {
+                usize.MAX
+            };
+            let pointer_module = receiver_name == "pointer" or
+                (import_index != usize.MAX and
+                 emitter.imports[import_index].qualified_name == "vitte::core::pointer");
+            if pointer_module and
+               (method == "add_bytes" or method == "add_bytes_const" or
+                method == "from_address_mut") {
+                return false;
+            }
+        }
+    }
+    let argument_type = ast_infer_type_text(emitter, argument, namespace, 0);
+    if ast_c_type_is_pointer(argument_type) { return false; }
+    if ast_member_field_is_pointer(emitter, argument, namespace) {
+        return false;
+    }
     if argument?.kind == ASTNodeKind.Identifier or argument?.kind == ASTNodeKind.Path {
         let local_index = ast_local_index(emitter, ast_path_text(emitter, argument));
         if local_index != usize.MAX and emitter.locals[local_index].type_id != 0 {
             let resolved = ast_resolve_type_alias(emitter, ast_node(emitter, emitter.locals[local_index].type_id), namespace);
             if resolved.node != null and resolved.node?.kind == ASTNodeKind.PointerType { return false; }
             if resolved.node != null and resolved.node?.kind == ASTNodeKind.ReferenceType { return true; }
+            if resolved.node != null and resolved.node?.kind == ASTNodeKind.OptionalType and
+               resolved.node?.child_count == 1 {
+                let payload = ast_child(emitter, resolved.node, 0);
+                if payload != null and
+                   (payload?.kind == ASTNodeKind.PointerType or
+                    payload?.kind == ASTNodeKind.ReferenceType) {
+                    return false;
+                }
+            }
         }
     }
     return true;
+}
+
+proc ast_call_argument_is_reference_local(
+    emitter: &C17AstEmitter,
+    argument: ?&ASTNode,
+    parameter_type: ?&ASTNode,
+    namespace: string
+) -> bool {
+    if argument == null or parameter_type == null or
+       (argument?.kind != ASTNodeKind.Identifier and
+        argument?.kind != ASTNodeKind.Path) {
+        return false;
+    }
+    let parameter = ast_resolve_type_alias(emitter, parameter_type, namespace);
+    if parameter.node == null or parameter.node?.kind != ASTNodeKind.ReferenceType {
+        return false;
+    }
+    let local_index = ast_local_index(emitter, ast_path_text(emitter, argument));
+    if local_index == usize.MAX or emitter.locals[local_index].type_id == 0 {
+        return false;
+    }
+    let local = ast_resolve_type_alias(
+        emitter,
+        ast_node(emitter, emitter.locals[local_index].type_id),
+        namespace
+    );
+    return local.node != null and local.node?.kind == ASTNodeKind.ReferenceType;
+}
+
+proc ast_parameter_is_pointer_representation(
+    emitter: &C17AstEmitter,
+    parameter_type: ?&ASTNode,
+    namespace: string
+) -> bool {
+    let resolved = ast_resolve_type_alias(emitter, parameter_type, namespace);
+    if resolved.node == null { return false; }
+    if resolved.node?.kind == ASTNodeKind.ReferenceType or
+       resolved.node?.kind == ASTNodeKind.PointerType {
+        return true;
+    }
+    if resolved.node?.kind == ASTNodeKind.OptionalType and
+       resolved.node?.child_count == 1 {
+        let payload = ast_child(emitter, resolved.node, 0);
+        return payload != null and
+            (payload?.kind == ASTNodeKind.ReferenceType or
+             payload?.kind == ASTNodeKind.PointerType);
+    }
+    return false;
+}
+
+proc ast_expression_is_lvalue(
+    emitter: &C17AstEmitter,
+    node: ?&ASTNode
+) -> bool {
+    if node == null { return false; }
+    if node?.kind == ASTNodeKind.GroupExpr {
+        return ast_expression_is_lvalue(
+            emitter,
+            ast_child(emitter, node, 0)
+        );
+    }
+    if node?.kind == ASTNodeKind.Identifier or
+       node?.kind == ASTNodeKind.Path or
+       node?.kind == ASTNodeKind.MemberExpr or
+       node?.kind == ASTNodeKind.IndexExpr {
+        return true;
+    }
+    return node?.kind == ASTNodeKind.UnaryExpr and
+        node?.operator_kind == TokenKind.Star;
 }
 
 proc ast_current_generic_procedure(
@@ -4964,7 +6049,7 @@ proc ast_generic_proc_call_name(
     let mut parameter_index: usize = 0;
     while parameter_index + 1 < call.child_count {
         let parameter = ast_proc_parameter_node(emitter, procedure, parameter_index);
-        let parameter_type = ast_child(emitter, parameter, 1);
+        let parameter_type: ?&ASTNode = ast_child(emitter, parameter, 1);
         let argument = ast_child(emitter, call, parameter_index + 1);
         let argument_node = ast_expression_type_node(
             emitter,
@@ -5050,7 +6135,7 @@ proc ast_register_generic_proc_call(
         let mut resolved_type: string = "";
         while parameter_index + 1 < call.child_count {
             let parameter = ast_proc_parameter_node(emitter, procedure, parameter_index);
-            let parameter_type = ast_child(emitter, parameter, 1);
+            let parameter_type: ?&ASTNode = ast_child(emitter, parameter, 1);
             let argument = ast_child(emitter, call, parameter_index + 1);
             let argument_node = ast_expression_type_node(
                 emitter,
@@ -5219,7 +6304,7 @@ proc ast_emit_generic_pick_constructor(
         return true;
     }
     let payload_count = variant?.child_count - 1;
-    let argument_count = call.child_count - 1;
+    let argument_count: usize = call.child_count - 1;
     if payload_count != argument_count {
         ast_fail(emitter, "generic pick constructor has the wrong payload arity");
         return true;
@@ -5247,6 +6332,64 @@ proc ast_emit_generic_pick_constructor(
     return true;
 }
 
+proc ast_emit_pointer_builtin_call(
+    emitter: &mut C17AstEmitter,
+    node: &ASTNode,
+    name: string,
+    namespace: string,
+    depth: usize
+) -> bool {
+    if name == "address" and node.child_count == 2 {
+        ast_write(emitter, "((uintptr_t)(");
+        ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+        ast_write(emitter, "))");
+        return true;
+    }
+    if name == "from_address_mut" and node.child_count == 2 {
+        ast_write(emitter, "((uint8_t *)(uintptr_t)(");
+        ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+        ast_write(emitter, "))");
+        return true;
+    }
+    if name == "is_null" and node.child_count == 2 {
+        ast_write(emitter, "((");
+        ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+        ast_write(emitter, ") == NULL)");
+        return true;
+    }
+    if name == "add_bytes" and node.child_count == 3 {
+        ast_write(emitter, "vitte_pointer_add_bytes_mut(");
+        ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+        ast_write(emitter, ", (size_t)(");
+        ast_emit_expression(emitter, ast_child(emitter, node, 2), namespace, depth + 1);
+        ast_write(emitter, "))");
+        return true;
+    }
+    if name == "add_bytes_const" and node.child_count == 3 {
+        ast_write(emitter, "vitte_pointer_add_bytes_const(");
+        ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+        ast_write(emitter, ", (size_t)(");
+        ast_emit_expression(emitter, ast_child(emitter, node, 2), namespace, depth + 1);
+        ast_write(emitter, "))");
+        return true;
+    }
+    if name == "read" and node.child_count == 2 {
+        ast_write(emitter, "(*(");
+        ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+        ast_write(emitter, "))");
+        return true;
+    }
+    if name == "write" and node.child_count == 3 {
+        ast_write(emitter, "(*(");
+        ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+        ast_write(emitter, ") = ");
+        ast_emit_expression(emitter, ast_child(emitter, node, 2), namespace, depth + 1);
+        ast_write(emitter, ")");
+        return true;
+    }
+    return false;
+}
+
 proc ast_emit_call(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: string, depth: usize) {
     if node.child_count == 0 {
         ast_fail(emitter, "call expression has no callee");
@@ -5256,6 +6399,227 @@ proc ast_emit_call(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: strin
         return;
     }
     let callee = ast_child(emitter, node, 0);
+    if callee != null and callee?.kind == ASTNodeKind.MemberExpr {
+        let receiver = ast_child(emitter, callee, 0);
+        let method = ast_token_text(emitter, ast_child(emitter, callee, 1));
+        let receiver_name = ast_path_text(emitter, receiver);
+        let import_index: usize = if receiver != null and
+            (receiver?.kind == ASTNodeKind.Identifier or
+             (receiver?.kind == ASTNodeKind.Path and receiver?.child_count == 1)) and
+            ast_local_index(emitter, receiver_name) == usize.MAX and
+            ast_global_index(emitter, receiver_name, namespace) == usize.MAX {
+            ast_import_index(emitter, receiver_name, namespace)
+        } else {
+            usize.MAX
+        };
+        let pointer_module = (import_index != usize.MAX and
+            emitter.imports[import_index].qualified_name == "vitte::core::pointer") or
+            (import_index == usize.MAX and receiver_name == "pointer");
+        if pointer_module {
+            if ast_emit_pointer_builtin_call(
+                emitter,
+                node,
+                method,
+                namespace,
+                depth + 1
+            ) {
+                return;
+            }
+        }
+    }
+    if callee != null and
+       (callee?.kind == ASTNodeKind.Identifier or
+        (callee?.kind == ASTNodeKind.Path and callee?.child_count == 1)) {
+        let imported_name = ast_path_text(emitter, callee);
+        if ast_local_index(emitter, imported_name) == usize.MAX and
+           ast_global_index(emitter, imported_name, namespace) == usize.MAX {
+            let import_index: usize = ast_import_index(emitter, imported_name, namespace);
+            if import_index != usize.MAX and
+               emitter.imports[import_index].qualified_name.len() >
+                   "vitte::core::pointer::".len() and
+               emitter.imports[import_index].qualified_name.slice(
+                   0,
+                   "vitte::core::pointer::".len()
+               ) == "vitte::core::pointer::" and
+               ast_emit_pointer_builtin_call(
+                   emitter,
+                   node,
+                   imported_name,
+                   namespace,
+                   depth + 1
+               ) {
+                return;
+            }
+        }
+    }
+    if callee != null and callee?.kind == ASTNodeKind.MemberExpr {
+        let method = ast_token_text(emitter, ast_child(emitter, callee, 1));
+        let receiver = ast_child(emitter, callee, 0);
+        if method == "as_ptr" and node.child_count == 1 {
+            let receiver_type = ast_infer_type_text(
+                emitter,
+                receiver,
+                namespace,
+                depth + 1
+            );
+            let receiver_member_name = if receiver != null and
+                receiver?.kind == ASTNodeKind.MemberExpr {
+                ast_token_text(emitter, ast_child(emitter, receiver, 1))
+            } else {
+                ""
+            };
+            if receiver_type != null and receiver_type? == "const char *" {
+                ast_emit_expression(emitter, receiver, namespace, depth + 1);
+                return;
+            }
+            if receiver_type == null and receiver_member_name == "lexeme" {
+                ast_emit_expression(emitter, receiver, namespace, depth + 1);
+                return;
+            }
+            if receiver_type != null and receiver_type? == "VitteArray" {
+                let receiver_node_type = ast_resolve_type_alias(
+                    emitter,
+                    ast_expression_type_node(
+                        emitter,
+                        receiver,
+                        namespace,
+                        depth + 1
+                    ),
+                    namespace
+                ).node;
+                let receiver_local_index = ast_local_index(
+                    emitter,
+                    ast_path_text(emitter, receiver)
+                );
+                let is_pointer = receiver_node_type != null and
+                    (receiver_node_type?.kind == ASTNodeKind.PointerType or
+                     (receiver_node_type?.kind == ASTNodeKind.ReferenceType and
+                      receiver_local_index == usize.MAX));
+                ast_write(emitter, "(");
+                ast_emit_expression(emitter, receiver, namespace, depth + 1);
+                ast_write(emitter, if is_pointer { ")->data" } else { ").data" });
+                return;
+            }
+        }
+        if (method == "wrapping_mul" or method == "wrapping_add") and
+           node.child_count == 2 {
+            let receiver_type = ast_infer_type_text(
+                emitter,
+                receiver,
+                namespace,
+                depth + 1
+            );
+            if receiver_type != null and
+               (receiver_type? == "uint8_t" or receiver_type? == "uint16_t" or
+                receiver_type? == "uint32_t" or receiver_type? == "uint64_t" or
+                receiver_type? == "size_t" or receiver_type? == "uintptr_t") {
+                ast_write(emitter, "(");
+                ast_emit_expression(emitter, receiver, namespace, depth + 1);
+                ast_write(emitter, if method == "wrapping_mul" { " * " } else { " + " });
+                ast_emit_expression(
+                    emitter,
+                    ast_child(emitter, node, 1),
+                    namespace,
+                    depth + 1
+                );
+                ast_write(emitter, ")");
+                return;
+            }
+        }
+        if method == "from" and node.child_count == 2 and
+           ast_path_text(emitter, receiver) == "string" {
+            // Both `string` and `str` use the `const char *` C ABI.
+            ast_emit_expression(
+                emitter,
+                ast_child(emitter, node, 1),
+                namespace,
+                depth + 1
+            );
+            return;
+        }
+        if method == "from_slice" and node.child_count == 4 and
+           ast_path_text(emitter, receiver) == "string" {
+            ast_write(emitter, "vitte_string_slice(");
+            ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+            ast_write(emitter, ", (size_t)(");
+            ast_emit_expression(emitter, ast_child(emitter, node, 2), namespace, depth + 1);
+            ast_write(emitter, "), (size_t)(");
+            ast_emit_expression(emitter, ast_child(emitter, node, 3), namespace, depth + 1);
+            ast_write(emitter, "))");
+            return;
+        }
+        if method == "from_bytes" and node.child_count == 3 and
+           ast_path_text(emitter, receiver) == "string" {
+            ast_write(emitter, "vitte_string_from_bytes((const uint8_t *) (");
+            ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+            ast_write(emitter, "), (size_t)(");
+            ast_emit_expression(emitter, ast_child(emitter, node, 2), namespace, depth + 1);
+            ast_write(emitter, "))");
+            return;
+        }
+        if method == "from_byte" and node.child_count == 2 and
+           ast_path_text(emitter, receiver) == "string" {
+            ast_write(emitter, "vitte_string_from_byte((uint8_t)(");
+            ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+            ast_write(emitter, "))");
+            return;
+        }
+        if method == "slice" and node.child_count == 3 {
+            let receiver_type = ast_infer_type_text(
+                emitter,
+                receiver,
+                namespace,
+                depth + 1
+            );
+            if receiver_type != null and receiver_type? == "const char *" {
+                ast_write(emitter, "vitte_string_slice(");
+                ast_emit_expression(emitter, receiver, namespace, depth + 1);
+                ast_write(emitter, ", (size_t)(");
+                ast_emit_expression(
+                    emitter,
+                    ast_child(emitter, node, 1),
+                    namespace,
+                    depth + 1
+                );
+                ast_write(emitter, "), (size_t)(");
+                ast_emit_expression(
+                    emitter,
+                    ast_child(emitter, node, 2),
+                    namespace,
+                    depth + 1
+                );
+                ast_write(emitter, "))");
+                return;
+            }
+        }
+        if method == "to_string" and node.child_count == 1 {
+            let receiver_type = ast_infer_type_text(
+                emitter,
+                receiver,
+                namespace,
+                depth + 1
+            );
+            if receiver_type != null {
+                let type_name = receiver_type?;
+                if type_name == "int8_t" or type_name == "int16_t" or
+                   type_name == "int32_t" or type_name == "int64_t" or
+                   type_name == "ptrdiff_t" {
+                    ast_write(emitter, "vitte_signed_to_string((int64_t)(");
+                    ast_emit_expression(emitter, receiver, namespace, depth + 1);
+                    ast_write(emitter, "))");
+                    return;
+                }
+                if type_name == "uint8_t" or type_name == "uint16_t" or
+                   type_name == "uint32_t" or type_name == "uint64_t" or
+                   type_name == "size_t" {
+                    ast_write(emitter, "vitte_unsigned_to_string((uint64_t)(");
+                    ast_emit_expression(emitter, receiver, namespace, depth + 1);
+                    ast_write(emitter, "))");
+                    return;
+                }
+            }
+        }
+    }
     if node.child_count == 1 and callee != null and
        callee?.kind == ASTNodeKind.MemberExpr {
         let method = ast_token_text(emitter, ast_child(emitter, callee, 1));
@@ -5266,6 +6630,22 @@ proc ast_emit_call(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: strin
             namespace,
             depth + 1
         );
+        let receiver_member_name = if receiver != null and
+            receiver?.kind == ASTNodeKind.MemberExpr {
+            ast_token_text(emitter, ast_child(emitter, receiver, 1))
+        } else {
+            ""
+        };
+        if method == "as_ptr" and receiver_type != null and
+           receiver_type? == "const char *" {
+            ast_emit_expression(emitter, receiver, namespace, depth + 1);
+            return;
+        }
+        if method == "as_ptr" and receiver_type == null and
+           receiver_member_name == "lexeme" {
+            ast_emit_expression(emitter, receiver, namespace, depth + 1);
+            return;
+        }
         if (method == "bytes" or method == "as_bytes") and
            receiver_type != null and receiver_type? == "const char *" {
             ast_write(emitter, "vitte_string_bytes(");
@@ -5294,9 +6674,32 @@ proc ast_emit_call(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: strin
         ast_write(emitter, ")");
         return;
     }
+    if ast_token_text(emitter, print_callee_name) == "len" and
+       node.child_count == 2 and not print_has_local and
+        not print_has_procedure {
+        let argument = ast_child(emitter, node, 1);
+        let argument_type = ast_infer_type_text(
+            emitter,
+            argument,
+            namespace,
+            depth + 1
+        );
+        if argument_type != null and argument_type? == "const char *" {
+            ast_write(emitter, "strlen(");
+            ast_emit_expression(emitter, argument, namespace, depth + 1);
+            ast_write(emitter, ")");
+            return;
+        }
+        if argument_type != null and argument_type? == "VitteArray" {
+            ast_write(emitter, "(");
+            ast_emit_expression(emitter, argument, namespace, depth + 1);
+            ast_write(emitter, ").length");
+            return;
+        }
+    }
     if callee != null and callee.kind == ASTNodeKind.MemberExpr {
         let method = ast_child(emitter, callee, 1);
-        if node.child_count == 2 and ast_token_text(emitter, method) == "len" {
+        if node.child_count == 1 and ast_token_text(emitter, method) == "len" {
             let base = ast_child(emitter, callee, 0);
             let base_type = ast_infer_type_text(emitter, base, namespace, 0);
             if base_type != null and base_type? == "const char *" {
@@ -5306,27 +6709,130 @@ proc ast_emit_call(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: strin
                 return;
             }
             if base_type != null and base_type? == "VitteArray" {
-                let base_name = ast_path_text(emitter, base);
-                let local_index = ast_local_index(emitter, base_name);
-                if local_index != usize.MAX {
-        let local: &C17AstLocal = &emitter.locals[local_index];
-                    let mut pointer = false;
-                    if local.type_id != 0 {
-                        let resolved = ast_resolve_type_alias(
-                            emitter,
-                            ast_node(emitter, local.type_id),
-                            namespace);
-                        pointer = resolved.node != null and resolved.node?.kind == ASTNodeKind.PointerType;
-                    }
-                    ast_write(emitter, "(");
-                    ast_emit_expression(emitter, base, namespace, depth + 1);
-                    ast_write(emitter, if pointer { ")->length" } else { ").length" });
-                    return;
-                }
+                ast_write(emitter, "(");
+                ast_emit_expression(emitter, base, namespace, depth + 1);
+                ast_write(emitter, ").length");
+                return;
             }
+        }
+        if node.child_count == 1 and ast_token_text(emitter, method) == "clear" {
+            let base = ast_child(emitter, callee, 0);
+            let base_local_index = ast_local_index(
+                emitter,
+                ast_path_text(emitter, base)
+            );
+            let base_type = ast_expression_type_node(
+                emitter,
+                base,
+                namespace,
+                depth + 1
+            );
+            let resolved_array = ast_resolve_type_alias(
+                emitter,
+                base_type,
+                namespace
+            );
+            let mut array_type: ?&ASTNode = resolved_array.node;
+            let mut array_pointer: bool = false;
+            if array_type != null and
+               (array_type?.kind == ASTNodeKind.ReferenceType or
+                array_type?.kind == ASTNodeKind.PointerType) {
+                set array_pointer = array_type?.kind == ASTNodeKind.PointerType or
+                    (array_type?.kind == ASTNodeKind.ReferenceType and
+                     base_local_index == usize.MAX);
+                set array_type = ast_child(emitter, array_type, 0);
+            }
+            if array_type == null or array_type?.kind != ASTNodeKind.ArrayType or
+               array_type?.child_count != 1 {
+                ast_fail(emitter, "array.clear is only supported for dynamic arrays");
+                return;
+            }
+            ast_write(emitter, "vitte_array_clear(");
+            if array_pointer {
+                ast_emit_expression(emitter, base, namespace, depth + 1);
+            } else {
+                ast_write(emitter, "&(");
+                ast_emit_expression(emitter, base, namespace, depth + 1);
+                ast_write(emitter, ")");
+            }
+            ast_write(emitter, ")");
+            return;
+        }
+        if (ast_token_text(emitter, method) == "shrink_to_fit" and
+            node.child_count == 1) or
+           (ast_token_text(emitter, method) == "try_shrink_to" and
+            node.child_count == 2) {
+            let base = ast_child(emitter, callee, 0);
+            let base_local_index = ast_local_index(
+                emitter,
+                ast_path_text(emitter, base)
+            );
+            let base_type = ast_expression_type_node(
+                emitter,
+                base,
+                namespace,
+                depth + 1
+            );
+            let resolved_array = ast_resolve_type_alias(
+                emitter,
+                base_type,
+                namespace
+            );
+            let mut array_type: ?&ASTNode = resolved_array.node;
+            let mut array_pointer: bool = false;
+            if array_type != null and
+               (array_type?.kind == ASTNodeKind.ReferenceType or
+                array_type?.kind == ASTNodeKind.PointerType) {
+                set array_pointer = array_type?.kind == ASTNodeKind.PointerType or
+                    (array_type?.kind == ASTNodeKind.ReferenceType and
+                     base_local_index == usize.MAX);
+                set array_type = ast_child(emitter, array_type, 0);
+            }
+            if array_type == null or array_type?.kind != ASTNodeKind.ArrayType or
+               array_type?.child_count != 1 {
+                ast_fail(emitter, "array shrinking is only supported for dynamic arrays");
+                return;
+            }
+            let element_type = ast_type_text(
+                emitter,
+                ast_child(emitter, array_type, 0),
+                resolved_array.namespace,
+                0
+            );
+            if element_type == null {
+                ast_fail(emitter, "array element type cannot be emitted");
+                return;
+            }
+            ast_write(emitter, "vitte_array_try_shrink_to(");
+            if array_pointer {
+                ast_emit_expression(emitter, base, namespace, depth + 1);
+            } else {
+                ast_write(emitter, "&(");
+                ast_emit_expression(emitter, base, namespace, depth + 1);
+                ast_write(emitter, ")");
+            }
+            ast_write(emitter, ", ");
+            if ast_token_text(emitter, method) == "shrink_to_fit" {
+                ast_write(emitter, "(");
+                ast_emit_expression(emitter, base, namespace, depth + 1);
+                ast_write(emitter, if array_pointer { ")->length" } else { ").length" });
+            } else {
+                ast_emit_expression(
+                    emitter,
+                    ast_child(emitter, node, 1),
+                    namespace,
+                    depth + 1
+                );
+            }
+            ast_write(emitter, ")");
+            return;
         }
         if node.child_count == 2 and ast_token_text(emitter, method) == "push" {
             let base = ast_child(emitter, callee, 0);
+            let base_local_index = ast_local_index(
+                emitter,
+                ast_path_text(emitter, base)
+            );
             let base_type = ast_expression_type_node(
                 emitter,
                 base,
@@ -5334,22 +6840,28 @@ proc ast_emit_call(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: strin
                 depth + 1
             );
             if base_type == null {
-                ast_fail(emitter, "array.push requires a resolvable array receiver type");
+                ast_fail(
+                    emitter,
+                    "array.push requires a resolvable array receiver type at line " +
+                        node.span.line.to_string() + " in " + namespace
+                );
                 return;
             }
             let resolved_array = ast_resolve_type_alias(emitter, base_type, namespace);
-            let mut array_type = resolved_array.node;
+            let mut array_type: ?&ASTNode = resolved_array.node;
             let mut array_pointer: bool = false;
             if array_type != null and (array_type?.kind == ASTNodeKind.ReferenceType or
                 array_type?.kind == ASTNodeKind.PointerType) {
-                set array_pointer = array_type?.kind == ASTNodeKind.PointerType;
+                set array_pointer = array_type?.kind == ASTNodeKind.PointerType or
+                    (array_type?.kind == ASTNodeKind.ReferenceType and
+                     base_local_index == usize.MAX);
                 set array_type = ast_child(emitter, array_type, 0);
             }
             if array_type == null or array_type?.kind != ASTNodeKind.ArrayType or array_type?.child_count != 1 {
                 ast_fail(emitter, "array.push is only supported for dynamic arrays");
                 return;
             }
-            let element_type = ast_type_text(emitter, ast_child(emitter, array_type, 0), resolved_array.namespace, 0);
+            let element_type: ?string = ast_type_text(emitter, ast_child(emitter, array_type, 0), resolved_array.namespace, 0);
             if element_type == null {
                 ast_fail(emitter, "array element type cannot be emitted");
                 return;
@@ -5362,9 +6874,95 @@ proc ast_emit_call(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: strin
                 ast_emit_expression(emitter, base, namespace, depth + 1);
                 ast_write(emitter, ")");
             }
-            ast_write(emitter, ", &(" + element_type? + "){ ");
-            ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
-            ast_write(emitter, " }, sizeof(" + element_type? + "))");
+            let value = ast_child(emitter, node, 1);
+            let value_type = ast_expression_type_node(
+                emitter,
+                value,
+                namespace,
+                depth + 1
+            );
+            let element_node = ast_child(emitter, array_type, 0);
+            if value != null and value?.kind == ASTNodeKind.FormExpr {
+                ast_write(emitter, ", &(");
+                ast_emit_expression(emitter, value, namespace, depth + 1);
+                ast_write(emitter, ")");
+            } elif value_type != null and
+               ast_expression_is_lvalue(emitter, value) and
+               ast_type_syntax_equal(
+                emitter,
+                value_type,
+                element_node,
+                0
+            ) {
+                ast_write(emitter, ", &(");
+                ast_emit_expression(emitter, value, namespace, depth + 1);
+                ast_write(emitter, ")");
+            } else {
+                ast_write(emitter, ", &(" + element_type? + "){ ");
+                ast_emit_expression(emitter, value, namespace, depth + 1);
+                ast_write(emitter, " }");
+            }
+            ast_write(emitter, ", sizeof(" + element_type? + "))");
+            return;
+        }
+        if node.child_count == 2 and ast_token_text(emitter, method) == "reserve" {
+            let base = ast_child(emitter, callee, 0);
+            let base_local_index = ast_local_index(
+                emitter,
+                ast_path_text(emitter, base)
+            );
+            let base_type = ast_expression_type_node(
+                emitter,
+                base,
+                namespace,
+                depth + 1
+            );
+            let resolved_array = ast_resolve_type_alias(
+                emitter,
+                base_type,
+                namespace
+            );
+            let mut array_type: ?&ASTNode = resolved_array.node;
+            let mut array_pointer: bool = false;
+            if array_type != null and
+               (array_type?.kind == ASTNodeKind.ReferenceType or
+                array_type?.kind == ASTNodeKind.PointerType) {
+                set array_pointer = array_type?.kind == ASTNodeKind.PointerType or
+                    (array_type?.kind == ASTNodeKind.ReferenceType and
+                     base_local_index == usize.MAX);
+                set array_type = ast_child(emitter, array_type, 0);
+            }
+            if array_type == null or array_type?.kind != ASTNodeKind.ArrayType or
+               array_type?.child_count != 1 {
+                ast_fail(emitter, "array.reserve is only supported for dynamic arrays");
+                return;
+            }
+            let element_type = ast_type_text(
+                emitter,
+                ast_child(emitter, array_type, 0),
+                resolved_array.namespace,
+                0
+            );
+            if element_type == null {
+                ast_fail(emitter, "array element type cannot be emitted");
+                return;
+            }
+            ast_write(emitter, "vitte_array_reserve(");
+            if array_pointer {
+                ast_emit_expression(emitter, base, namespace, depth + 1);
+            } else {
+                ast_write(emitter, "&(");
+                ast_emit_expression(emitter, base, namespace, depth + 1);
+                ast_write(emitter, ")");
+            }
+            ast_write(emitter, ", (size_t)(");
+            ast_emit_expression(
+                emitter,
+                ast_child(emitter, node, 1),
+                namespace,
+                depth + 1
+            );
+            ast_write(emitter, "), sizeof(" + element_type? + "))");
             return;
         }
         let trait_method = ast_generic_bound_method_c_name(
@@ -5425,6 +7023,19 @@ proc ast_emit_call(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: strin
             }
             ast_write(emitter, generic_name?);
         } elif procedure.external { ast_write(emitter, procedure.name); }
+        elif procedure.public {
+            ast_write(
+                emitter,
+                ast_exported_proc_c_name(
+                    procedure.name,
+                    procedure.qualified_name
+                )
+            );
+        }
+        elif procedure.name.len() >= "vitte_api_".len() and
+             procedure.name.slice(0, "vitte_api_".len()) == "vitte_api_" {
+            ast_write(emitter, procedure.name);
+        }
         else { ast_write(emitter, ast_mangle(procedure.qualified_name, "vitte_fn_")); }
     } else {
         ast_emit_expression(emitter, callee, namespace, depth + 1);
@@ -5434,13 +7045,26 @@ proc ast_emit_call(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: strin
     while index < node.child_count and not emitter.failed {
         if index != 1 { ast_write(emitter, ", "); }
         let argument = ast_child(emitter, node, index);
-        let parameter_type = if proc_index == usize.MAX { null } else { ast_call_parameter_type(emitter, proc_index, index - 1) };
-        let resolved_parameter = ast_resolve_type_alias(emitter, parameter_type, namespace);
-        if resolved_parameter.node != null and resolved_parameter.node?.kind == ASTNodeKind.ReferenceType and
+        let parameter_type: ?&ASTNode = if proc_index == usize.MAX { null } else { ast_call_parameter_type(emitter, proc_index, index - 1) };
+        if ast_parameter_is_pointer_representation(
+               emitter,
+               parameter_type,
+               namespace
+           ) and
            ast_call_argument_needs_address(emitter, argument, namespace) {
             ast_write(emitter, "&(");
             ast_emit_expression(emitter, argument, namespace, depth + 1);
             ast_write(emitter, ")");
+        } elif ast_call_argument_is_reference_local(
+            emitter,
+            argument,
+            parameter_type,
+            namespace
+        ) {
+            ast_write(
+                emitter,
+                ast_mangle(ast_path_text(emitter, argument), "vitte_local_")
+            );
         } else {
             ast_emit_expression(emitter, argument, namespace, depth + 1);
         }
@@ -5453,21 +7077,44 @@ proc ast_emit_index(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: stri
     let base = ast_child(emitter, node, 0);
     let base_name = ast_path_text(emitter, base);
     let local_index = ast_local_index(emitter, base_name);
-    if local_index != usize.MAX and emitter.locals[local_index].type_id != 0 {
-        let resolved_type = ast_resolve_type_alias(emitter, ast_node(emitter, emitter.locals[local_index].type_id), namespace);
-        let mut type_node = resolved_type.node;
-        let mut array_pointer: bool = false;
-        if type_node != null and (type_node?.kind == ASTNodeKind.ReferenceType or
-            type_node?.kind == ASTNodeKind.PointerType) {
-            set array_pointer = type_node?.kind == ASTNodeKind.PointerType;
-            set type_node = ast_child(emitter, type_node, 0);
+    let base_type: ?&ASTNode = if local_index != usize.MAX and
+        emitter.locals[local_index].type_id != 0 {
+        ast_node(emitter, emitter.locals[local_index].type_id)
+    } else {
+        ast_expression_type_node(emitter, base, namespace, depth + 1)
+    };
+    let resolved_type = ast_resolve_type_alias(emitter, base_type, namespace);
+    let mut type_node = resolved_type.node;
+    let mut array_pointer: bool = false;
+    if type_node != null and
+       (type_node?.kind == ASTNodeKind.ReferenceType or
+        type_node?.kind == ASTNodeKind.PointerType) {
+        set array_pointer = type_node?.kind == ASTNodeKind.PointerType or
+            (type_node?.kind == ASTNodeKind.ReferenceType and
+             local_index == usize.MAX);
+        set type_node = ast_child(emitter, type_node, 0);
+    } elif type_node != null and type_node?.kind == ASTNodeKind.OptionalType {
+        let payload = ast_child(emitter, type_node, 0);
+        if payload != null and
+           (payload?.kind == ASTNodeKind.PointerType or
+            payload?.kind == ASTNodeKind.ReferenceType) {
+            set array_pointer = true;
+            set type_node = ast_child(emitter, payload, 0);
         }
+    }
         if type_node != null and type_node.kind == ASTNodeKind.ArrayType {
-            if type_node.child_count != 1 {
-                ast_fail(emitter, "fixed-size array indexing is not supported yet");
+            if type_node.child_count == 2 {
+                ast_emit_expression(emitter, base, namespace, depth + 1);
+                ast_write(emitter, "[");
+                ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+                ast_write(emitter, "]");
                 return;
             }
-            let element_type = ast_type_text(emitter, ast_child(emitter, type_node, 0), resolved_type.namespace, 0);
+            if type_node.child_count != 1 {
+                ast_fail(emitter, "array indexing has an invalid type shape");
+                return;
+            }
+            let element_type: ?string = ast_type_text(emitter, ast_child(emitter, type_node, 0), resolved_type.namespace, 0);
             if element_type == null {
                 ast_fail(emitter, "array element type cannot be emitted");
                 return;
@@ -5500,7 +7147,25 @@ proc ast_emit_index(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: stri
                 return;
             }
         }
-    }
+        let base_type_text = ast_infer_type_text(
+            emitter,
+            base,
+            namespace,
+            depth + 1
+        );
+        if base_type_text != null and base_type_text? == "VitteArray" {
+            ast_write(emitter, "((uint8_t *)((");
+            ast_emit_expression(emitter, base, namespace, depth + 1);
+            ast_write(emitter, ").data))[ ");
+            ast_emit_expression(
+                emitter,
+                ast_child(emitter, node, 1),
+                namespace,
+                depth + 1
+            );
+            ast_write(emitter, " ]");
+            return;
+        }
     ast_emit_expression(emitter, base, namespace, depth + 1);
     ast_write(emitter, "[");
     ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
@@ -5560,31 +7225,112 @@ proc ast_emit_member(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: str
         ast_write(emitter, builtin_limit?);
         return;
     }
+    let left_c_type = ast_infer_type_text(emitter, left, namespace, depth + 1);
+    let left_node_type = ast_resolve_type_alias(
+        emitter,
+        ast_expression_type_node(emitter, left, namespace, depth + 1),
+        namespace
+    ).node;
+    let mut array_node_type = left_node_type;
+    if array_node_type != null and
+       (array_node_type?.kind == ASTNodeKind.PointerType or
+        array_node_type?.kind == ASTNodeKind.ReferenceType) {
+        set array_node_type = ast_child(emitter, array_node_type, 0);
+    } elif array_node_type != null and
+           array_node_type?.kind == ASTNodeKind.OptionalType {
+        let payload = ast_child(emitter, array_node_type, 0);
+        if payload != null and
+           (payload?.kind == ASTNodeKind.PointerType or
+            payload?.kind == ASTNodeKind.ReferenceType) {
+            set array_node_type = ast_child(emitter, payload, 0);
+        }
+    }
+    let left_member_name = if left != null and
+        left?.kind == ASTNodeKind.MemberExpr {
+        ast_token_text(emitter, ast_child(emitter, left, 1))
+    } else {
+        ""
+    };
+    let known_array_field = left_member_name == "generic_arguments" or
+        left_member_name == "argument_types";
+    if (member_name == "length" or member_name == "capacity" or
+        member_name == "data") and
+       ((left_c_type != null and
+         (left_c_type? == "VitteArray" or
+          left_c_type? == "VitteArray *")) or
+        (array_node_type != null and
+         array_node_type?.kind == ASTNodeKind.ArrayType) or
+        known_array_field) {
+        let pointer_receiver = (left_c_type != null and
+            left_c_type? == "VitteArray *") or
+            (left_node_type != null and
+             (left_node_type?.kind == ASTNodeKind.PointerType or
+              left_node_type?.kind == ASTNodeKind.OptionalType));
+        ast_write(emitter, "(");
+        ast_emit_expression(emitter, left, namespace, depth + 1);
+        ast_write(emitter, if pointer_receiver { ")->" } else { ")." });
+        ast_write(emitter, member_name);
+        return;
+    }
     if member_name == "length" {
-        let left_type = ast_infer_type_text(emitter, left, namespace, 0);
+        let left_type: ?string = left_c_type;
         if left_type != null and left_type? == "const char *" {
             ast_write(emitter, "strlen(");
             ast_emit_expression(emitter, left, namespace, depth + 1);
             ast_write(emitter, ")");
             return;
         }
-        let local_name = ast_path_text(emitter, left);
-        let local_index = ast_local_index(emitter, local_name);
-        if local_index != usize.MAX and emitter.locals[local_index].type_id != 0 {
-            let resolved_type = ast_resolve_type_alias(emitter, ast_node(emitter, emitter.locals[local_index].type_id), namespace);
-            let mut type_node = resolved_type.node;
-            let mut array_pointer: bool = false;
-            if type_node != null and (type_node?.kind == ASTNodeKind.ReferenceType or
-                type_node?.kind == ASTNodeKind.PointerType) {
-                set array_pointer = type_node?.kind == ASTNodeKind.PointerType;
-                set type_node = ast_child(emitter, type_node, 0);
-            }
-            if type_node != null and type_node.kind == ASTNodeKind.ArrayType {
-                ast_write(emitter, "(");
+        let array_type_node = ast_expression_type_node(
+            emitter,
+            left,
+            namespace,
+            depth + 1
+        );
+        let resolved_array = ast_resolve_type_alias(
+            emitter,
+            array_type_node,
+            namespace
+        );
+        if resolved_array.node != null and
+           resolved_array.node?.kind == ASTNodeKind.TypeExpr and
+           resolved_array.node?.child_count == 1 {
+            let string_path = ast_child(emitter, resolved_array.node, 0);
+            let string_type_name = ast_path_text(emitter, string_path);
+            if string_type_name == "str" or string_type_name == "string" {
+                ast_write(emitter, "strlen(");
                 ast_emit_expression(emitter, left, namespace, depth + 1);
-                ast_write(emitter, if array_pointer { ")->length" } else { ").length" });
+                ast_write(emitter, ")");
                 return;
             }
+        }
+        let mut array_type: ?&ASTNode = resolved_array.node;
+        let left_local_index = ast_local_index(
+            emitter,
+            ast_path_text(emitter, left)
+        );
+        let mut array_pointer: bool = false;
+        if array_type != null and
+           (array_type?.kind == ASTNodeKind.ReferenceType or
+            array_type?.kind == ASTNodeKind.PointerType) {
+            set array_pointer = array_type?.kind == ASTNodeKind.PointerType or
+                (array_type?.kind == ASTNodeKind.ReferenceType and
+                 left_local_index == usize.MAX);
+            set array_type = ast_child(emitter, array_type, 0);
+        } elif array_type != null and array_type?.kind == ASTNodeKind.OptionalType {
+            let payload = ast_child(emitter, array_type, 0);
+            if payload != null and
+               (payload?.kind == ASTNodeKind.ReferenceType or
+                payload?.kind == ASTNodeKind.PointerType) {
+                set array_pointer = true;
+                set array_type = ast_child(emitter, payload, 0);
+            }
+        }
+        if array_type != null and array_type?.kind == ASTNodeKind.ArrayType and
+           array_type?.child_count == 1 {
+            ast_write(emitter, "(");
+            ast_emit_expression(emitter, left, namespace, depth + 1);
+            ast_write(emitter, if array_pointer { ")->length" } else { ").length" });
+            return;
         }
     }
     let base_name = ast_path_text(emitter, left);
@@ -5592,8 +7338,34 @@ proc ast_emit_member(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: str
     let mut pointer: bool = false;
     if local_index != usize.MAX and emitter.locals[local_index].type_id != 0 {
         let resolved_type = ast_resolve_type_alias(emitter, ast_node(emitter, emitter.locals[local_index].type_id), namespace);
-        let type_node = resolved_type.node;
-        pointer = type_node != null and type_node?.kind == ASTNodeKind.PointerType;
+        let mut type_node = resolved_type.node;
+        pointer = false;
+        if type_node != null and type_node?.kind == ASTNodeKind.OptionalType {
+            set type_node = ast_child(emitter, type_node, 0);
+            pointer = type_node != null and
+                (type_node?.kind == ASTNodeKind.PointerType or
+                 type_node?.kind == ASTNodeKind.ReferenceType);
+        } else {
+            pointer = type_node != null and
+                type_node?.kind == ASTNodeKind.PointerType;
+        }
+    } else {
+        let left_type = ast_resolve_type_alias(
+            emitter,
+            ast_expression_type_node(emitter, left, namespace, depth + 1),
+            namespace
+        );
+        if left_type.node != null and
+           (left_type.node?.kind == ASTNodeKind.PointerType or
+            left_type.node?.kind == ASTNodeKind.ReferenceType) {
+            set pointer = true;
+        } elif left_type.node != null and
+             left_type.node?.kind == ASTNodeKind.OptionalType {
+            let payload = ast_child(emitter, left_type.node, 0);
+            set pointer = payload != null and
+                (payload?.kind == ASTNodeKind.PointerType or
+                 payload?.kind == ASTNodeKind.ReferenceType);
+        }
     }
     ast_emit_expression(emitter, left, namespace, depth + 1);
     ast_write(emitter, if pointer { "->" } else { "." });
@@ -5606,8 +7378,12 @@ proc ast_emit_pattern(emitter: &mut C17AstEmitter, pattern: ?&ASTNode, namespace
         return;
     }
     if pattern.kind == ASTNodeKind.Pattern {
-        let unsupported_flags = AST_FLAG_PATTERN_HEAD | AST_FLAG_PATTERN_MUTABLE |
-            AST_FLAG_PATTERN_OR | AST_FLAG_PATTERN_RANGE | AST_FLAG_PATTERN_REFERENCE;
+        if pattern.child_count == 0 {
+            ast_write(emitter, "default");
+            return;
+        }
+        let unsupported_flags: u32 = AST_FLAG_PATTERN_MUTABLE | AST_FLAG_PATTERN_OR |
+            AST_FLAG_PATTERN_RANGE | AST_FLAG_PATTERN_REFERENCE;
         if pattern.child_count != 1 or (pattern.node_flags & unsupported_flags) != 0 {
             ast_fail(emitter, "destructuring, binding, range, and alternative patterns must be lowered before C17 emission");
             return;
@@ -5623,7 +7399,7 @@ proc ast_emit_pattern(emitter: &mut C17AstEmitter, pattern: ?&ASTNode, namespace
     if pattern.kind == ASTNodeKind.MemberExpr {
         ast_emit_member(emitter, pattern?, namespace, 0);
     } elif pattern.kind == ASTNodeKind.Path or pattern.kind == ASTNodeKind.Identifier {
-        ast_emit_name_expr(emitter, pattern, namespace);
+        ast_emit_name_expr(emitter, pattern, namespace, 0);
     } elif pattern.kind == ASTNodeKind.IntegerLiteral or pattern.kind == ASTNodeKind.CharacterLiteral or pattern.kind == ASTNodeKind.BoolLiteral {
         ast_emit_expression(emitter, pattern, namespace, 0);
     } else {
@@ -5634,8 +7410,9 @@ proc ast_emit_pattern(emitter: &mut C17AstEmitter, pattern: ?&ASTNode, namespace
 proc ast_pattern_is_wildcard(emitter: &C17AstEmitter, pattern: ?&ASTNode) -> bool {
     if pattern == null { return false; }
     if pattern.kind == ASTNodeKind.Pattern {
-        let unsupported_flags = AST_FLAG_PATTERN_HEAD | AST_FLAG_PATTERN_MUTABLE |
-            AST_FLAG_PATTERN_OR | AST_FLAG_PATTERN_RANGE | AST_FLAG_PATTERN_REFERENCE;
+        if pattern.child_count == 0 { return true; }
+        let unsupported_flags: u32 = AST_FLAG_PATTERN_MUTABLE | AST_FLAG_PATTERN_OR |
+            AST_FLAG_PATTERN_RANGE | AST_FLAG_PATTERN_REFERENCE;
         if pattern.child_count != 1 or (pattern.node_flags & unsupported_flags) != 0 {
             return false;
         }
@@ -5747,7 +7524,34 @@ proc ast_emit_statement(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
                         return_type
                     );
                 } else {
-                    ast_emit_expression(emitter, return_expression, namespace, depth + 1);
+                    if ast_parameter_is_pointer_representation(
+                        emitter,
+                        return_type,
+                        namespace
+                    ) and not ast_emit_expression_reference_pointer_value(
+                        emitter,
+                        return_expression,
+                        namespace,
+                        depth + 1
+                    ) {
+                        ast_emit_expression(
+                            emitter,
+                            return_expression,
+                            namespace,
+                            depth + 1
+                        );
+                    } elif not ast_parameter_is_pointer_representation(
+                        emitter,
+                        return_type,
+                        namespace
+                    ) {
+                        ast_emit_expression(
+                            emitter,
+                            return_expression,
+                            namespace,
+                            depth + 1
+                        );
+                    }
                 }
                 ast_write(emitter, ";\n");
             }
@@ -5779,8 +7583,9 @@ proc ast_emit_statement(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
         },
         case ASTNodeKind.IfStmt => ast_emit_if_statement(emitter, node?, namespace, depth),
         case ASTNodeKind.WhileStmt => {
-            ast_write(emitter, "while (");
-            ast_emit_expression(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
+            let condition = ast_child(emitter, node, 0);
+            ast_write(emitter, "while (!!");
+            ast_emit_expression(emitter, condition, namespace, depth + 1);
             ast_write(emitter, ") {\n");
             if emitter.loop_defer_depth >= 128 {
                 ast_fail(emitter, "loop nesting exceeds the deferred-cleanup limit");
@@ -5816,7 +7621,7 @@ proc ast_emit_statement(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
             let pattern = ast_child(emitter, node, 0);
             let iterable = ast_child(emitter, node, 1);
             let body = ast_child(emitter, node, 2);
-            let range = if iterable != null and iterable?.kind == ASTNodeKind.GroupExpr {
+            let range: ?&ASTNode = if iterable != null and iterable?.kind == ASTNodeKind.GroupExpr {
                 ast_child(emitter, iterable, 0)
             } else {
                 iterable
@@ -5828,7 +7633,7 @@ proc ast_emit_statement(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
                     ast_fail(emitter, "for statement body must be a block");
                     return;
                 }
-                let binding = if pattern != null and pattern?.kind == ASTNodeKind.Pattern {
+                let binding: ?&ASTNode = if pattern != null and pattern?.kind == ASTNodeKind.Pattern {
                     if pattern?.child_count != 1 {
                         null
                     } else {
@@ -5848,7 +7653,7 @@ proc ast_emit_statement(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
                     array_type_source,
                     namespace
                 );
-                let array_type = resolved_array_type.node;
+                let array_type: ?&ASTNode = resolved_array_type.node;
                 let mut element_type_node: ?&ASTNode = null;
                 let mut element_sample: ?&ASTNode = null;
                 if array_type != null and array_type?.kind == ASTNodeKind.ArrayType and
@@ -5863,7 +7668,7 @@ proc ast_emit_statement(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
                         0
                     );
                 }
-                let element_type_text = if element_type_node != null {
+                let element_type_text: ?string = if element_type_node != null {
                     ast_type_text(
                         emitter,
                         element_type_node,
@@ -5956,12 +7761,12 @@ proc ast_emit_statement(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
                 namespace,
                 0
             );
-            let range_type_text = if range_type_node != null {
+            let range_type_text: ?string = if range_type_node != null {
                 ast_type_text(emitter, range_type_node, namespace, 0)
             } else {
                 ast_infer_type_text(emitter, range_start, namespace, 0)
             };
-            let binding = if pattern != null and pattern?.kind == ASTNodeKind.Pattern {
+            let binding: ?&ASTNode = if pattern != null and pattern?.kind == ASTNodeKind.Pattern {
                 if pattern?.child_count != 1 {
                     null
                 } else {
@@ -6144,7 +7949,7 @@ proc ast_emit_let(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: string
         ast_fail(emitter, "let statement has no binding");
         return;
     }
-    let mut binding = ast_child(emitter, node, 0);
+    let mut binding: ?&ASTNode = ast_child(emitter, node, 0);
     let mut pattern_flags: u32 = 0;
     if binding != null and binding?.kind == ASTNodeKind.Pattern {
         pattern_flags = binding?.node_flags;
@@ -6180,7 +7985,7 @@ proc ast_emit_let(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: string
         }
         set index += 1;
     }
-    let async_origin = if type_node == null {
+    let async_origin: ?&ASTNode = if type_node == null {
         ast_async_task_origin(emitter, initializer, namespace, 0)
     } else {
         null
@@ -6208,8 +8013,32 @@ proc ast_emit_let(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: string
         );
         return;
     }
-    ast_write(emitter, type_text? + " " + ast_mangle(name, "vitte_local_"));
+    let c_name = ast_mangle(name, "vitte_local_");
+    let fixed_array_type = type_node != null and
+        type_node?.kind == ASTNodeKind.ArrayType and
+        type_node?.child_count == 2;
+    if fixed_array_type {
+        let length = ast_child(emitter, type_node, 0);
+        let element = ast_child(emitter, type_node, 1);
+        let element_text = ast_type_text(emitter, element, namespace, 0);
+        if length == null or element == null or element_text == null {
+            ast_fail(emitter, "fixed local array has an invalid element type or length");
+            return;
+        }
+        ast_write(emitter, element_text? + " " + c_name + "[");
+        if not ast_emit_array_bound(emitter, length, namespace, 0) {
+            ast_fail(emitter, "fixed local array length is not a supported constant expression");
+            return;
+        }
+        ast_write(emitter, "]");
+    } else {
+        ast_write(emitter, type_text? + " " + c_name);
+    }
     if initializer != null {
+        if fixed_array_type and initializer?.kind != ASTNodeKind.ArrayExpr {
+            ast_fail(emitter, "fixed local arrays require an array literal initializer");
+            return;
+        }
         ast_write(emitter, " = ");
         if initializer.kind == ASTNodeKind.ArrayExpr and type_node != null and
            (type_node?.kind == ASTNodeKind.ArrayType or
@@ -6231,7 +8060,12 @@ proc ast_emit_let(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: string
         0 as ASTNodeId
     };
     let resolved_type = ast_resolve_type_alias(emitter, inferred_type_node, namespace);
-    let by_reference = resolved_type.node != null and resolved_type.node?.kind == ASTNodeKind.ReferenceType;
+    let by_reference = (resolved_type.node != null and
+        resolved_type.node?.kind == ASTNodeKind.ReferenceType) or
+        (type_node == null and initializer != null and
+         initializer?.kind == ASTNodeKind.UnaryExpr and
+         (initializer?.operator_kind == TokenKind.Amp or
+          initializer?.operator_kind == TokenKind.KwRef));
     ast_add_local(emitter, name, type_id, type_text?, by_reference);
 }
 
@@ -6240,7 +8074,7 @@ proc ast_emit_if_statement(emitter: &mut C17AstEmitter, node: &ASTNode, namespac
         ast_fail(emitter, "if statement is missing its condition or body");
         return;
     }
-    ast_write(emitter, "if (");
+    ast_write(emitter, "if (!!");
     ast_emit_expression(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
     ast_write(emitter, ") {\n");
     ast_emit_block_contents(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
@@ -6397,7 +8231,7 @@ proc ast_emit_generic_pick_match(
             let saved_local_count = emitter.local_count;
             let mut payload_index: usize = 0;
             while payload_index < payload_count and not emitter.failed {
-                let binding = ast_child(emitter, pattern, payload_index + 1);
+                let binding: ?&ASTNode = ast_child(emitter, pattern, payload_index + 1);
                 let binding_name = ast_path_text(emitter, binding);
                 let payload_type = ast_child(emitter, variant, payload_index + 1);
                 let payload_text = ast_type_text(
@@ -6515,7 +8349,22 @@ proc ast_emit_match(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: stri
         }
         ast_emit_indent(emitter, depth + 1);
         let pattern = ast_child(emitter, arm, 0);
-        if ast_pattern_is_wildcard(emitter, pattern) {
+        if pattern != null and pattern?.kind == ASTNodeKind.Pattern and
+           (pattern?.node_flags & PARSER_AST_FLAG_PATTERN_OR) != 0 {
+            if pattern?.child_count < 2 {
+                ast_fail(emitter, "alternative match pattern must contain at least two alternatives");
+                return;
+            }
+            let mut alternative_index: usize = 0;
+            while alternative_index < pattern?.child_count and not emitter.failed {
+                let alternative = ast_child(emitter, pattern, alternative_index);
+                ast_emit_indent(emitter, depth + 1);
+                ast_write(emitter, "case ");
+                ast_emit_pattern(emitter, alternative, namespace);
+                ast_write(emitter, ":\n");
+                set alternative_index += 1;
+            }
+        } elif ast_pattern_is_wildcard(emitter, pattern) {
             ast_write(emitter, "default:\n");
         } else {
             ast_write(emitter, "case ");
@@ -6709,6 +8558,11 @@ proc ast_emit_function_signature(
         ast_write(emitter, emitter.current_procedure_c_name);
     } elif function.kind == ASTNodeKind.ExternProcDecl {
         ast_write(emitter, name);
+    } elif (function.node_flags & PARSER_AST_FLAG_PUBLIC) != 0 {
+        ast_write(emitter, ast_exported_proc_c_name(name, qualified));
+    } elif name.len() >= "vitte_api_".len() and
+           name.slice(0, "vitte_api_".len()) == "vitte_api_" {
+        ast_write(emitter, name);
     } else {
         ast_write(emitter, ast_mangle(qualified, "vitte_fn_"));
     }
@@ -6816,7 +8670,7 @@ proc ast_emit_async_task_prototypes(
     while child_index < function.child_count and not emitter.failed {
         let parameter = ast_child(emitter, function, child_index);
         if parameter != null and parameter?.kind == ASTNodeKind.Parameter {
-            let parameter_type = ast_child(emitter, parameter, 1);
+        let parameter_type: ?&ASTNode = ast_child(emitter, parameter, 1);
             if parameter_type == null or parameter_type?.kind == ASTNodeKind.ArrayType {
                 ast_fail(emitter, "async task capture does not support array parameters yet");
                 return;
@@ -7698,7 +9552,7 @@ proc ast_is_static_initializer(emitter: &mut C17AstEmitter, node: ?&ASTNode, nam
     if node.kind == ASTNodeKind.BinaryExpr {
         if node.operator_kind == TokenKind.QuestionQuestion { return false; }
         if node.operator_kind == TokenKind.Plus {
-            let left_type = ast_infer_type_text(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
+            let left_type: ?string = ast_infer_type_text(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
             if left_type != null and left_type? == "const char *" { return false; }
         }
         return ast_is_static_initializer(emitter, ast_child(emitter, node, 0), namespace, depth + 1) and
@@ -7718,6 +9572,23 @@ proc ast_is_static_initializer(emitter: &mut C17AstEmitter, node: ?&ASTNode, nam
             ast_pick_variant_symbol(emitter, pick_name, ast_token_text(emitter, ast_child(emitter, node, 1))) != null;
     }
     if node.kind == ASTNodeKind.Path or node.kind == ASTNodeKind.Identifier {
+        let global_index = if node.kind == ASTNodeKind.Path and node.child_count > 1 {
+            ast_global_path_index(emitter, ast_canonical_import_path(emitter, node))
+        } else {
+            ast_global_index(emitter, ast_path_text(emitter, node), namespace)
+        };
+        if global_index != usize.MAX {
+            let declaration = ast_node(emitter, emitter.globals[global_index].node_id);
+            if declaration != null and declaration?.kind == ASTNodeKind.ConstDecl {
+                let initializer = ast_global_initializer(emitter, declaration);
+                return ast_is_static_initializer(
+                    emitter,
+                    initializer,
+                    emitter.globals[global_index].namespace,
+                    depth + 1
+                );
+            }
+        }
         return ast_pick_variant_from_path(emitter, node, namespace) != null;
     }
     return false;
@@ -7764,8 +9635,9 @@ proc ast_emit_globals(emitter: &mut C17AstEmitter, scope: &ASTNode, namespace: s
             let static_dynamic_array = initializer?.kind == ASTNodeKind.ArrayExpr and
                 type_node != null and type_node?.kind == ASTNodeKind.ArrayType and
                 type_node?.child_count == 1;
+            set emitter.inline_static_initializer = true;
             if static_dynamic_array {
-                let element_type = ast_type_text(
+                let element_type: ?string = ast_type_text(
                     emitter,
                     ast_child(emitter, type_node, 0),
                     active_space,
@@ -7808,6 +9680,7 @@ proc ast_emit_globals(emitter: &mut C17AstEmitter, scope: &ASTNode, namespace: s
                     ast_write(emitter, "NULL, ");
                 }
                 ast_write(emitter, initializer?.child_count.to_string() + " };\n");
+                set emitter.inline_static_initializer = false;
                 set index += 1;
                 continue;
             }
@@ -7832,6 +9705,7 @@ proc ast_emit_globals(emitter: &mut C17AstEmitter, scope: &ASTNode, namespace: s
             } else {
                 ast_emit_expression(emitter, initializer, active_space, 0);
             }
+            set emitter.inline_static_initializer = false;
             ast_write(emitter, ";\n");
         } elif declaration.kind == ASTNodeKind.SpaceDecl {
             let path = ast_child(emitter, declaration, 0);
@@ -8210,25 +10084,65 @@ proc ast_emit_runtime(emitter: &mut C17AstEmitter) {
         "#define VITTE_C17_AST_UNUSED\n" +
         "#define VITTE_C17_AST_COLD\n" +
         "#endif\n" +
-        "typedef struct VitteArray { void *data; size_t length; } VitteArray;\n" +
+        "typedef struct VitteArray { void *data; size_t length; size_t capacity; size_t element_size; } VitteArray;\n" +
         "static inline void *vitte_optional_require(const void *value) { if (value == NULL) abort(); return (void *)value; }\n" +
+        "static inline VITTE_C17_AST_UNUSED uint8_t *vitte_pointer_add_bytes_mut(uint8_t *value, size_t offset) {\n" +
+        "    if (value == NULL) return NULL; uintptr_t base = (uintptr_t)value;\n" +
+        "    if (offset > UINTPTR_MAX - base) return NULL; return (uint8_t *)(base + offset);\n" +
+        "}\n" +
+        "static inline VITTE_C17_AST_UNUSED const uint8_t *vitte_pointer_add_bytes_const(const uint8_t *value, size_t offset) {\n" +
+        "    if (value == NULL) return NULL; uintptr_t base = (uintptr_t)value;\n" +
+        "    if (offset > UINTPTR_MAX - base) return NULL; return (const uint8_t *)(base + offset);\n" +
+        "}\n" +
         "static inline VitteArray vitte_array_from(const void *items, size_t count, size_t item_size) {\n" +
-        "    VitteArray result = { NULL, 0 };\n" +
+        "    VitteArray result = { NULL, 0, 0, item_size };\n" +
         "    if (count == 0 || items == NULL || item_size == 0 || count > SIZE_MAX / item_size) return result;\n" +
         "    result.data = malloc(count * item_size);\n" +
         "    if (result.data == NULL) return result;\n" +
-        "    memcpy(result.data, items, count * item_size); result.length = count; return result;\n" +
+        "    memcpy(result.data, items, count * item_size); result.length = count; result.capacity = count; return result;\n" +
         "}\n" +
         "static inline VitteArray vitte_string_bytes(const char *text) {\n" +
-        "    VitteArray result = { (void *)text, text == NULL ? 0u : strlen(text) }; return result;\n" +
+        "    size_t length = text == NULL ? 0u : strlen(text);\n" +
+        "    VitteArray result = { (void *)text, length, length, sizeof(uint8_t) }; return result;\n" +
         "}\n" +
+        "static inline char *vitte_string_from_bytes(const uint8_t *bytes, size_t length) {\n" +
+        "    if (length != 0 && bytes == NULL) abort();\n" +
+        "    if (length == SIZE_MAX) abort(); char *result = (char *)malloc(length + 1);\n" +
+        "    if (result == NULL) abort(); if (length != 0) memcpy(result, bytes, length);\n" +
+        "    result[length] = '\\0'; return result;\n" +
+        "}\n" +
+        "static inline char *vitte_string_from_byte(uint8_t value) {\n" +
+        "    char *result = (char *)malloc(2); if (result == NULL) abort();\n" +
+        "    result[0] = (char)value; result[1] = '\\0'; return result;\n" +
+        "}\n" +
+        "static inline bool vitte_array_reserve(VitteArray *array, size_t capacity, size_t item_size);\n" +
         "static inline bool vitte_array_push(VitteArray *array, const void *item, size_t item_size) {\n" +
-        "    if (array == NULL || item == NULL || item_size == 0 || array->length >= SIZE_MAX / item_size) return false;\n" +
-        "    void *data = realloc(array->data, (array->length + 1) * item_size);\n" +
-        "    if (data == NULL) return false;\n" +
-        "    array->data = data; memcpy((unsigned char *)data + array->length * item_size, item, item_size);\n" +
-        "    array->length += 1; return true;\n" +
+        "    if (array == NULL || item == NULL || item_size == 0) return false;\n" +
+        "    if (array->element_size != 0 && array->element_size != item_size) return false;\n" +
+        "    if (array->length == array->capacity) {\n" +
+        "        size_t capacity = array->capacity < 8 ? 8 : array->capacity * 2;\n" +
+        "        if (capacity < array->capacity || capacity > SIZE_MAX / item_size) return false;\n" +
+        "        if (!vitte_array_reserve(array, capacity, item_size)) return false;\n" +
+        "    }\n" +
+        "    memcpy((unsigned char *)array->data + array->length * item_size, item, item_size);\n" +
+        "    array->element_size = item_size; array->length += 1; return true;\n" +
         "}\n" +
+        "static inline bool vitte_array_reserve(VitteArray *array, size_t capacity, size_t item_size) {\n" +
+        "    if (array == NULL || item_size == 0 || capacity > SIZE_MAX / item_size) return false;\n" +
+        "    if (array->element_size != 0 && array->element_size != item_size) return false;\n" +
+        "    if (capacity <= array->capacity) { array->element_size = item_size; return true; }\n" +
+        "    if (capacity == 0) return true; void *data = realloc(array->data, capacity * item_size);\n" +
+        "    if (data == NULL) return false; array->data = data; array->capacity = capacity; array->element_size = item_size; return true;\n" +
+        "}\n" +
+        "static inline bool vitte_array_try_shrink_to(VitteArray *array, size_t minimum_capacity) {\n" +
+        "    if (array == NULL) return false; size_t target = minimum_capacity < array->length ? array->length : minimum_capacity;\n" +
+        "    if (target == array->capacity) return true;\n" +
+        "    if (target == 0) { free(array->data); array->data = NULL; array->capacity = 0; return true; }\n" +
+        "    if (array->element_size == 0 || target > SIZE_MAX / array->element_size) return false;\n" +
+        "    void *data = realloc(array->data, target * array->element_size);\n" +
+        "    if (data == NULL) return false; array->data = data; array->capacity = target; return true;\n" +
+        "}\n" +
+        "static inline void vitte_array_clear(VitteArray *array) { if (array != NULL) array->length = 0; }\n" +
         "static inline bool vitte_string_equal(const char *left, const char *right) {\n" +
         "    if (left == NULL || right == NULL) return left == right;\n" +
         "    return strcmp(left, right) == 0;\n" +
@@ -8236,11 +10150,34 @@ proc ast_emit_runtime(emitter: &mut C17AstEmitter) {
         "static inline void vitte_builtin_print(const char *text) {\n" +
         "    if (text != NULL) (void)fputs(text, stdout);\n" +
         "}\n" +
+        "static inline char *vitte_string_slice(const char *text, size_t begin, size_t end) {\n" +
+        "    if (text == NULL) text = \"\"; size_t length = strlen(text);\n" +
+        "    if (begin > end || end > length) abort(); size_t count = end - begin;\n" +
+        "    char *result = (char *)malloc(count + 1); if (result == NULL) abort();\n" +
+        "    memcpy(result, text + begin, count); result[count] = '\\0'; return result;\n" +
+        "}\n" +
+        "static inline char *vitte_unsigned_to_string(uint64_t value) {\n" +
+        "    char buffer[32]; int count = snprintf(buffer, sizeof(buffer), \"%llu\", (unsigned long long)value);\n" +
+        "    if (count < 0 || (size_t)count >= sizeof(buffer)) abort();\n" +
+        "    char *result = (char *)malloc((size_t)count + 1); if (result == NULL) abort();\n" +
+        "    memcpy(result, buffer, (size_t)count + 1); return result;\n" +
+        "}\n" +
+        "static inline char *vitte_signed_to_string(int64_t value) {\n" +
+        "    char buffer[32]; int count = snprintf(buffer, sizeof(buffer), \"%lld\", (long long)value);\n" +
+        "    if (count < 0 || (size_t)count >= sizeof(buffer)) abort();\n" +
+        "    char *result = (char *)malloc((size_t)count + 1); if (result == NULL) abort();\n" +
+        "    memcpy(result, buffer, (size_t)count + 1); return result;\n" +
+        "}\n" +
         "static inline char *vitte_string_concat(const char *left, const char *right) {\n" +
         "    if (left == NULL) left = \"\"; if (right == NULL) right = \"\";\n" +
         "    size_t a = strlen(left), b = strlen(right); if (b == SIZE_MAX || a > SIZE_MAX - b - 1) return NULL;\n" +
         "    char *result = (char *)malloc(a + b + 1); if (result == NULL) return NULL;\n" +
         "    memcpy(result, left, a); memcpy(result + a, right, b + 1); return result;\n" +
+        "}\n" +
+        "static inline char *vitte_string_concat_char(const char *left, char right) {\n" +
+        "    if (left == NULL) left = \"\"; size_t a = strlen(left); if (a > SIZE_MAX - 2) return NULL;\n" +
+        "    char *result = (char *)malloc(a + 2); if (result == NULL) return NULL;\n" +
+        "    memcpy(result, left, a); result[a] = right; result[a + 1] = '\\0'; return result;\n" +
         "}\n\n"
     );
 }
@@ -8283,6 +10220,10 @@ export proc c17_emit_ast_with_options(parser: &Parser, options: &C17AstEmitOptio
         return C17AstEmitResult { success: false, source: "", error: "parser does not contain a completed AST" };
     }
     let mut emitter: C17AstEmitter = C17AstEmitter {};
+    set emitter.error = "";
+    set emitter.current_procedure_c_name = "";
+    set emitter.current_impl_target_type = "";
+    set emitter.generic_proc_c_name = "";
     set emitter.parser = &*parser;
     set emitter.options = &*options;
     let root = ast_node(&emitter, parser.root);
@@ -8353,7 +10294,7 @@ export proc c17_emit_ast_with_options(parser: &Parser, options: &C17AstEmitOptio
             let entry_symbol = ast_mangle(emitter.procedures[entry_index].qualified_name, "vitte_fn_");
             let return_type = ast_function_return_type(&emitter, entry_proc?);
             if return_type != null {
-                let text = ast_type_text(&mut emitter, return_type, emitter.procedures[entry_index].namespace, 0);
+                let text: ?string = ast_type_text(&mut emitter, return_type, emitter.procedures[entry_index].namespace, 0);
                 if text == null {
                     ast_fail(&mut emitter, "main return type cannot be emitted");
                 } elif text? == "void" {
@@ -8375,9 +10316,11 @@ export proc c17_emit_ast_with_options(parser: &Parser, options: &C17AstEmitOptio
         ast_write(&mut emitter, "    return 0;\n}\n");
     }
     if emitter.failed {
+        ast_discard_source(&mut emitter);
         return C17AstEmitResult { success: false, source: "", error: emitter.error };
     }
-    return C17AstEmitResult { success: true, source: emitter.source, error: "" };
+    let source = ast_finish_source(&mut emitter);
+    return C17AstEmitResult { success: true, source: source, error: "" };
 }
 
 export proc c17_emit_ast(parser: &Parser) -> C17AstEmitResult {

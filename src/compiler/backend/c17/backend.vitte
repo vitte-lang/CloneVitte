@@ -209,7 +209,7 @@ proc backend_octal(byte: u8) -> string {
 pub proc backend_write_c_string(backend: &mut Backend, data: &[u8]) -> bool {
     if not backend_write_char(backend, 34) { return false; }
     let mut i: usize = 0; while i < data.len {
-        let byte = data[i];
+        let byte: u8 = data[i];
         match byte {
             case 7 => { if not backend_write(backend, "\\a") { return false; } },
             case 8 => { if not backend_write(backend, "\\b") { return false; } },
@@ -249,7 +249,7 @@ pub proc backend_write_identifier(backend: &mut Backend, identifier: str) -> boo
     let bytes = identifier.as_bytes();
     let mut index: usize = 0;
     while index < bytes.len() {
-        let byte = bytes[index];
+        let byte: u8 = bytes[index];
         let valid = if index == 0 { backend_identifier_start(byte) } else { backend_identifier_continue(byte) };
         if valid {
             if not backend_write_char(backend, byte) { return false; }
@@ -560,7 +560,7 @@ export proc vitte_c17_backend_blank_line(backend: &mut C17Backend) -> bool { ret
 export proc vitte_c17_backend_write_c_string(backend: &mut C17Backend, data: *const u8, length: usize) -> bool {
     if not backend_is_valid(backend) { return false; }
     if data == null and length != 0 { return false; }
-    let text = if length == 0 { "" } else { string.from_bytes(data, length) };
+    let text: string = if length == 0 { "" } else { string.from_bytes(data, length) };
     return backend_write_c_string(backend, text.as_bytes());
 }
 
@@ -623,7 +623,7 @@ export proc vitte_c17_memory_writer_write(user_data: *u8, data: *const u8, lengt
     let new_length = writer.length + length;
     if new_length == usize.MAX { return false; }
     let required = new_length + 1;
-    let text = string.from_bytes(data, length);
+    let text: string = string.from_bytes(data, length);
     if writer.capacity < required {
         let mut capacity = if writer.capacity == 0 { 256 as usize } else { writer.capacity };
         while capacity < required {

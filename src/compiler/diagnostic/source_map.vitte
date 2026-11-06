@@ -567,7 +567,7 @@ export proc vitte_source_map_statistics(map: *const SourceMap) -> SourceMapStati
 
 export proc vitte_source_map_entry_fingerprint(entry_value: *const SourceMapEntry) -> u64 {
     if entry_value == null { return 0; }
-    let mut hash = SOURCE_MAP_FNV_OFFSET;
+    let mut hash: u64 = SOURCE_MAP_FNV_OFFSET;
     set hash = source_map_entry_hash_size(hash, (*entry_value).kind as usize);
     set hash = source_map_entry_hash_span(hash, &(*entry_value).generated);
     return source_map_entry_hash_span(hash, &(*entry_value).original);
@@ -575,7 +575,7 @@ export proc vitte_source_map_entry_fingerprint(entry_value: *const SourceMapEntr
 
 export proc vitte_source_map_fingerprint(map: *const SourceMap) -> u64 {
     if map == null { return 0; }
-    let mut hash = SOURCE_MAP_FNV_OFFSET;
+    let mut hash: u64 = SOURCE_MAP_FNV_OFFSET;
     let mut index: usize = 0;
     while index < (*map).entries.len() {
         let entry_hash = vitte_source_map_entry_fingerprint(&(*map).entries[index]);

@@ -70,8 +70,11 @@ jobs:
       - name: Enforce release ownership and path witnesses
         run: make compiler-release-criteria
 
-      - name: Check incremental invalidation and package target inventory
-        run: make test-build-invalidation test-packaging-matrix
+      - name: Check incremental invalidation
+        run: make test-build-invalidation
+
+      - name: Check package target inventory
+        run: make test-packaging-matrix
 
   compiler-selfhost:
     name: Cross-platform compiler self-host
@@ -140,10 +143,11 @@ jobs:
       - name: Build compiler
         run: make MODE=release -j2
 
-      - name: Validate incremental invalidation and package matrix
-        env:
-          VITTE_BIN: ${{ matrix.os == 'windows' && 'build/bin/vitte.exe' || 'build/bin/vitte' }}
-        run: make test-build-invalidation test-packaging-matrix
+      - name: Validate incremental invalidation
+        run: make test-build-invalidation
+
+      - name: Validate package target matrix
+        run: make test-packaging-matrix
 
       - name: Build and verify Linux package
         if: matrix.os == 'linux'

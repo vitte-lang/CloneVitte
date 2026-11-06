@@ -544,7 +544,7 @@ export proc vitte_diagnostic_suggestion_inserted_length(suggestion: *const Diagn
 
 export proc vitte_diagnostic_suggestion_fingerprint(suggestion: *const DiagnosticSuggestion) -> u64 {
     if suggestion == null { return 0; }
-    let mut hash = SUGGESTION_FNV_OFFSET;
+    let mut hash: u64 = SUGGESTION_FNV_OFFSET;
     set hash = suggestion_hash_usize(hash, (*suggestion).applicability as usize);
     set hash = suggestion_hash_text(hash, (*suggestion).message);
     set hash = suggestion_hash_usize(hash, if (*suggestion).has_span { 1 } else { 0 });
@@ -561,7 +561,7 @@ export proc vitte_diagnostic_suggestion_fingerprint(suggestion: *const Diagnosti
 
 export proc vitte_diagnostic_suggestions_fingerprint(diagnostic_value: *const Diagnostic) -> u64 {
     if diagnostic_value == null { return 0; }
-    let mut hash = SUGGESTION_FNV_OFFSET;
+    let mut hash: u64 = SUGGESTION_FNV_OFFSET;
     let mut index: usize = 0;
     while index < (*diagnostic_value).suggestions.len() {
         let item_hash = vitte_diagnostic_suggestion_fingerprint(&(*diagnostic_value).suggestions[index]);

@@ -770,7 +770,7 @@ export proc vitte_scope_validate(context: *mut Scope) -> bool {
 
 export proc vitte_scope_fingerprint(context: *mut Scope) -> u64 {
     if not scope_context_valid(context) { return 0; }
-    let mut hash = SCOPE_FNV_OFFSET;
+    let mut hash: u64 = SCOPE_FNV_OFFSET;
     set hash = scope_hash_u64(hash, (*context).scope_count as u64); set hash = scope_hash_u64(hash, (*context).symbol_count as u64); set hash = scope_hash_u64(hash, (*context).root_scope);
     let mut index: usize = 0;
     while index < (*context).scope_count {
@@ -792,7 +792,7 @@ export proc vitte_scope_fingerprint(context: *mut Scope) -> u64 {
 
 export proc vitte_scope_semantic_fingerprint(context: *mut Scope) -> u64 {
     if not scope_context_valid(context) { return 0; }
-    let mut hash = SCOPE_FNV_OFFSET; let mut index: usize = 0;
+    let mut hash: u64 = SCOPE_FNV_OFFSET; let mut index: usize = 0;
     while index < (*context).scope_count { let scope = (&((*context).scopes[index])) as *const ScopeEntry; set hash = scope_hash_u64(hash, (*scope).kind as u64); set hash = scope_hash_u64(hash, (*scope).parent_id); set hash = scope_hash_u64(hash, (*scope).depth as u64); set index += 1; }
     set index = 0;
     while index < (*context).symbol_count { let symbol = (&((*context).symbols[index])) as *const Symbol; set hash = scope_hash_u64(hash, (*symbol).scope_id); set hash = scope_hash_u64(hash, (*symbol).kind as u64); set hash = scope_hash_u64(hash, (*symbol).visibility as u64); set hash = scope_hash_u64(hash, (*symbol).declaration_flags as u64); set hash = scope_hash_bytes(hash, (*symbol).name as *const u8, (*symbol).name_length); set index += 1; }

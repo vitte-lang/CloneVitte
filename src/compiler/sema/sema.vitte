@@ -568,7 +568,7 @@ proc sema_integer_literal_value(parser: *const Parser, node: *const ASTNode, val
     let mut parsed: u64 = 0;
     let mut found_digit = false;
     while index < length {
-        let byte = bytes[index];
+        let byte: u8 = bytes[index];
         if byte == 95 { set index += 1; continue; }
         let digit = sema_integer_digit(byte) as u64;
         if digit >= base { return false; }
@@ -817,7 +817,7 @@ proc sema_generic_call_substitute_type(
        type_record.kind == SemaTypeKind.Optional or
        type_record.kind == SemaTypeKind.Array or
        type_record.kind == SemaTypeKind.Slice {
-        let element_type = sema_generic_call_substitute_type(
+        let element_type: SemaTypeId = sema_generic_call_substitute_type(
             context,
             inference,
             type_record.element_type,
@@ -943,7 +943,7 @@ proc sema_generic_parameter_node_for_type(
     let node_count = vitte_parser_node_count((*context).parser);
     while node_id <= node_count as ASTNodeId {
         let candidate = sema_node((*context).parser, node_id);
-        let info = sema_node_info_mut(context, node_id);
+        let info: *mut SemaNodeInfo = sema_node_info_mut(context, node_id);
         if candidate != null and
            (*candidate).kind == ASTNodeKind.GenericParam and
            info != null and (*info).type_id == type_id {
@@ -993,7 +993,7 @@ proc sema_generic_bound_method_type(
         receiver_type
     );
     if parameter == null { return 0; }
-    let parameter_info = sema_node_info_mut(context, (*parameter).id);
+    let parameter_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*parameter).id);
     if parameter_info == null { return 0; }
 
     let mut bounds: [ASTNodeId] = [];
@@ -1079,7 +1079,7 @@ proc sema_generic_bound_method_type(
         if bound_type != 0 and
            bound_type <= (*context).type_count as SemaTypeId {
             let bound_record = &(*context).types[(bound_type - 1) as usize];
-            let trait_symbol = if (*bound_record).kind == SemaTypeKind.Named {
+            let trait_symbol: *const Symbol = if (*bound_record).kind == SemaTypeKind.Named {
                 vitte_scope_get_symbol(
                     sema_scope_ptr(context),
                     (*bound_record).symbol_id
@@ -1111,7 +1111,7 @@ proc sema_generic_bound_method_type(
                         if name != null and
                            (*name).length == (*method_name).length and
                            (*name).lexeme == (*method_name).lexeme {
-                            let method_info = sema_node_info_mut(
+                            let method_info: *mut SemaNodeInfo = sema_node_info_mut(
                                 context,
                                 (*method).id
                             );
@@ -1129,7 +1129,7 @@ proc sema_generic_bound_method_type(
                                     );
                                     if method_child != null and
                                        (*method_child).kind == ASTNodeKind.Parameter {
-                                        let parameter_type = sema_child(
+                                        let parameter_type: *const ASTNode = sema_child(
                                             (*context).parser,
                                             method_child,
                                             1
@@ -1209,7 +1209,7 @@ proc sema_declaration_for_symbol(
         if node != null and
            ((*node).kind == ASTNodeKind.ProcDecl or
             (*node).kind == ASTNodeKind.ExternProcDecl) {
-            let info = sema_node_info_mut(context, (*node).id);
+            let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
             if info != null and (*info).symbol_id == symbol_id {
                 return node;
             }
@@ -1232,14 +1232,14 @@ proc sema_generic_declaration_scope(
     while child_index < (*declaration).child_count {
         let child = sema_child((*context).parser, declaration, child_index);
         if child != null and (*child).kind == ASTNodeKind.GenericParam {
-            let info = sema_node_info_mut(context, (*child).id);
+            let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*child).id);
             if info != null and (*info).scope_id != 0 {
                 return (*info).scope_id;
             }
         }
         set child_index += 1;
     }
-    let declaration_info = sema_node_info_mut(context, (*declaration).id);
+    let declaration_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*declaration).id);
     return if declaration_info == null {
         0 as ScopeId
     } else {
@@ -1253,7 +1253,7 @@ proc sema_implementation_scope(
     fallback_scope: ScopeId
 ) -> ScopeId {
     if context == null or implementation == null { return 0; }
-    let implementation_info = sema_node_info_mut(
+    let implementation_info: *mut SemaNodeInfo = sema_node_info_mut(
         context,
         (*implementation).id
     );
@@ -1272,7 +1272,7 @@ proc sema_implementation_scope(
             );
             if generic != null and
                (*generic).kind == ASTNodeKind.GenericParam {
-                let generic_info = sema_node_info_mut(context, (*generic).id);
+                let generic_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*generic).id);
                 if generic_info != null and
                    (*generic_info).scope_id != 0 and
                    (*generic_info).scope_id != fallback_scope {
@@ -1316,7 +1316,7 @@ proc sema_implementation_scope(
         );
         if generic != null and
            (*generic).kind == ASTNodeKind.GenericParam {
-            let generic_info = sema_node_info_mut(context, (*generic).id);
+            let generic_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*generic).id);
             if generic_info == null or
                (*generic_info).symbol_id == 0 or
                (*generic_info).scope_id != implementation_scope {
@@ -1356,7 +1356,7 @@ proc sema_trait_implementation_exists(
        (*trait_record).symbol_id == 0 {
         return false;
     }
-    let trait_symbol = vitte_scope_get_symbol(
+    let trait_symbol: *const Symbol = vitte_scope_get_symbol(
         sema_scope_ptr(context),
         (*trait_record).symbol_id
     );
@@ -1484,7 +1484,7 @@ proc sema_generic_type_has_trait_assumption(
         let generic = sema_node((*context).parser, node_id);
         if generic != null and
            (*generic).kind == ASTNodeKind.GenericParam {
-            let generic_info = sema_node_info_mut(context, (*generic).id);
+            let generic_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*generic).id);
             if generic_info != null and
                (*generic_info).type_id == generic_type_id {
                 let generic_scope = (*generic_info).scope_id;
@@ -1657,7 +1657,7 @@ proc sema_generic_constraint_validate_trait_type(
         return false;
     }
     let bound_record = &(*context).types[(bound_type - 1) as usize];
-    let bound_symbol = if (*bound_record).kind == SemaTypeKind.Named {
+    let bound_symbol: *const Symbol = if (*bound_record).kind == SemaTypeKind.Named {
         vitte_scope_get_symbol(
             sema_scope_ptr(context),
             (*bound_record).symbol_id
@@ -1844,7 +1844,7 @@ proc sema_generic_call_check_trait_bound(
         return false;
     }
     let bound_record = &(*context).types[(bound_type - 1) as usize];
-    let bound_symbol = if (*bound_record).kind == SemaTypeKind.Named {
+    let bound_symbol: *const Symbol = if (*bound_record).kind == SemaTypeKind.Named {
         vitte_scope_get_symbol(
             sema_scope_ptr(context),
             (*bound_record).symbol_id
@@ -1919,8 +1919,8 @@ proc sema_generic_call_check_constraints(
             child_index
         );
         if child != null and (*child).kind == ASTNodeKind.GenericParam {
-            let parameter_info = sema_node_info_mut(context, (*child).id);
-            let declaration_info = sema_node_info_mut(
+            let parameter_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*child).id);
+            let declaration_info: *mut SemaNodeInfo = sema_node_info_mut(
                 context,
                 (*function_declaration).id
             );
@@ -1969,7 +1969,7 @@ proc sema_generic_call_check_constraints(
                         predicate,
                         0 as ScopeId
                     );
-                    let generic_info = if subject_node == null {
+                    let generic_info: *mut SemaNodeInfo = if subject_node == null {
                         null
                     } else {
                         sema_node_info_mut(context, (*subject_node).id)
@@ -2101,7 +2101,7 @@ proc sema_generic_type_application_check_constraints(
             if argument_index >= actual_argument_count {
                 return false;
             }
-            let generic_info = sema_node_info_mut(context, (*generic).id);
+            let generic_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*generic).id);
             if generic_info == null or
                not sema_generic_call_bind(
                    context,
@@ -2259,7 +2259,7 @@ proc sema_set_argument_diagnostic_context(
     let node_count = vitte_parser_node_count((*context).parser);
     while node_id <= node_count as ASTNodeId {
         let candidate = sema_node((*context).parser, node_id);
-        let candidate_info = sema_node_info_mut(context, node_id);
+        let candidate_info: *mut SemaNodeInfo = sema_node_info_mut(context, node_id);
         if candidate != null and candidate_info != null and
            ((*candidate).kind == ASTNodeKind.ProcDecl or (*candidate).kind == ASTNodeKind.ExternProcDecl) and
            (*candidate_info).symbol_id == function_symbol_id {
@@ -2296,7 +2296,7 @@ proc sema_set_argument_diagnostic_context(
             set parameter_name = string.from_bytes((*parameter_token).lexeme, (*parameter_token).length);
         }
         if name_node != null {
-            let name_info = sema_node_info_mut(context, (*name_node).id);
+            let name_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*name_node).id);
             if name_info != null { set parameter_symbol_id = (*name_info).symbol_id; }
             if parameter_symbol_id == 0 {
                 let symbol_count = vitte_scope_symbol_count(sema_scope_ptr(context));
@@ -2315,7 +2315,7 @@ proc sema_set_argument_diagnostic_context(
             }
         }
     }
-    let function_symbol = if function_symbol_id == 0 { null } else { vitte_scope_get_symbol(sema_scope_ptr(context), function_symbol_id) };
+    let function_symbol: *const Symbol = if function_symbol_id == 0 { null } else { vitte_scope_get_symbol(sema_scope_ptr(context), function_symbol_id) };
     if function_symbol != null and (*function_symbol).name != null {
         set procedure_name = string.from_bytes((*function_symbol).name as *const u8, (*function_symbol).name_length);
     }
@@ -2366,13 +2366,13 @@ proc sema_set_return_diagnostic_context(context: *mut Sema) {
         let mut node_id: ASTNodeId = 1;
         while node_id <= node_count as ASTNodeId {
             let candidate = sema_node((*context).parser, node_id);
-            let candidate_info = sema_node_info_mut(context, node_id);
+            let candidate_info: *mut SemaNodeInfo = sema_node_info_mut(context, node_id);
             if candidate != null and candidate_info != null and
                ((*candidate).kind == ASTNodeKind.ProcDecl or (*candidate).kind == ASTNodeKind.ExternProcDecl) and
                (*candidate).span.file_id == (*procedure_scope).span.file_id and
                (*candidate).span.begin == (*procedure_scope).span.begin and
                (*candidate).span.end == (*procedure_scope).span.end {
-                let function_symbol = vitte_scope_get_symbol(sema_scope_ptr(context), (*candidate_info).symbol_id);
+                let function_symbol: *const Symbol = vitte_scope_get_symbol(sema_scope_ptr(context), (*candidate_info).symbol_id);
                 if function_symbol != null and (*function_symbol).name != null {
                     set procedure_name = string.from_bytes((*function_symbol).name as *const u8, (*function_symbol).name_length);
                 }
@@ -2469,7 +2469,7 @@ proc sema_generic_type_declaration(
             (*declaration).kind == ASTNodeKind.TypeDecl or
             (*declaration).kind == ASTNodeKind.OpaqueDecl or
             (*declaration).kind == ASTNodeKind.TraitDecl) {
-            let info = sema_node_info_mut(context, (*declaration).id);
+            let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*declaration).id);
             if info != null and (*info).symbol_id == symbol_id {
                 return declaration;
             }
@@ -2531,7 +2531,7 @@ proc sema_type_from_node_depth(context: *mut Sema, node_id: ASTNodeId, scope_id:
         if symbol_kind != SymbolKind.Type and symbol_kind != SymbolKind.Form and
            symbol_kind != SymbolKind.Pick and symbol_kind != SymbolKind.Trait and
            symbol_kind != SymbolKind.Opaque { return (*context).type_error; }
-        let argument_count = (*node).child_count - 1;
+        let argument_count: usize = (*node).child_count - 1;
         if (*record).kind == SymbolKind.Form or
            (*record).kind == SymbolKind.Pick {
             let base_type = sema_symbol_type(context, symbol);
@@ -2709,7 +2709,7 @@ proc sema_pick_variant_type(
     if type_id == 0 or type_id > (*context).type_count as SemaTypeId { return 0; }
     let type_record = &(*context).types[(type_id - 1) as usize];
     if (*type_record).kind != SemaTypeKind.Named or (*type_record).symbol_id == 0 { return 0; }
-    let type_symbol = vitte_scope_get_symbol(sema_scope_ptr(context), (*type_record).symbol_id);
+    let type_symbol: *const Symbol = vitte_scope_get_symbol(sema_scope_ptr(context), (*type_record).symbol_id);
     if type_symbol == null or (*type_symbol).kind != SymbolKind.Pick { return 0; }
     if is_pick_path != null { set *is_pick_path = true; }
     let variant_token = sema_token_name_node((*context).parser, variant_node);
@@ -2719,7 +2719,7 @@ proc sema_pick_variant_type(
     let node_count = vitte_parser_node_count((*context).parser);
     while node_id <= node_count as ASTNodeId {
         let declaration = sema_node((*context).parser, node_id);
-        let info = sema_node_info_mut(context, node_id);
+        let info: *mut SemaNodeInfo = sema_node_info_mut(context, node_id);
         if declaration != null and (*declaration).kind == ASTNodeKind.PickDecl and
            info != null and (*info).symbol_id == (*type_record).symbol_id {
             let mut child_index: usize = 1;
@@ -2761,7 +2761,7 @@ proc sema_pick_variant_payload_at(
     let node_count = vitte_parser_node_count((*context).parser);
     while node_id <= node_count as ASTNodeId {
         let declaration = sema_node((*context).parser, node_id);
-        let info = sema_node_info_mut(context, node_id);
+        let info: *mut SemaNodeInfo = sema_node_info_mut(context, node_id);
         if declaration != null and (*declaration).kind == ASTNodeKind.PickDecl and
            info != null and (*info).symbol_id == (*type_record).symbol_id {
             let mut child_index: usize = 1;
@@ -2822,7 +2822,7 @@ proc sema_pick_variant_payload(
     let node_count = vitte_parser_node_count((*context).parser);
     while node_id <= node_count as ASTNodeId {
         let declaration = sema_node((*context).parser, node_id);
-        let info = sema_node_info_mut(context, node_id);
+        let info: *mut SemaNodeInfo = sema_node_info_mut(context, node_id);
         if declaration != null and (*declaration).kind == ASTNodeKind.PickDecl and
            info != null and (*info).symbol_id == (*type_record).symbol_id {
             let mut child_index: usize = 1;
@@ -2853,7 +2853,7 @@ proc sema_pick_type_has_payload(context: *mut Sema, type_id: SemaTypeId) -> bool
     let node_count = vitte_parser_node_count((*context).parser);
     while node_id <= node_count as ASTNodeId {
         let declaration = sema_node((*context).parser, node_id);
-        let info = sema_node_info_mut(context, node_id);
+        let info: *mut SemaNodeInfo = sema_node_info_mut(context, node_id);
         if declaration != null and (*declaration).kind == ASTNodeKind.PickDecl and
            info != null and (*info).symbol_id == (*type_record).symbol_id {
             let mut child_index: usize = 1;
@@ -2979,7 +2979,7 @@ proc sema_namespace_scope_for_symbol(context: *mut Sema, symbol_id: SymbolId) ->
         return 0;
     }
     let declaration = (*symbol).payload as *const ASTNode;
-    let info = sema_node_info_mut(context, (*declaration).id);
+    let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*declaration).id);
     if info == null { return 0; }
     return (*info).scope_id;
 }
@@ -3076,7 +3076,7 @@ proc sema_prepare_space(context: *mut Sema, node: *const ASTNode, parent_scope: 
         if space_scope == 0 { return false; }
     }
 
-    let info = sema_node_info_mut(context, (*node).id);
+    let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
     if info != null {
         set (*info).symbol_id = space_symbol;
         set (*info).scope_id = space_scope;
@@ -3138,7 +3138,7 @@ proc sema_register_module_use(context: *mut Sema, node: *const ASTNode, scope_id
         (*target).payload
     );
     if imported_id == 0 { return false; }
-    let info = sema_node_info_mut(context, (*node).id);
+    let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
     if info != null {
         set (*info).symbol_id = imported_id;
         set (*info).scope_id = scope_id;
@@ -3299,7 +3299,7 @@ proc sema_bind_pattern(
         if (pattern_flags & PARSER_AST_FLAG_PATTERN_REFERENCE) != 0 {
             set bound_type = sema_add_type(context, SemaTypeKind.Reference, type_id, 0, 0, (pattern_flags & PARSER_AST_FLAG_PATTERN_MUTABLE) != 0, 0, null, 0);
         }
-        let declaration_flags = if (pattern_flags & PARSER_AST_FLAG_PATTERN_MUTABLE) != 0 { SYMBOL_FLAG_MUTABLE } else { 0 as u32 };
+        let declaration_flags: u32 = if (pattern_flags & PARSER_AST_FLAG_PATTERN_MUTABLE) != 0 { SYMBOL_FLAG_MUTABLE } else { 0 as u32 };
         let symbol = vitte_scope_declare(
             sema_scope_ptr(context), scope_id,
             (*token).lexeme.as_ptr() as *const u8, (*token).length,
@@ -3312,7 +3312,7 @@ proc sema_bind_pattern(
             return false;
         }
         sema_symbol_set_type(context, symbol, bound_type);
-        let info = sema_node_info_mut(context, (*node).id);
+        let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
         if info != null { set (*info).symbol_id = symbol; set (*info).type_id = bound_type; set (*info).scope_id = scope_id; set (*info).node_flags = (*info).node_flags | SEMA_NODE_FLAG_DECLARATION; }
         return true;
     }
@@ -3402,7 +3402,7 @@ proc sema_form_field_declaration(
     let mut node_id: ASTNodeId = 1;
     while node_id <= node_count as ASTNodeId {
         let declaration = sema_node((*context).parser, node_id);
-        let info = sema_node_info_mut(context, node_id);
+        let info: *mut SemaNodeInfo = sema_node_info_mut(context, node_id);
         if declaration != null and (*declaration).kind == ASTNodeKind.FormDecl and
            info != null and (*info).symbol_id == (*aggregate).symbol_id {
             let mut child_index: usize = 1;
@@ -3435,7 +3435,7 @@ proc sema_form_declaration_for_type(
     let mut node_id: ASTNodeId = 1;
     while node_id <= node_count as ASTNodeId {
         let declaration = sema_node((*context).parser, node_id);
-        let info = sema_node_info_mut(context, node_id);
+        let info: *mut SemaNodeInfo = sema_node_info_mut(context, node_id);
         if declaration != null and (*declaration).kind == ASTNodeKind.FormDecl and
            info != null and (*info).symbol_id == (*aggregate).symbol_id {
             return declaration;
@@ -3532,7 +3532,7 @@ proc sema_type_with_generic_arguments(
         let mut parameters: [SemaTypeId] = [];
         let mut index: usize = 0;
         while index < parameter_count {
-            let parameter_type = sema_type_with_generic_arguments(
+            let parameter_type: SemaTypeId = sema_type_with_generic_arguments(
                 context,
                 (*node).children[index],
                 scope_id,
@@ -3790,7 +3790,7 @@ proc sema_validate_generic_form_fields(
                     let diag_ptr = (&mut (*context).diagnostics[(*context).diagnostic_count - 1]) as *mut SemaDiagnostic;
                     set (*diag_ptr).type_context = SemaTypeContextKind.Field;
                     set (*diag_ptr).context_index = (*field).id as usize;
-                    let field_name = string.from_bytes((*name).lexeme, (*name).length);
+                    let field_name: string = string.from_bytes((*name).lexeme, (*name).length);
                     let help = "Generic form construction is missing required field `" + field_name + "`.";
                     let bytes: [u8] = help.bytes();
                     let limit: usize = if bytes.len() < 511 { bytes.len() } else { 511 as usize };
@@ -3841,7 +3841,7 @@ proc sema_set_field_diagnostic_context(
     let name_token = sema_token_name_node((*context).parser, name_node);
     let mut help: string = "The field value does not satisfy its declared type.";
     if name_token != null {
-        let name = string.from_bytes((*name_token).lexeme, (*name_token).length);
+        let name: string = string.from_bytes((*name_token).lexeme, (*name_token).length);
         set help = "Value for field `" + name + "` does not match its declared type.";
     }
     let bytes: [u8] = help.bytes();
@@ -3858,7 +3858,7 @@ proc sema_set_assignment_diagnostic_context(
     let diag_ptr = (&mut (*context).diagnostics[(*context).diagnostic_count - 1]) as *mut SemaDiagnostic;
     set (*diag_ptr).type_context = SemaTypeContextKind.Assignment;
     set (*diag_ptr).context_index = SEMA_SIZE_MAX;
-    let target_info = sema_node_info_mut(context, (*target).id);
+    let target_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*target).id);
     if target_info != null {
         set (*diag_ptr).context_symbol_id = (*target_info).symbol_id;
     }
@@ -3898,7 +3898,7 @@ proc sema_register_generic_parameters(
                 let _ = sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.DuplicateDeclaration, generic, 0, 0);
                 return false;
             }
-            let generic_info = sema_node_info_mut(context, (*generic).id);
+            let generic_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*generic).id);
             let mut type_id: SemaTypeId = 0;
             if reuse_existing_types and generic_info != null {
                 set type_id = (*generic_info).type_id;
@@ -3934,7 +3934,7 @@ proc sema_predeclare(context: *mut Sema, root: *const ASTNode, scope_id: ScopeId
                     let symbol = sema_declare_node(context, node, scope_id, symbol_kind);
                     if symbol == 0 { let _ = sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.DuplicateDeclaration, node, 0, 0); }
                     else {
-                        let info = sema_node_info_mut(context, (*node).id);
+                        let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
                         if info != null { set (*info).symbol_id = symbol; set (*info).node_flags = (*info).node_flags | SEMA_NODE_FLAG_DECLARATION | SEMA_NODE_FLAG_PREDECLARED; }
                         if is_type { let type_id = sema_add_type(context, SemaTypeKind.Named, 0, 0, symbol, false, 0, null, 0); sema_symbol_set_type(context, symbol, type_id); if info != null { set (*info).type_id = type_id; } }
                     }
@@ -3972,7 +3972,7 @@ proc sema_predeclare(context: *mut Sema, root: *const ASTNode, scope_id: ScopeId
     while index < (*root).child_count {
         let node = sema_child((*context).parser, root, index);
         if node != null and ((*node).kind == ASTNodeKind.ProcDecl or (*node).kind == ASTNodeKind.ExternProcDecl) {
-            let info = sema_node_info_mut(context, (*node).id);
+            let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
             if info != null and (*info).symbol_id != 0 {
                 let signature_scope = vitte_scope_create(
                     sema_scope_ptr(context), scope_id, ScopeKind.Proc,
@@ -3990,7 +3990,7 @@ proc sema_predeclare(context: *mut Sema, root: *const ASTNode, scope_id: ScopeId
                 while child_index < (*node).child_count {
                     let child = sema_child((*context).parser, node, child_index);
                     if child != null and (*child).kind == ASTNodeKind.Parameter {
-                        let parameter_type = sema_child((*context).parser, child, 1);
+                        let parameter_type: *const ASTNode = sema_child((*context).parser, child, 1);
                         let type_id: SemaTypeId = if parameter_type == null { (*context).type_error } else { sema_type_from_node(context, (*parameter_type).id, signature_scope) };
                         if not parameter_types.push(type_id) { set (*context).last_error = SemaError.OutOfMemory; return false; }
                     } else if child != null and not saw_return and ((*child).kind == ASTNodeKind.TypeExpr or (*child).kind == ASTNodeKind.PointerType or (*child).kind == ASTNodeKind.ReferenceType or (*child).kind == ASTNodeKind.ArrayType or (*child).kind == ASTNodeKind.OptionalType) {
@@ -4032,7 +4032,7 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                         let _ = sema_pick_variant_payload(context, node, scope_id, &mut payload_count);
                         if payload_count == 0 {
                             set result = pick_type;
-                            let info = sema_node_info_mut(context, (*node).id);
+                            let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
                             if info != null {
                                 set (*info).type_id = pick_type;
                                 set (*info).node_flags = (*info).node_flags | SEMA_NODE_FLAG_RESOLVED;
@@ -4063,7 +4063,7 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                 else {
                     let record = vitte_scope_get_symbol(sema_scope_ptr(context), symbol);
                     if record != null {
-                        let info = sema_node_info_mut(context, (*node).id);
+                        let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
                         if info != null {
                             set (*info).symbol_id = symbol;
                             set (*info).node_flags = (*info).node_flags | SEMA_NODE_FLAG_RESOLVED;
@@ -4088,8 +4088,8 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
             let child = sema_child((*context).parser, node, 0);
             if child != null {
                 set result = sema_analyze_expression(context, child, scope_id);
-                let child_info = sema_node_info_mut(context, (*child).id);
-                let info = sema_node_info_mut(context, (*node).id);
+                let child_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*child).id);
+                let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
                 if child_info != null and info != null {
                     set (*info).symbol_id = (*child_info).symbol_id;
                     set (*info).node_flags = (*info).node_flags |
@@ -4114,7 +4114,7 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                 if sema_type_integer(context as *const Sema, operand) { set result = operand; }
                 else { let _ = sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.InvalidUnaryOperand, node, (*context).type_i64, operand); }
             } else if op == TokenKind.Amp or op == TokenKind.KwRef {
-                let operand_info = if operand_node == null { null } else { sema_node_info_mut(context, (*operand_node).id) };
+                let operand_info: *mut SemaNodeInfo = if operand_node == null { null } else { sema_node_info_mut(context, (*operand_node).id) };
                 let is_mutable_reference = ((*node).node_flags & PARSER_AST_FLAG_MUTABLE) != 0;
                 if operand_info != null and ((*operand_info).node_flags & SEMA_NODE_FLAG_ADDRESSABLE) != 0 and
                    (not is_mutable_reference or ((*operand_info).node_flags & SEMA_NODE_FLAG_MUTABLE) != 0) {
@@ -4125,7 +4125,7 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
             } else if op == TokenKind.Star {
                 if operand_record != null and ((*operand_record).kind == SemaTypeKind.Pointer or (*operand_record).kind == SemaTypeKind.Reference) {
                     set result = (*operand_record).element_type;
-                    let info = sema_node_info_mut(context, (*node).id);
+                    let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
                     if info != null {
                         set (*info).node_flags = (*info).node_flags | SEMA_NODE_FLAG_LVALUE | SEMA_NODE_FLAG_ADDRESSABLE;
                         if (*operand_record).is_mutable { set (*info).node_flags = (*info).node_flags | SEMA_NODE_FLAG_MUTABLE; }
@@ -4210,8 +4210,8 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                     let _ = sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.InvalidBinaryOperands, node, left, right);
                 }
             } else if is_assignment {
-                let left_info = if left_node == null { null } else { sema_node_info_mut(context, (*left_node).id) };
-                let left_symbol = if left_info == null or (*left_info).symbol_id == 0 { null } else { vitte_scope_get_symbol(sema_scope_ptr(context), (*left_info).symbol_id) };
+                let left_info: *mut SemaNodeInfo = if left_node == null { null } else { sema_node_info_mut(context, (*left_node).id) };
+                let left_symbol: *const Symbol = if left_info == null or (*left_info).symbol_id == 0 { null } else { vitte_scope_get_symbol(sema_scope_ptr(context), (*left_info).symbol_id) };
                 let left_is_lvalue = left_info != null and ((*left_info).node_flags & SEMA_NODE_FLAG_LVALUE) != 0;
                 let left_is_direct_binding = left_node != null and
                     ((*left_node).kind == ASTNodeKind.Identifier or (*left_node).kind == ASTNodeKind.Path);
@@ -4373,7 +4373,7 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                 }
                 set result = (*context).type_u64;
             } else if builtin != null {
-                let descriptor = *builtin;
+                let descriptor: BuiltinDescriptor = *builtin;
                 if not vitte_builtin_accepts_arity(builtin, argument_count) {
                     if sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.InvalidArgumentCount, node, 0, 0) {
                         sema_set_argument_count_help(context, descriptor.minimum_arity, argument_count);
@@ -4404,7 +4404,7 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                 } else {
                     set result = first_argument_type;
                 }
-                let info = sema_node_info_mut(context, (*node).id);
+                let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
                 if info != null { set (*info).node_flags = (*info).node_flags | SEMA_NODE_FLAG_BUILTIN; }
             } else {
                 let callee = sema_analyze_expression(context, callee_node, scope_id);
@@ -4514,8 +4514,8 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
             else if object_record != null and ((*object_record).kind == SemaTypeKind.Array or (*object_record).kind == SemaTypeKind.Slice or (*object_record).kind == SemaTypeKind.Pointer or (*object_record).kind == SemaTypeKind.Reference) { set result = (*object_record).element_type; }
             else if object_type != (*context).type_error { let _ = sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.NotIndexable, node, 0, object_type); }
             if result != (*context).type_error and object_type != (*context).type_string and object_node != null {
-                let object_info = sema_node_info_mut(context, (*object_node).id);
-                let index_info = sema_node_info_mut(context, (*node).id);
+                let object_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*object_node).id);
+                let index_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
                 if object_info != null and index_info != null and ((*object_info).node_flags & SEMA_NODE_FLAG_LVALUE) != 0 {
                     set (*index_info).node_flags = (*index_info).node_flags | SEMA_NODE_FLAG_LVALUE | SEMA_NODE_FLAG_ADDRESSABLE;
                     set (*index_info).symbol_id = (*object_info).symbol_id;
@@ -4539,7 +4539,7 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                     let _ = sema_pick_variant_payload(context, node, scope_id, &mut payload_count);
                     if payload_count == 0 {
                         set result = pick_type;
-                        let info = sema_node_info_mut(context, (*node).id);
+                        let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
                         if info != null {
                             set (*info).type_id = pick_type;
                             set (*info).node_flags = (*info).node_flags | SEMA_NODE_FLAG_RESOLVED;
@@ -4569,7 +4569,7 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                    (*object_type_record).kind == SemaTypeKind.Slice and
                    sema_name_is(member_token, "length") {
                     set result = (*context).type_u64;
-                    let member_info = sema_node_info_mut(context, (*node).id);
+                    let member_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
                     if member_info != null {
                         set (*member_info).type_id = result;
                         set (*member_info).node_flags = (*member_info).node_flags | SEMA_NODE_FLAG_RESOLVED;
@@ -4583,7 +4583,7 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                     if method_type != 0 and
                        method_type != (*context).type_error {
                         set result = method_type;
-                        let member_info = sema_node_info_mut(
+                        let member_info: *mut SemaNodeInfo = sema_node_info_mut(
                             context,
                             (*node).id
                         );
@@ -4598,8 +4598,8 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                     }
                 } else {
                     set result = field_type;
-                    let object_info = if object_node == null { null } else { sema_node_info_mut(context, (*object_node).id) };
-                    let member_info = sema_node_info_mut(context, (*node).id);
+                    let object_info: *mut SemaNodeInfo = if object_node == null { null } else { sema_node_info_mut(context, (*object_node).id) };
+                    let member_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
                     if object_info != null and member_info != null and ((*object_info).node_flags & SEMA_NODE_FLAG_LVALUE) != 0 {
                         set (*member_info).node_flags = (*member_info).node_flags | SEMA_NODE_FLAG_LVALUE | SEMA_NODE_FLAG_ADDRESSABLE;
                         set (*member_info).symbol_id = (*object_info).symbol_id;
@@ -4738,7 +4738,7 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
             set result = (*context).type_void;
         }
     }
-    let info = sema_node_info_mut(context, (*node).id);
+    let info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
     if info != null {
         set (*info).type_id = result;
         if (*node).kind != ASTNodeKind.ImplDecl and (*node).kind != ASTNodeKind.SpaceDecl {
@@ -4755,7 +4755,7 @@ proc sema_analyze_node(context: *mut Sema, node_id: ASTNodeId, scope_id: ScopeId
     set (*context).recursion_depth += 1;
     if (*context).recursion_depth as u64 > (*context).stats.max_recursion_depth { set (*context).stats.max_recursion_depth = (*context).recursion_depth as u64; }
     set (*context).stats.nodes_visited = sema_sat_add((*context).stats.nodes_visited, 1);
-    let info = sema_node_info_mut(context, node_id);
+    let info: *mut SemaNodeInfo = sema_node_info_mut(context, node_id);
     if info != null and (*info).scope_id == 0 { set (*info).scope_id = scope_id; }
     let mut result: SemaTypeId = (*context).type_void;
     match (*node).kind {
@@ -5058,7 +5058,7 @@ proc sema_analyze_node(context: *mut Sema, node_id: ASTNodeId, scope_id: ScopeId
                     } else {
                         null
                     };
-                    let trait_symbol = if trait_record != null and
+                    let trait_symbol: *const Symbol = if trait_record != null and
                        (*trait_record).kind == SemaTypeKind.Named {
                         vitte_scope_get_symbol(
                             sema_scope_ptr(context),
@@ -5126,7 +5126,7 @@ proc sema_analyze_node(context: *mut Sema, node_id: ASTNodeId, scope_id: ScopeId
                 }
                 let previous_return: SemaTypeId = (*context).current_return_type;
                 let previous_proc_scope: ScopeId = (*context).current_proc_scope;
-                let own_info = sema_node_info_mut(context, node_id);
+                let own_info: *mut SemaNodeInfo = sema_node_info_mut(context, node_id);
                 let mut function_signature: SemaType = SemaType {};
                 let mut has_function_signature = false;
                 if own_info != null and (*own_info).type_id != 0 { set function_signature = (*context).types[((*own_info).type_id - 1) as usize]; set has_function_signature = function_signature.kind == SemaTypeKind.Function; }
@@ -5147,7 +5147,7 @@ proc sema_analyze_node(context: *mut Sema, node_id: ASTNodeId, scope_id: ScopeId
                         );
                         if signature_child != null and
                            (*signature_child).kind == ASTNodeKind.Parameter {
-                            let parameter_type = sema_child(
+                            let parameter_type: *const ASTNode = sema_child(
                                 (*context).parser,
                                 signature_child,
                                 1
@@ -5508,7 +5508,7 @@ export proc vitte_sema_validate(context: *mut Sema) -> bool {
 }
 export proc vitte_sema_fingerprint(context: *mut Sema) -> u64 {
     if not sema_context_valid(context as *const Sema) { return 0; }
-    let mut hash = SEMA_FNV_OFFSET;
+    let mut hash: u64 = SEMA_FNV_OFFSET;
     hash = (hash ^ (*context).state as u64) * SEMA_FNV_PRIME; hash = (hash ^ (*context).type_count as u64) * SEMA_FNV_PRIME; hash = (hash ^ (*context).node_info_count as u64) * SEMA_FNV_PRIME; hash = (hash ^ (*context).diagnostic_count as u64) * SEMA_FNV_PRIME;
     let mut index: usize = 0; while index < (*context).type_count { hash = (hash ^ (*context).types[index].kind as u64) * SEMA_FNV_PRIME; hash = (hash ^ (*context).types[index].element_type) * SEMA_FNV_PRIME; hash = (hash ^ (*context).types[index].symbol_id) * SEMA_FNV_PRIME; set index += 1; }
     set (*context).stats.hash_runs = sema_sat_add((*context).stats.hash_runs, 1);

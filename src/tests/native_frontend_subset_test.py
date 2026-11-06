@@ -400,6 +400,23 @@ AST_FALLBACK_CASES = {
         "}\n",
         "accept",
     ),
+    "constant aliases and else patterns in the C17 fallback": (
+        "const FLAG_A: u64 = 1;\n"
+        "const FLAG_B: u64 = FLAG_A | 2;\n"
+        "form Box<T> { value: T }\n"
+        "proc suffix() -> string { return \"x\"; }\n"
+        "proc append_suffix(text: string) -> string { return text + suffix(); }\n"
+        "proc main() -> i64 {\n"
+        "    let boxed: Box<i64> = Box<i64> { value: 42 };\n"
+        "    if append_suffix(\"v\") != \"vx\" { return 3; }\n"
+        "    match boxed.value {\n"
+        "        42 => { return FLAG_B as i64 - 3; },\n"
+        "        else => { return 1; },\n"
+        "    }\n"
+        "    return 2;\n"
+        "}\n",
+        "accept-runtime",
+    ),
     "generic form with multiple parameters compiles and runs": (
         "form Pair<T, U> { first: T, second: U }\n"
         "proc main() -> i64 {\n"
