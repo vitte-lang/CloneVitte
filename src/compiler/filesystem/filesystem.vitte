@@ -78,7 +78,7 @@ export form FilesystemDirectoryList {
 
 export form FilesystemResult {
     error: FilesystemError,
-    system_error: i64
+    system_error: i32
 }
 
 export form FilesystemStats {
