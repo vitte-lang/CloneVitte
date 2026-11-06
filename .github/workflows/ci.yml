@@ -80,6 +80,10 @@ jobs:
     name: Cross-platform compiler self-host
     uses: ./.github/workflows/compiler-selfhost.yml
 
+  posix-portability-vm:
+    name: BSD, Solaris and illumos VM portability
+    uses: ./.github/workflows/posix-vm-gates.yml
+
   native-package-install:
     name: Native package install (${{ matrix.os }})
     needs:
@@ -220,6 +224,7 @@ jobs:
       - compiler-runtime
       - compiler-selfhost
       - native-package-install
+      - posix-portability-vm
     runs-on: ubuntu-24.04
     steps:
       - name: Require all compiler and platform gates
@@ -227,6 +232,7 @@ jobs:
           COMPILER_RUNTIME_RESULT: ${{ needs['compiler-runtime'].result }}
           COMPILER_SELFHOST_RESULT: ${{ needs['compiler-selfhost'].result }}
           NATIVE_PACKAGE_RESULT: ${{ needs['native-package-install'].result }}
+          POSIX_PORTABILITY_RESULT: ${{ needs['posix-portability-vm'].result }}
         run: |
           if [[ "$COMPILER_RUNTIME_RESULT" != success ]]; then
             echo "::error::Compiler/runtime gate result: $COMPILER_RUNTIME_RESULT"
@@ -238,6 +244,10 @@ jobs:
           fi
           if [[ "$NATIVE_PACKAGE_RESULT" != success ]]; then
             echo "::error::Native package install gate result: $NATIVE_PACKAGE_RESULT"
+            exit 1
+          fi
+          if [[ "$POSIX_PORTABILITY_RESULT" != success ]]; then
+            echo "::error::BSD/Solaris/illumos VM portability result: $POSIX_PORTABILITY_RESULT"
             exit 1
           fi
           echo "All compiler release gates passed."

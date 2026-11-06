@@ -188,7 +188,7 @@ LDLIBS   :=
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
 
-ifneq ($(filter Linux FreeBSD OpenBSD NetBSD DragonFly,$(UNAME_S)),)
+ifneq ($(filter Linux FreeBSD OpenBSD NetBSD DragonFly SunOS,$(UNAME_S)),)
 LDLIBS += -lm
 endif
 
@@ -221,7 +221,14 @@ BUILD_CONFIG_KEY := $(shell printf '%s\n' \
 	$(call shell_quote,$(CPPFLAGS)) \
 	$(call shell_quote,$(CFLAGS)) \
 	$(call shell_quote,$(LDFLAGS)) \
-	$(call shell_quote,$(LDLIBS)) | shasum -a 256 | awk '{print $$1}')
+	$(call shell_quote,$(LDLIBS)) | \
+	if command -v shasum >/dev/null 2>&1; then \
+		shasum -a 256 | awk '{print $$1}'; \
+	elif command -v sha256sum >/dev/null 2>&1; then \
+		sha256sum | awk '{print $$1}'; \
+	else \
+		cksum | awk '{print $$1 "-" $$2}'; \
+	fi)
 BUILD_CONFIG_STAMP := $(BUILD)/.config-$(BUILD_CONFIG_KEY)
 ACTIVE_BUILD_CONFIG := $(BUILD)/.active-config
 # A conditional phony stamp makes a profile switch invalidate outputs even on

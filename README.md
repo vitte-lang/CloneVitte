@@ -209,8 +209,18 @@ les autres compilateurs, sources C, marques de validation et journaux.
 La CI appelle le workflow self-host réutilisable sur Linux, macOS et Windows.
 Les vérifications d’installation des paquets attendent la réussite de ce gate,
 et le job agrégé `Release readiness` échoue si les tests compilateur, self-host
-ou paquets échouent ou sont ignorés. Les preuves self-host sont publiées comme
-artefacts Actions par système.
+paquets ou portabilité POSIX échouent ou sont ignorés. Les preuves self-host
+sont publiées comme artefacts Actions par système.
+
+#### Machines virtuelles BSD, Solaris et illumos
+
+Le workflow réutilisable
+[`posix-vm-gates.yml`](.github/workflows/posix-vm-gates.yml) lance six VMs
+QEMU via VMActions depuis des runners GitHub Actions Ubuntu hébergés : FreeBSD,
+OpenBSD, NetBSD, Solaris, OmniOS et OpenIndiana. Aucun runner personnel n’est
+requis. Dans chaque invité, le gate construit le compilateur en release, vérifie
+`--version`, `help` et `check`, exécute les tests runtime et installe le paquet
+JSON avec `vitte install`. Le job POSIX est requis par `Release readiness`.
 
 #### Résultats observés au 6 novembre 2026
 
@@ -222,8 +232,9 @@ Le [run CI 42292113000](https://github.com/vitte-lang/vitte/actions/runs/4229211
 | Self-host, parité native, corpus et stages 0–3 | Réussi sous Linux, macOS et Windows (3/3). |
 | Construction et installation des paquets natifs | Réussi sous Linux (`.deb`), macOS (`.pkg`/`.dmg`) et Windows (NSIS), avec vérification des manifestes, installation réelle et smoke `vitte install` (3/3). |
 | Extension et DAP natif | Réussi. |
-| Matrice multiplateforme demandée | **100 % : 6/6 jobs** (3 self-host et 3 installations de paquets). |
-| Gate agrégé `Release readiness` | **Réussi ; statut global du gate : 100 %.** |
+| Matrice Linux, macOS et Windows observée dans ce run | **100 % : 6/6 jobs** (3 self-host et 3 installations de paquets). |
+| Gate agrégé `Release readiness` de ce run | **Réussi.** |
+| Nouveaux jobs BSD, Solaris et illumos | Configurés dans ce changement ; résultats CI encore à observer. |
 
 Le job compilateur a exécuté les 16 tests de charge en 389,6 s sur le runner
 Linux, avec une entrée de 2 Mio en profil debug et un délai maximal de 180 s
@@ -234,6 +245,11 @@ corpus a vérifié 93 cas positifs, 18 cas négatifs, zéro écart connu et zér
 échec (2 cas ignorés). Les stages self-host 0–3 ainsi que les commandes CLI
 `help`, `version`, `explain` et `install`, y compris le rollback d’installation,
 ont été vérifiés.
+
+Le statut **100 %** ci-dessus décrit précisément le run cité et ses six jobs
+Linux, macOS et Windows. L’extension à six VMs BSD/Solaris/illumos ne sera
+déclarée verte qu’après leur exécution effective ; tant que ces résultats ne
+sont pas publiés, le statut du gate élargi est **en attente**, pas 100 %.
 
 La branche `main` exige le statut `Release readiness`, avec les vérifications à
 jour et sans contournement administrateur. Les règles de protection GitHub sont

@@ -1,0 +1,82 @@
+name: BSD, Solaris and illumos VM portability
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vm-portability:
+    name: Portability VM (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: FreeBSD
+          - name: OpenBSD
+          - name: NetBSD
+          - name: Solaris
+          - name: OmniOS
+          - name: OpenIndiana
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Build and run on FreeBSD
+        if: matrix.name == 'FreeBSD'
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "15.1"
+          copyback: false
+          prepare: pkg install -y gmake curl
+          run: GMAKE=gmake CC=cc sh scripts/ci/posix-vm-smoke.sh
+
+      - name: Build and run on OpenBSD
+        if: matrix.name == 'OpenBSD'
+        uses: vmactions/openbsd-vm@v1
+        with:
+          release: "8.0"
+          copyback: false
+          prepare: pkg_add gmake curl
+          run: GMAKE=gmake CC=cc sh scripts/ci/posix-vm-smoke.sh
+
+      - name: Build and run on NetBSD
+        if: matrix.name == 'NetBSD'
+        uses: vmactions/netbsd-vm@v1
+        with:
+          release: "11.1"
+          copyback: false
+          prepare: /usr/sbin/pkg_add -u gmake curl
+          run: GMAKE=gmake CC=cc sh scripts/ci/posix-vm-smoke.sh
+
+      - name: Build and run on Solaris
+        if: matrix.name == 'Solaris'
+        uses: vmactions/solaris-vm@v1
+        with:
+          release: "11.4-gcc-14"
+          copyback: false
+          prepare: pkgutil -y -i gmake curl
+          run: GMAKE=gmake CC=gcc sh scripts/ci/posix-vm-smoke.sh
+
+      - name: Build and run on OmniOS
+        if: matrix.name == 'OmniOS'
+        uses: vmactions/omnios-vm@v1
+        with:
+          release: "r151058-build"
+          copyback: false
+          prepare: pkg install curl
+          run: GMAKE=gmake CC=gcc sh scripts/ci/posix-vm-smoke.sh
+
+      - name: Build and run on OpenIndiana
+        if: matrix.name == 'OpenIndiana'
+        uses: vmactions/openindiana-vm@v1
+        with:
+          release: "202610-build"
+          copyback: false
+          prepare: pkg install curl
+          run: GMAKE=gmake CC=gcc sh scripts/ci/posix-vm-smoke.sh
