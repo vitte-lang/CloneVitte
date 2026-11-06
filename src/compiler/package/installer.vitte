@@ -424,8 +424,9 @@ export proc vitte_package_install(name: string, requested_version: ?string, glob
     let mut current_directory = "";
     let cwd_result = vitte_filesystem_current_directory(&mut current_directory);
     if cwd_result.error != FilesystemError.None {
-        package_report("vitte install: cannot determine the project directory");
-        return 1;
+        // Relative project paths still resolve against the process directory
+        // on hosts whose current-directory API cannot provide an owned path.
+        set current_directory = ".";
     }
     let modules_root = if global_install {
         package_user_modules_root()

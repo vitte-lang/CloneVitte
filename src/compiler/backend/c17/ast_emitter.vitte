@@ -3224,6 +3224,11 @@ proc ast_type_text(
             resolved.node?.kind == ASTNodeKind.ReferenceType) {
             return ast_type_text(emitter, child, namespace, depth + 1);
         }
+        if resolved.node != null and
+           resolved.node?.kind == ASTNodeKind.TypeExpr and
+           resolved.node?.operator_kind == TokenKind.KwProc {
+            return ast_type_text(emitter, child, namespace, depth + 1);
+        }
         if resolved.node != null and resolved.node?.kind == ASTNodeKind.TypeExpr {
             let path = ast_child(emitter, resolved.node, 0);
             if path != null and path?.kind == ASTNodeKind.Path and path?.child_count == 1 {

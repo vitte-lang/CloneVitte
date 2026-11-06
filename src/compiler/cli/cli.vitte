@@ -55,6 +55,7 @@ export const VITTE_CLI_SEEN_EMIT_C: u64 = (1 as u64) << 36;
 export const VITTE_CLI_SEEN_EMIT_IR: u64 = (1 as u64) << 37;
 export const VITTE_CLI_SEEN_PACKAGE_VERSION: u64 = (1 as u64) << 38;
 export const VITTE_CLI_SEEN_GLOBAL: u64 = (1 as u64) << 39;
+export const VITTE_CLI_SEEN_STOP_AFTER_SEMA: u64 = (1 as u64) << 40;
 
 export pick CliError {
     None,
@@ -684,7 +685,7 @@ proc cli_validate_command_options(cli: *mut Cli) -> bool {
         VITTE_CLI_SEEN_MAX_ERRORS | VITTE_CLI_SEEN_DEBUG_INFO | VITTE_CLI_SEEN_SOURCE_MAP | VITTE_CLI_SEEN_NO_SOURCE_MAP |
         VITTE_CLI_SEEN_EMIT_COMMENTS | VITTE_CLI_SEEN_NO_RUNTIME | VITTE_CLI_SEEN_NO_BOUNDS | VITTE_CLI_SEEN_NO_NULL |
         VITTE_CLI_SEEN_NO_OVERFLOW | VITTE_CLI_SEEN_WERROR | VITTE_CLI_SEEN_RELEASE | VITTE_CLI_SEEN_DEBUG |
-        VITTE_CLI_SEEN_EMIT_C | VITTE_CLI_SEEN_EMIT_IR;
+        VITTE_CLI_SEEN_EMIT_C | VITTE_CLI_SEEN_EMIT_IR | VITTE_CLI_SEEN_STOP_AFTER_SEMA;
     if not vitte_cli_command_is_compilation(command) and (seen & compile_flags) != 0 {
         return cli_fail(cli, CliError.OptionNotAllowed, -1, null, "compilation option used with a non-compilation command");
     }
@@ -997,6 +998,12 @@ export proc vitte_cli_parse_slice(cli: *mut Cli, argv: [string]) -> bool {
         }
         if argument == "--emit-ir" {
             if not cli_mark_seen(cli, VITTE_CLI_SEEN_EMIT_IR, index as i32, argument) { return false; }
+            set (*cli).stats.option_count += 1;
+            set index += 1;
+            continue;
+        }
+        if argument == "--stop-after-sema" {
+            if not cli_mark_seen(cli, VITTE_CLI_SEEN_STOP_AFTER_SEMA, index as i32, argument) { return false; }
             set (*cli).stats.option_count += 1;
             set index += 1;
             continue;
