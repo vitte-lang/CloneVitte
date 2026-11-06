@@ -2210,6 +2210,88 @@ proc ir_lower_emit_value(context: *mut IRLowerContext, opcode: IROpcode, block: 
     return vitte_ir_instruction_result((*context).ir, instruction);
 }
 
+proc ir_lower_integer_width(kind: IRTypeKind) -> u32 {
+    match kind {
+        case IRTypeKind.I8 | IRTypeKind.U8 => return 8;
+        case IRTypeKind.I16 | IRTypeKind.U16 => return 16;
+        case IRTypeKind.I32 | IRTypeKind.U32 | IRTypeKind.Char => return 32;
+        case IRTypeKind.I64 | IRTypeKind.U64 => return 64;
+        case _ => return 0;
+    }
+}
+
+proc ir_lower_integer_signed(kind: IRTypeKind) -> bool {
+    return kind == IRTypeKind.I8 or kind == IRTypeKind.I16 or
+        kind == IRTypeKind.I32 or kind == IRTypeKind.I64;
+}
+
+proc ir_lower_numeric_kind(kind: IRTypeKind) -> bool {
+    return ir_is_integer(kind) or kind == IRTypeKind.Char or ir_is_float(kind);
+}
+
+proc ir_lower_common_numeric_type(
+    context: *mut IRLowerContext,
+    left_id: IRTypeId,
+    right_id: IRTypeId
+) -> IRTypeId {
+    let left = vitte_ir_get_type((*context).ir, left_id);
+    let right = vitte_ir_get_type((*context).ir, right_id);
+    if left == null or right == null or
+       not ir_lower_numeric_kind((*left).kind) or
+       not ir_lower_numeric_kind((*right).kind) { return 0; }
+    if (*left).kind == IRTypeKind.F64 or (*right).kind == IRTypeKind.F64 {
+        return ir_lower_primitive(context, IRTypeKind.F64);
+    }
+    if (*left).kind == IRTypeKind.F32 or (*right).kind == IRTypeKind.F32 {
+        return ir_lower_primitive(context, IRTypeKind.F32);
+    }
+    if (*left).kind == IRTypeKind.U64 and (*right).kind == IRTypeKind.U64 {
+        return ir_lower_primitive(context, IRTypeKind.U64);
+    }
+    if (*left).kind == IRTypeKind.U8 and (*right).kind == IRTypeKind.U8 {
+        return ir_lower_primitive(context, IRTypeKind.U8);
+    }
+    if ((*left).kind == IRTypeKind.U64 and (*right).kind == IRTypeKind.U8) or
+       ((*right).kind == IRTypeKind.U64 and (*left).kind == IRTypeKind.U8) {
+        return ir_lower_primitive(context, IRTypeKind.U64);
+    }
+    return ir_lower_primitive(context, IRTypeKind.I64);
+}
+
+proc ir_lower_convert_numeric(
+    context: *mut IRLowerContext,
+    block: *mut IRBlockId,
+    value_id: IRValueId,
+    expected: IRTypeId,
+    span: *const HIRSpan
+) -> IRValueId {
+    let value = vitte_ir_get_value((*context).ir, value_id);
+    let source = if value == null { null } else { vitte_ir_get_type((*context).ir, (*value).type_) };
+    let target = vitte_ir_get_type((*context).ir, expected);
+    if value == null or source == null or target == null { return 0; }
+    if (*value).type_ == expected { return value_id; }
+    if not ir_lower_numeric_kind((*source).kind) or not ir_lower_numeric_kind((*target).kind) {
+        return 0;
+    }
+    let source_width = ir_lower_integer_width((*source).kind);
+    let target_width = ir_lower_integer_width((*target).kind);
+    let opcode: IROpcode = if source_width != 0 and target_width != 0 {
+        if source_width > target_width { IROpcode.Trunc }
+        elif source_width < target_width {
+            if ir_lower_integer_signed((*source).kind) { IROpcode.Sext } else { IROpcode.Zext }
+        } else { IROpcode.Bitcast }
+    } elif ir_is_float((*source).kind) and ir_is_float((*target).kind) {
+        if (*source).kind == IRTypeKind.F64 { IROpcode.FpTrunc } else { IROpcode.FpExt }
+    } elif source_width != 0 and ir_is_float((*target).kind) {
+        if ir_lower_integer_signed((*source).kind) { IROpcode.SiToFp } else { IROpcode.UiToFp }
+    } elif ir_is_float((*source).kind) and target_width != 0 {
+        if ir_lower_integer_signed((*target).kind) { IROpcode.FpToSi } else { IROpcode.FpToUi }
+    } else { IROpcode.Invalid };
+    if opcode == IROpcode.Invalid { return 0; }
+    let mut operand = value_id;
+    return ir_lower_emit_value(context, opcode, *block, expected, &mut operand, 1, span);
+}
+
 proc ir_lower_array_expr_as(context: *mut IRLowerContext, function: IRFunctionId, block: *mut IRBlockId, node: *HIRNode, expected: IRTypeId) -> IRValueId {
     let expected_type = vitte_ir_get_type((*context).ir, expected);
     if node == null or expected_type == null or (*node).kind != HIRNodeKind.Array or
@@ -2304,7 +2386,9 @@ proc ir_lower_expr_as(context: *mut IRLowerContext, function: IRFunctionId, bloc
             return vitte_ir_const_float((*context).ir, expected, ir_lower_float_literal(node));
         }
     }
-    return ir_lower_expr(context, function, block, node_id);
+    let value = ir_lower_expr(context, function, block, node_id);
+    if value == 0 { return 0; }
+    return ir_lower_convert_numeric(context, block, value, expected, &(*node).span);
 }
 
 proc ir_lower_lvalue(context: *mut IRLowerContext, function: IRFunctionId, block: *mut IRBlockId, node_id: HIRNodeId) -> IRValueId {
@@ -2448,16 +2532,25 @@ proc ir_lower_expr(context: *mut IRLowerContext, function: IRFunctionId, block: 
             }
             let left_type_id = ir_lower_type(context, (*left_node).type_);
             let left_type: *IRType = vitte_ir_get_type((*context).ir, left_type_id); if left_type == null { return 0; }
-            let left = ir_lower_expr(context, function, block, (*node).payload[1]); if left == 0 { return 0; }
+            let right_type_id = ir_lower_type(context, (*right_node).type_);
+            let common_type = ir_lower_common_numeric_type(context, left_type_id, right_type_id);
+            let operand_type = if common_type != 0 { common_type } else { left_type_id };
+            let operand_type_record: *IRType = vitte_ir_get_type((*context).ir, operand_type);
+            if operand_type_record == null { return 0; }
+            let left = if common_type != 0 {
+                ir_lower_expr_as(context, function, block, (*node).payload[1], operand_type)
+            } else { ir_lower_expr(context, function, block, (*node).payload[1]) };
+            if left == 0 { return 0; }
             let right_is_literal = (*right_node).kind == HIRNodeKind.Literal and
                 (((*right_node).payload[0] as HIRLiteralKind) == HIRLiteralKind.SignedInteger or
                  ((*right_node).payload[0] as HIRLiteralKind) == HIRLiteralKind.UnsignedInteger or
                  ((*right_node).payload[0] as HIRLiteralKind) == HIRLiteralKind.F32 or
                  ((*right_node).payload[0] as HIRLiteralKind) == HIRLiteralKind.F64);
-            let right = if right_is_literal { ir_lower_expr_as(context, function, block, (*node).payload[2], left_type_id) }
+            let right = if common_type != 0 { ir_lower_expr_as(context, function, block, (*node).payload[2], operand_type) }
+                elif right_is_literal { ir_lower_expr_as(context, function, block, (*node).payload[2], left_type_id) }
                 else { ir_lower_expr(context, function, block, (*node).payload[2]) };
             if right == 0 { return 0; }
-            let opcode = ir_lower_binary((*node).payload[0] as HIRBinaryOperator, ir_is_float((*left_type).kind));
+            let opcode = ir_lower_binary((*node).payload[0] as HIRBinaryOperator, ir_is_float((*operand_type_record).kind));
             if opcode == IROpcode.Invalid { return 0; }
             let right_value = vitte_ir_get_value((*context).ir, right);
             let right_type: *IRType = if right_value == null { null } else { vitte_ir_get_type((*context).ir, (*right_value).type_) };

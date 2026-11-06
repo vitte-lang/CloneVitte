@@ -1546,6 +1546,15 @@ proc ast_resolve_proc_path(emitter: &C17AstEmitter, path: ?&ASTNode, namespace: 
         }
         return usize.MAX;
     }
+    let import_index = ast_import_index(emitter, raw, namespace);
+    if import_index != usize.MAX {
+        let imported_index = ast_proc_index(
+            emitter,
+            emitter.imports[import_index].qualified_name,
+            ""
+        );
+        if imported_index != usize.MAX { return imported_index; }
+    }
     return ast_proc_index(emitter, raw, namespace);
 }
 
@@ -3545,7 +3554,11 @@ proc ast_type_text(
         }
     }
     let raw = ast_path_text(emitter, path);
-    let qualified: string = if path.child_count == 1 { ast_qualified_name(raw, namespace) } else { raw };
+    let qualified: string = if path.child_count == 1 {
+        ast_qualified_name(raw, namespace)
+    } else {
+        ast_canonical_import_path(emitter, path)
+    };
     return ast_mangle(qualified, "vitte_type_");
 }
 
@@ -4397,6 +4410,44 @@ proc ast_emit_name_expr(
             ast_emit_global_reference(emitter, global_index, depth);
             return;
         }
+        let import_index = ast_import_index(emitter, raw, namespace);
+        if import_index != usize.MAX {
+            let imported_name: string = emitter.imports[import_index].qualified_name;
+            let imported_global_index = ast_global_path_index(
+                emitter,
+                imported_name
+            );
+            if imported_global_index != usize.MAX {
+                ast_emit_global_reference(emitter, imported_global_index, depth);
+                return;
+            }
+            let imported_proc_index = ast_proc_index(
+                emitter,
+                imported_name,
+                ""
+            );
+            if imported_proc_index != usize.MAX {
+                let imported_proc: &C17AstProcSymbol =
+                    &emitter.procedures[imported_proc_index];
+                if imported_proc.external {
+                    ast_write(emitter, imported_proc.name);
+                } elif imported_proc.public {
+                    ast_write(
+                        emitter,
+                        ast_exported_proc_c_name(
+                            imported_proc.name,
+                            imported_proc.qualified_name
+                        )
+                    );
+                } else {
+                    ast_write(
+                        emitter,
+                        ast_mangle(imported_proc.qualified_name, "vitte_fn_")
+                    );
+                }
+                return;
+            }
+        }
         let procedure_index = ast_proc_index(emitter, raw, namespace);
         if procedure_index != usize.MAX {
             let procedure: &C17AstProcSymbol = &emitter.procedures[procedure_index];
@@ -4686,6 +4737,11 @@ proc ast_pick_type_name(emitter: &C17AstEmitter, left: ?&ASTNode, namespace: str
             return emitter.picks[imported_pick_index].qualified_name;
         }
     }
+    let canonical_name: string = ast_canonical_import_path(emitter, left);
+    let canonical_pick_index = ast_pick_index(emitter, canonical_name, "");
+    if canonical_pick_index != usize.MAX {
+        return emitter.picks[canonical_pick_index].qualified_name;
+    }
     return "";
 }
 
@@ -4777,6 +4833,34 @@ proc ast_pick_variant_from_path(
                 variant_name
             );
             if imported_variant != null { return imported_variant; }
+        }
+        // A module alias such as `collision_a::State::Ready` is not a symbol
+        // import, so `ast_import_index` cannot resolve its `State` prefix.
+        // Canonicalize the full path through the module alias and resolve the
+        // owning pick from that qualified path instead.
+        let canonical_path = ast_canonical_import_path(emitter, path);
+        let canonical_suffix = "::" + variant_name;
+        let mut canonical_prefix_length: usize = 0;
+        if canonical_path.len() > canonical_suffix.len() and
+           canonical_path.slice(
+               canonical_path.len() - canonical_suffix.len(),
+               canonical_path.len()
+           ) == canonical_suffix {
+            set canonical_prefix_length = canonical_path.len() - canonical_suffix.len();
+        }
+        let canonical_pick_name: string = canonical_path.slice(0, canonical_prefix_length);
+        let canonical_pick_index = ast_pick_index(
+            emitter,
+            canonical_pick_name,
+            ""
+        );
+        if canonical_pick_index != usize.MAX {
+            let canonical_variant = ast_pick_variant_symbol(
+                emitter,
+                emitter.picks[canonical_pick_index].qualified_name,
+                variant_name
+            );
+            if canonical_variant != null { return canonical_variant; }
         }
     }
     let mut scoped_found: ?string = null;
@@ -6672,6 +6756,28 @@ proc ast_emit_call(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: strin
          ast_global_index(emitter, print_callee_text, namespace) != usize.MAX);
     let print_has_procedure: bool = print_callee_is_name and
         ast_resolve_proc_path(emitter, callee, namespace) != usize.MAX;
+    if not print_has_local and not print_has_procedure and
+       node.child_count == 2 and
+       ast_token_text(emitter, print_callee_name) == "trim" {
+        ast_write(emitter, "vitte_string_trim(");
+        ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+        ast_write(emitter, ")");
+        return;
+    }
+    if not print_has_local and not print_has_procedure and
+       node.child_count == 3 and
+       (ast_token_text(emitter, print_callee_name) == "starts_with" or
+        ast_token_text(emitter, print_callee_name) == "ends_with") {
+        let helper: string = if ast_token_text(emitter, print_callee_name) == "starts_with" {
+            "vitte_string_starts_with"
+        } else { "vitte_string_ends_with" };
+        ast_write(emitter, helper + "(");
+        ast_emit_expression(emitter, ast_child(emitter, node, 1), namespace, depth + 1);
+        ast_write(emitter, ", ");
+        ast_emit_expression(emitter, ast_child(emitter, node, 2), namespace, depth + 1);
+        ast_write(emitter, ")");
+        return;
+    }
     if ast_token_text(emitter, print_callee_name) == "print" and
        not print_has_local and not print_has_procedure {
         ast_write(emitter, "vitte_builtin_print(");
@@ -10183,6 +10289,28 @@ proc ast_emit_runtime(emitter: &mut C17AstEmitter) {
         "    if (left == NULL) left = \"\"; size_t a = strlen(left); if (a > SIZE_MAX - 2) return NULL;\n" +
         "    char *result = (char *)malloc(a + 2); if (result == NULL) return NULL;\n" +
         "    memcpy(result, left, a); result[a] = right; result[a + 1] = '\\0'; return result;\n" +
+        "}\n\n"
+    );
+    ast_write(emitter,
+        "static inline bool vitte_string_is_space(unsigned char value) {\n" +
+        "    return value == (unsigned char)' ' || (value >= 9u && value <= 13u);\n" +
+        "}\n" +
+        "static inline const char *vitte_string_trim(const char *value) {\n" +
+        "    if (value == NULL) return \"\";\n" +
+        "    const char *begin = value; const char *end = value + strlen(value);\n" +
+        "    while (*begin != '\\0' && vitte_string_is_space((unsigned char)*begin)) ++begin;\n" +
+        "    while (end > begin && vitte_string_is_space((unsigned char)end[-1])) --end;\n" +
+        "    size_t length = (size_t)(end - begin); char *copy = (char *)malloc(length + 1);\n" +
+        "    if (copy == NULL) return \"\"; memcpy(copy, begin, length); copy[length] = '\\0'; return copy;\n" +
+        "}\n" +
+        "static inline bool vitte_string_starts_with(const char *value, const char *prefix) {\n" +
+        "    if (value == NULL || prefix == NULL) return false; size_t length = strlen(prefix);\n" +
+        "    return strlen(value) >= length && memcmp(value, prefix, length) == 0;\n" +
+        "}\n" +
+        "static inline bool vitte_string_ends_with(const char *value, const char *suffix) {\n" +
+        "    if (value == NULL || suffix == NULL) return false;\n" +
+        "    size_t value_length = strlen(value); size_t suffix_length = strlen(suffix);\n" +
+        "    return value_length >= suffix_length && memcmp(value + value_length - suffix_length, suffix, suffix_length) == 0;\n" +
         "}\n\n"
     );
 }

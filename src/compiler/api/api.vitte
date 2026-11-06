@@ -670,6 +670,10 @@ proc api_module_use_name(source: str, start: usize, end: usize) -> ?string {
           bytes[cursor] != 32 and bytes[cursor] != 9 and bytes[cursor] != 10 {
         set cursor += 1;
     }
+    if cursor >= name_start + 3 and bytes[cursor - 3] == 58 and
+       bytes[cursor - 2] == 58 and bytes[cursor - 1] == 42 {
+        set cursor -= 3;
+    }
     while cursor > name_start and bytes[cursor - 1] == 58 {
         set cursor -= 1;
     }
@@ -756,6 +760,8 @@ proc api_module_segment_end(lexer: &Lexer, start: usize) -> usize {
     let mut parentheses: usize = 0;
     let mut brackets: usize = 0;
     let mut braces: usize = 0;
+    let is_proc_declaration = start < lexer.token_count and
+        api_module_declaration_priority(lexer, start, lexer.token_count - 1) == 5;
     while index < lexer.token_count {
         let kind = lexer.tokens[index].kind;
         if kind == TokenKind.Eof {
@@ -783,6 +789,15 @@ proc api_module_segment_end(lexer: &Lexer, start: usize) -> usize {
             }
         } elif kind == TokenKind.Semicolon and parentheses == 0 and
                brackets == 0 and braces == 0 {
+            if is_proc_declaration and index + 1 < lexer.token_count {
+                let next_kind = lexer.tokens[index + 1].kind;
+                if next_kind == TokenKind.KwRequires or
+                   next_kind == TokenKind.KwEnsures or
+                   next_kind == TokenKind.LeftBrace {
+                    set index += 1;
+                    continue;
+                }
+            }
             return index;
         }
         set index += 1;
@@ -1810,6 +1825,14 @@ proc api_render_pipeline_diagnostics_json(
            not api_append_json_cstring(&mut buffer, (*diagnostic_entry).details) {
             buffer_destroy(&mut buffer);
             return false;
+        }
+        if (*diagnostic_entry).help != null and
+           cstring_length((*diagnostic_entry).help as *const u8) != 0 {
+            if not api_module_append_text(&mut buffer, ",\"help\":") or
+               not api_append_json_cstring(&mut buffer, (*diagnostic_entry).help) {
+                buffer_destroy(&mut buffer);
+                return false;
+            }
         }
         if (*diagnostic_entry).has_span {
             if not api_module_append_text(&mut buffer, ",\"location\":{\"source\":") or

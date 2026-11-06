@@ -204,6 +204,10 @@ else
 	CFLAGS := $(CFLAGS_COMMON) $(CFLAGS_DEBUG)
 endif
 
+# Keep assertions enabled in C test harnesses for every build profile. Several
+# harnesses use assert expressions to validate setup and API return values.
+TEST_CFLAGS := $(filter-out -DNDEBUG,$(CFLAGS)) -UNDEBUG
+
 # Keep build products valid when the host, compiler, flags, or profile change.
 # A stable configuration is a no-op; a changed signature invalidates objects
 # and linked binaries.
@@ -463,10 +467,10 @@ test-cli-driver: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 		2>$(BUILD)/cli-check.stderr; then \
 		:; \
 	else \
-		status=$$?; \
-		printf '[CLI] check failed for %s (exit %s)\n' "$$fixture" "$$status" >&2; \
+		rc=$$?; \
+		printf '[CLI] check failed for %s (exit %s)\n' "$$fixture" "$$rc" >&2; \
 		cat $(BUILD)/cli-check.stderr >&2; \
-		exit "$$status"; \
+		exit "$$rc"; \
 	fi; \
 	if test -s $(BUILD)/cli-check.stderr; then \
 		printf '[CLI] check wrote unexpected stderr for %s\n' "$$fixture" >&2; \
@@ -542,7 +546,7 @@ test-source:
 	@printf '[TEST-CC] source_manager_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/source_manager_test.c \
 		$(SRC_ROOT)/source/source.c \
 		$(SRC_ROOT)/api/error.c \
@@ -563,7 +567,7 @@ test-diagnostic: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN) $(LIB_OBJECTS)
 	@printf '[TEST-CC] diagnostic_render_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/diagnostic_render_test.c \
 		$(LIB_OBJECTS) \
 		$(LDFLAGS) \
@@ -574,8 +578,8 @@ test-diagnostic: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN) $(LIB_OBJECTS)
 	output=`$(BOOTSTRAP_TARGET_BIN) parse \
 		$(TEST_DIR)/diagnostic_parser_invalid.vit \
 		--quiet --no-color 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F 'E0203' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'phase: parser' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'help: Provide a valid expression' >/dev/null
@@ -583,15 +587,15 @@ test-diagnostic: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN) $(LIB_OBJECTS)
 	output=`$(BOOTSTRAP_TARGET_BIN) lex \
 		$(TEST_DIR)/diagnostic_lexer_invalid.vit \
 		--quiet --no-color 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F 'E0102' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'phase: lexer' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'help: Close the string' >/dev/null
 	@set +e; \
 	output=`$(BOOTSTRAP_TARGET_BIN) --not-a-valid-option 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 2 && \
+	rc=$$?; \
+	test "$$rc" -eq 2 && \
 	printf '%s\n' "$$output" | grep -F 'E0011' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'phase: driver' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'help: Correct the option named' >/dev/null
@@ -608,7 +612,7 @@ test-diagnostic-fuzz: $(TARGET_BIN)
 	@printf '[TEST-CC] diagnostic_fuzz_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/diagnostic_fuzz_test.c \
 		$(LIB_OBJECTS) \
 		$(LDFLAGS) \
@@ -631,7 +635,7 @@ NATIVE_BOOTSTRAP_PARITY_TEST_BIN := $(BIN_DIR)/native_bootstrap_parity_test
 $(NATIVE_BOOTSTRAP_PARITY_TEST_BIN): $(TEST_DIR)/native_parser_parity_test.c $(NATIVE_LINK_OBJECTS) $(NATIVE_API_OBJECT) $(NATIVE_FRONTEND_LIBRARY) $(BOOTSTRAP_ARCHIVE) Makefile
 	@mkdir -p $(BIN_DIR)
 	@printf '[TEST-CC] native_parser_parity_test\n'
-	$(CC) $(CPPFLAGS) $(CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
+	$(CC) $(CPPFLAGS) $(TEST_CFLAGS) -DVITTE_NATIVE_FRONTEND_LINKED \
 		$(TEST_DIR)/native_parser_parity_test.c \
 		$(filter-out $(MAIN_OBJECT) $(NATIVE_MAIN_OBJECT),$(NATIVE_LINK_OBJECTS)) \
 		$(NATIVE_API_OBJECT) $(NATIVE_FRONTEND_LIBRARY) $(BOOTSTRAP_ARCHIVE) $(LDFLAGS) $(LDLIBS) -o $@
@@ -670,9 +674,9 @@ test-diagnostic-golden: $(BOOTSTRAP_TARGET_BIN)
 		--stop-after-sema --quiet --no-color \
 		>$(TMP_DIR)/diagnostic_unknown_symbol.stdout \
 		2>$(TMP_DIR)/diagnostic_unknown_symbol.stderr; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	awk 'NF { last = NR } { lines[NR] = $$0 } END { for (i = 1; i <= last; i++) print lines[i] }' \
 		$(TMP_DIR)/diagnostic_unknown_symbol.stderr \
 		>$(TMP_DIR)/diagnostic_unknown_symbol.normalized && \
@@ -684,9 +688,9 @@ test-diagnostic-golden: $(BOOTSTRAP_TARGET_BIN)
 		--stop-after-sema --quiet --no-color \
 		>$(TMP_DIR)/diagnostic_type_mismatch.stdout \
 		2>$(TMP_DIR)/diagnostic_type_mismatch.stderr; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	awk 'NF { last = NR } { lines[NR] = $$0 } END { for (i = 1; i <= last; i++) print lines[i] }' \
 		$(TMP_DIR)/diagnostic_type_mismatch.stderr \
 		>$(TMP_DIR)/diagnostic_type_mismatch.normalized && \
@@ -698,9 +702,9 @@ test-diagnostic-golden: $(BOOTSTRAP_TARGET_BIN)
 		--quiet --no-color \
 		>$(TMP_DIR)/diagnostic_lexer_invalid.stdout \
 		2>$(TMP_DIR)/diagnostic_lexer_invalid.stderr; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	awk 'NF { last = NR } { lines[NR] = $$0 } END { for (i = 1; i <= last; i++) print lines[i] }' \
 		$(TMP_DIR)/diagnostic_lexer_invalid.stderr \
 		>$(TMP_DIR)/diagnostic_lexer_invalid.normalized && \
@@ -717,8 +721,8 @@ test-diagnostic-formats: $(BOOTSTRAP_TARGET_BIN)
 	output=`$(BOOTSTRAP_TARGET_BIN) check \
 		$(TEST_DIR)/diagnostic_parser_invalid.vit \
 		--diagnostic=json 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F '"schema": "vitte-diagnostics"' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F '"code": "E0203"' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F '"kind": "help"' >/dev/null && \
@@ -728,8 +732,8 @@ test-diagnostic-formats: $(BOOTSTRAP_TARGET_BIN)
 		$(TEST_DIR)/diagnostic_sema_multiple_invalid.vit \
 		--stop-after-sema --quiet --no-color \
 		--diagnostic=json 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F '"stored": 2' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | grep -Fc '"code": "E0602"')" -eq 2 && \
 	printf '%s\n' "$$output" | grep -F '"kind": "help"' >/dev/null && \
@@ -738,8 +742,8 @@ test-diagnostic-formats: $(BOOTSTRAP_TARGET_BIN)
 	output=`$(BOOTSTRAP_TARGET_BIN) check \
 		$(TEST_DIR)/diagnostic_parser_invalid.vit \
 		--diagnostic=sarif 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F '"version": "2.1.0"' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F '"ruleId": "E0203"' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
@@ -748,14 +752,14 @@ test-diagnostic-formats: $(BOOTSTRAP_TARGET_BIN)
 		$(TEST_DIR)/diagnostic_sema_multiple_invalid.vit \
 		--stop-after-sema --quiet --no-color \
 		--diagnostic=sarif 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	test "$$(printf '%s\n' "$$output" | grep -Fc '"ruleId": "E0602"')" -eq 2 && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
 	output=`$(BOOTSTRAP_TARGET_BIN) --diagnostic=json --not-a-valid-option 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 2 && \
+	rc=$$?; \
+	test "$$rc" -eq 2 && \
 	printf '%s\n' "$$output" | grep -F '"code": "E0011"' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F '"schema": "vitte-diagnostics"' >/dev/null && \
 	! printf '%s\n' "$$output" | grep -F 'Usage:' >/dev/null && \
@@ -764,8 +768,8 @@ test-diagnostic-formats: $(BOOTSTRAP_TARGET_BIN)
 	output=`$(BOOTSTRAP_TARGET_BIN) check \
 		$(TEST_DIR)/diagnostic_missing_source.vit \
 		--diagnostic=json 2>&1`; \
-	status=$$?; \
-	test "$$status" -eq 1 && \
+	rc=$$?; \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F '"schema": "vitte-diagnostics"' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F '"code": "E0005"' >/dev/null && \
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
@@ -820,7 +824,7 @@ $(GRAMMAR_TEST_BIN): $(TEST_DIR)/grammar_parser_test.c $(LIB_OBJECTS)
 	@printf '[TEST-CC] grammar_parser_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/grammar_parser_test.c \
 		$(LIB_OBJECTS) \
 		$(LDFLAGS) \
@@ -845,7 +849,7 @@ $(FRONTEND_TOKEN_TEST_BIN): $(TEST_DIR)/frontend_token_test.c $(LIB_OBJECTS) $(S
 	@printf '[TEST-CC] frontend_token_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/frontend_token_test.c \
 		$(LIB_OBJECTS) \
 		$(LDFLAGS) \
@@ -857,7 +861,7 @@ $(FRONTEND_FUZZ_TEST_BIN): $(TEST_DIR)/frontend_fuzz_test.c $(LIB_OBJECTS)
 	@printf '[TEST-CC] frontend_fuzz_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/frontend_fuzz_test.c \
 		$(LIB_OBJECTS) \
 		$(LDFLAGS) \
@@ -870,7 +874,7 @@ $(CONFIG_FUZZ_TEST_BIN): \
 	$(OBJ_DIR)/filesystem/filesystem.o
 	@mkdir -p $(BIN_DIR)
 	@printf '[TEST-CC] config_fuzz_test\n'
-	$(CC) $(CPPFLAGS) $(CFLAGS) \
+	$(CC) $(CPPFLAGS) $(TEST_CFLAGS) \
 		$(TEST_DIR)/config_fuzz_test.c \
 		$(OBJ_DIR)/config/config.o $(OBJ_DIR)/filesystem/filesystem.o \
 		$(LDFLAGS) $(LDLIBS) -o $@
@@ -878,7 +882,7 @@ $(CONFIG_FUZZ_TEST_BIN): \
 $(ROBUSTNESS_TEST_BIN): $(TEST_DIR)/robustness_test.c $(LIB_OBJECTS)
 	@mkdir -p $(BIN_DIR)
 	@printf '[TEST-CC] robustness_test\n'
-	$(CC) $(CPPFLAGS) $(CFLAGS) \
+	$(CC) $(CPPFLAGS) $(TEST_CFLAGS) \
 		$(TEST_DIR)/robustness_test.c \
 		$(LIB_OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
 
@@ -966,9 +970,9 @@ test-sema: $(TARGET_BIN)
 		$(TEST_DIR)/import_visibility/glob_private.vit \
 		--stop-after-sema \
 		--quiet --no-color 2>&1`; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F 'E0404' >/dev/null && \
 	! printf '%s\n' "$$output" | grep -F 'E0504' >/dev/null
 
@@ -977,23 +981,23 @@ test-sema: $(TARGET_BIN)
 		$(TEST_DIR)/sema_calls/local_param_mismatch.vit \
 		--stop-after-sema \
 		--quiet --no-color 2>&1`; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F 'E0602' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'expected i64, found string' >/dev/null && \
-	printf '%s\n' "$$output" | grep -F 'help: Argument 1 does not match parameter' >/dev/null
+	printf '%s\n' "$$output" | grep -F '"help":"Argument 1 does not match parameter' >/dev/null
 
 	@set +e; \
 	output=`$(TARGET_BIN) compile \
 		$(TEST_DIR)/sema_calls/signed_variable_to_u64_mismatch.vit \
 		--stop-after-sema \
 		--quiet --no-color 2>&1`; \
-	status=$$?; \
+	rc=$$?; \
 	set -e; \
-	test "$$status" -eq 1 && \
+	test "$$rc" -eq 1 && \
 	printf '%s\n' "$$output" | grep -F 'E0602' >/dev/null && \
-	printf '%s\n' "$$output" | grep -F 'help: Argument 1 does not match parameter' >/dev/null
+	printf '%s\n' "$$output" | grep -F '"help":"Argument 1 does not match parameter' >/dev/null
 
 # -----------------------------------------------------------------------------
 # Import/export tests
@@ -1009,7 +1013,7 @@ $(IMPORT_GRAPH_TEST_BIN): \
 	@printf '[TEST-CC] import_graph_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/import_graph_test.c \
 		$(SRC_ROOT)/import/import.c \
 		$(LDFLAGS) \
@@ -1030,7 +1034,7 @@ $(IMPORT_FUZZ_TEST_BIN): \
 	@printf '[TEST-CC] import_fuzz_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		$(TEST_DIR)/import_fuzz_test.c \
 		$(SRC_ROOT)/import/import.c \
 		$(LDFLAGS) \
@@ -1050,7 +1054,7 @@ $(CONCURRENT_TEST_BIN): \
 	@printf '[TEST-CC] concurrent_compile_test\n'
 	$(CC) \
 		$(CPPFLAGS) \
-		$(CFLAGS) \
+		$(TEST_CFLAGS) \
 		-pthread \
 		$(TEST_DIR)/concurrent_compile_test.c \
 		$(LIB_OBJECTS) \

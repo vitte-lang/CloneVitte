@@ -1156,10 +1156,29 @@ proc native_pipeline_requires_ast_codegen(parser: &Parser) -> bool {
         if (node.node_flags & PARSER_AST_FLAG_COMPTIME) != 0 {
             return true;
         }
+        // HIR/IR do not yet represent imported module declarations. Keep
+        // qualified imports on the C17 AST path, which resolves and emits
+        // their source modules as part of the compilation unit.
+        if node.kind == ASTNodeKind.UseDecl { return true; }
         if node.kind == ASTNodeKind.ExternProcDecl {
             let declaration_token: *const ParserToken = vitte_parser_node_token(parser, node);
             if declaration_token != null and
                (*declaration_token).lexeme == "intrinsic" {
+                return true;
+            }
+        }
+        // These legacy string builtins are implemented by the C17 AST
+        // emitter, while native sema and IR lowering still lack their
+        // builtin declarations and operations.
+        if node.kind == ASTNodeKind.CallExpr and node.child_count != 0 {
+            let callee: *const ASTNode = vitte_parser_get_node(parser, node.children[0]);
+            let name_node: *const ASTNode = if callee != null and callee.kind == ASTNodeKind.Path and
+                callee.child_count != 0 {
+                vitte_parser_get_node(parser, callee.children[callee.child_count - 1])
+            } else { callee };
+            let name: *const ParserToken = vitte_parser_node_token(parser, name_node);
+            if name != null and ((*name).lexeme == "trim" or
+               (*name).lexeme == "starts_with" or (*name).lexeme == "ends_with") {
                 return true;
             }
         }
