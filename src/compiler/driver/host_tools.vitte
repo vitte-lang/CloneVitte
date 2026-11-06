@@ -45,18 +45,13 @@ const HOST_TEMP_PATH_CAPACITY: usize = 4096;
 
 proc host_tools_cleanup(
     source_buffer: *mut u8,
-    object_buffer: *mut u8,
     executable_buffer: *mut u8,
     source_created: bool,
-    object_created: bool,
-    executable_created: bool,
-    remove_object: bool
+    executable_created: bool
 ) {
     if source_created { vitte_native_fs_remove(source_buffer as *const u8); }
-    if object_created and remove_object { vitte_native_fs_remove(object_buffer as *const u8); }
     if executable_created { vitte_native_fs_remove(executable_buffer as *const u8); }
     if source_buffer != null { deallocate(source_buffer); }
-    if object_buffer != null { deallocate(object_buffer); }
     if executable_buffer != null { deallocate(executable_buffer); }
 }
 
@@ -115,25 +110,18 @@ export proc vitte_driver_run_host_toolchain(
     }
 
     let source_buffer = allocate(HOST_TEMP_PATH_CAPACITY);
-    let mut object_buffer: *mut u8 = null;
     let mut executable_buffer: *mut u8 = null;
-    if not emit_object {
-        set object_buffer = allocate(HOST_TEMP_PATH_CAPACITY);
-    }
     if run_program {
         set executable_buffer = allocate(HOST_TEMP_PATH_CAPACITY);
     }
-    if source_buffer == null or (not emit_object and object_buffer == null) or
-       (run_program and executable_buffer == null) {
+    if source_buffer == null or (run_program and executable_buffer == null) {
         if source_buffer != null { deallocate(source_buffer); }
-        if object_buffer != null { deallocate(object_buffer); }
         if executable_buffer != null { deallocate(executable_buffer); }
         set *failed_stage = DriverHostToolStage.Prepare as u32;
         return DriverHostToolStatus.OutOfMemory as u32;
     }
 
     let mut source_created = false;
-    let mut object_created = false;
     let mut executable_created = false;
     let mut compiler_program: string = "cc";
     let configured_compiler = vitte_native_environment_value("CC");
@@ -146,31 +134,19 @@ export proc vitte_driver_run_host_toolchain(
 
     if vitte_native_host_temp_path(0, source_buffer, HOST_TEMP_PATH_CAPACITY) == 0 {
         host_tools_cleanup(
-            source_buffer, object_buffer, executable_buffer,
-            source_created, object_created, executable_created, false
+            source_buffer, executable_buffer,
+            source_created, executable_created
         );
         set *failed_stage = DriverHostToolStage.Prepare as u32;
         return DriverHostToolStatus.IoFailure as u32;
     }
     set source_created = true;
 
-    if not emit_object {
-        if vitte_native_host_temp_path(1, object_buffer, HOST_TEMP_PATH_CAPACITY) == 0 {
-            host_tools_cleanup(
-                source_buffer, object_buffer, executable_buffer,
-                source_created, object_created, executable_created, false
-            );
-            set *failed_stage = DriverHostToolStage.Prepare as u32;
-            return DriverHostToolStatus.IoFailure as u32;
-        }
-        set object_created = true;
-    }
-
     if run_program {
         if vitte_native_host_temp_path(2, executable_buffer, HOST_TEMP_PATH_CAPACITY) == 0 {
             host_tools_cleanup(
-                source_buffer, object_buffer, executable_buffer,
-                source_created, object_created, executable_created, true
+                source_buffer, executable_buffer,
+                source_created, executable_created
             );
             set *failed_stage = DriverHostToolStage.Prepare as u32;
             return DriverHostToolStatus.IoFailure as u32;
@@ -180,8 +156,8 @@ export proc vitte_driver_run_host_toolchain(
         // linkers that require a new output file can use the path.
         if vitte_native_fs_remove(executable_buffer as *const u8) != 0 {
             host_tools_cleanup(
-                source_buffer, object_buffer, executable_buffer,
-                source_created, object_created, executable_created, true
+                source_buffer, executable_buffer,
+                source_created, executable_created
             );
             set *failed_stage = DriverHostToolStage.Prepare as u32;
             return DriverHostToolStatus.IoFailure as u32;
@@ -190,19 +166,25 @@ export proc vitte_driver_run_host_toolchain(
 
     if not host_tools_write_source(source_buffer as *const u8, source, source_length) {
         host_tools_cleanup(
-            source_buffer, object_buffer, executable_buffer,
-            source_created, object_created, executable_created, not emit_object
+            source_buffer, executable_buffer,
+            source_created, executable_created
         );
         set *failed_stage = DriverHostToolStage.Prepare as u32;
         return DriverHostToolStatus.IoFailure as u32;
     }
 
-    let compile_output = if emit_object { output_path } else { object_buffer as *const u8 };
+    let compile_output = if run_program {
+        executable_buffer as *const u8
+    } else if output_path == null or output_path[0] == 0 {
+        "a.out".as_ptr() as *const u8
+    } else {
+        output_path
+    };
     let compile_arguments = allocate(12 * sizeof(*mut u8)) as *mut *mut u8;
     if compile_arguments == null {
         host_tools_cleanup(
-            source_buffer, object_buffer, executable_buffer,
-            source_created, object_created, executable_created, not emit_object
+            source_buffer, executable_buffer,
+            source_created, executable_created
         );
         set *failed_stage = DriverHostToolStage.Prepare as u32;
         return DriverHostToolStatus.OutOfMemory as u32;
@@ -228,8 +210,10 @@ export proc vitte_driver_run_host_toolchain(
     set compile_argument_count += 1;
     set compile_arguments[compile_argument_count] = "c".as_ptr() as *mut u8;
     set compile_argument_count += 1;
-    set compile_arguments[compile_argument_count] = "-c".as_ptr() as *mut u8;
-    set compile_argument_count += 1;
+    if emit_object {
+        set compile_arguments[compile_argument_count] = "-c".as_ptr() as *mut u8;
+        set compile_argument_count += 1;
+    }
     set compile_arguments[compile_argument_count] = source_buffer;
     set compile_argument_count += 1;
     set compile_arguments[compile_argument_count] = "-o".as_ptr() as *mut u8;
@@ -246,8 +230,8 @@ export proc vitte_driver_run_host_toolchain(
     if compile_status != 1 {
         if emit_object { vitte_native_fs_remove(output_path); }
         host_tools_cleanup(
-            source_buffer, object_buffer, executable_buffer,
-            source_created, object_created, executable_created, not emit_object
+            source_buffer, executable_buffer,
+            source_created, executable_created
         );
         set *failed_stage = DriverHostToolStage.CCompile as u32;
         return if compile_status < 0 {
@@ -255,46 +239,6 @@ export proc vitte_driver_run_host_toolchain(
         } else {
             DriverHostToolStatus.ProcessFailure as u32
         };
-    }
-
-    let link_output: *const u8 = if run_program {
-        executable_buffer as *const u8
-    } else if output_path == null or output_path[0] == 0 {
-        "a.out".as_ptr() as *const u8
-    } else {
-        output_path
-    };
-    if not emit_object {
-        let link_arguments = allocate(3 * sizeof(*mut u8)) as *mut *mut u8;
-        if link_arguments == null {
-            host_tools_cleanup(
-                source_buffer, object_buffer, executable_buffer,
-                source_created, object_created, executable_created, true
-            );
-            set *failed_stage = DriverHostToolStage.Link as u32;
-            return DriverHostToolStatus.OutOfMemory as u32;
-        }
-        set link_arguments[0] = object_buffer;
-        set link_arguments[1] = "-o".as_ptr() as *mut u8;
-        set link_arguments[2] = link_output as *mut u8;
-        let link_status = host_tools_run_arguments(
-            compiler_program.as_ptr() as *const u8,
-            link_arguments,
-            3
-        );
-        deallocate(link_arguments as *mut u8);
-        if link_status != 1 {
-            host_tools_cleanup(
-                source_buffer, object_buffer, executable_buffer,
-                source_created, object_created, executable_created, true
-            );
-            set *failed_stage = DriverHostToolStage.Link as u32;
-            return if link_status < 0 {
-                DriverHostToolStatus.OutOfMemory as u32
-            } else {
-                DriverHostToolStatus.ProcessFailure as u32
-            };
-        }
     }
 
     if run_program {
@@ -305,8 +249,8 @@ export proc vitte_driver_run_host_toolchain(
         );
         if execute_status != 1 {
             host_tools_cleanup(
-                source_buffer, object_buffer, executable_buffer,
-                source_created, object_created, executable_created, true
+                source_buffer, executable_buffer,
+                source_created, executable_created
             );
             set *failed_stage = DriverHostToolStage.Execute as u32;
             return if execute_status < 0 {
@@ -318,8 +262,8 @@ export proc vitte_driver_run_host_toolchain(
     }
 
     host_tools_cleanup(
-        source_buffer, object_buffer, executable_buffer,
-        source_created, object_created, executable_created, not emit_object
+        source_buffer, executable_buffer,
+        source_created, executable_created
     );
     return DriverHostToolStatus.Success as u32;
 }

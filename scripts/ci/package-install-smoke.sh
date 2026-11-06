@@ -11,7 +11,10 @@ if [ -z "${WORKDIR:-}" ]; then
   temporary_workdir=1
 fi
 cleanup() {
-  if [ "$temporary_workdir" -eq 1 ]; then rm -rf -- "$WORKDIR"; fi
+  if [ "$temporary_workdir" -eq 1 ]; then
+    cd /
+    rm -rf -- "$WORKDIR"
+  fi
 }
 trap cleanup EXIT HUP INT TERM
 mkdir -p "$WORKDIR"
