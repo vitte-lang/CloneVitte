@@ -1075,10 +1075,10 @@ test-concurrent: $(CONCURRENT_TEST_BIN) $(TARGET_BIN)
 
 SCALE_COMPILER ?= $(TARGET_BIN)
 SCALE_TIMEOUT ?= 180
-# Keep scale coverage substantial in debug builds without making unoptimized
-# scans of 48 MiB fixtures exceed the per-process CI timeout. Release gates
+# Keep debug stress inputs large enough to cross scanner boundaries without
+# making unoptimized scans exceed the per-process CI timeout. Release gates
 # retain the full 48 MiB workload.
-SCALE_SOURCE_MIB ?= $(if $(filter release,$(MODE)),48,8)
+SCALE_SOURCE_MIB ?= $(if $(filter release,$(MODE)),48,2)
 SCALE_DECLARATIONS ?= 10000
 
 .PHONY: test-scale
