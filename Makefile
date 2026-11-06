@@ -188,6 +188,12 @@ LDLIBS   :=
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
 
+# Solaris and illumos hide some POSIX structure fields in strict C modes unless
+# their extension namespace is enabled (for example, struct stat timestamps).
+ifeq ($(UNAME_S),SunOS)
+CPPFLAGS += -D__EXTENSIONS__
+endif
+
 ifneq ($(filter Linux FreeBSD OpenBSD NetBSD DragonFly SunOS,$(UNAME_S)),)
 LDLIBS += -lm
 endif
