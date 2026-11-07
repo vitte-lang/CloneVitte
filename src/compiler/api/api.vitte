@@ -1811,6 +1811,14 @@ proc api_render_pipeline_diagnostics_json(
             buffer_destroy(&mut buffer);
             return false;
         }
+        if (*diagnostic_entry).help != null and
+           cstring_length((*diagnostic_entry).help as *const u8) != 0 {
+            if not api_module_append_text(&mut buffer, ",\"help\":") or
+               not api_append_json_cstring(&mut buffer, (*diagnostic_entry).help) {
+                buffer_destroy(&mut buffer);
+                return false;
+            }
+        }
         if (*diagnostic_entry).has_span {
             if not api_module_append_text(&mut buffer, ",\"location\":{\"source\":") or
                not api_append_json_cstring(&mut buffer, (*diagnostic_entry).source_name) or
