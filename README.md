@@ -248,13 +248,12 @@ Android n’est pas lancé dans ce gate.
 
 Ces niveaux décrivent le niveau de support attendu ; les résultats CI ne
 certifient que les opérations et environnements indiqués dans la dernière
-colonne. Le premier run de ce nouveau gate doit réussir avant que ces tests
-soient comptés dans un statut 100 % actuel. Le tableau des résultats ci-dessous
-reste l’observation historique du commit et du run qu’il cite.
+colonne. Le premier run de ce gate a réussi ; son résultat figure avec les
+autres gates dans le tableau ci-dessous.
 
 #### Résultats observés au 7 novembre 2026
 
-Le [run CI 42319371806](https://github.com/vitte-lang/vitte/actions/runs/42319371806), sur le commit [`836e788`](https://github.com/vitte-lang/vitte/commit/836e788bfe9b6c8a7413877d17dd1ad0f9abfe3f), a terminé avec succès :
+Le [run CI 42331580859](https://github.com/vitte-lang/vitte/actions/runs/42331580859), sur le commit [`f460997`](https://github.com/vitte-lang/vitte/commit/f4609970165678dd65048ee4af268e308c5dabcd), a terminé avec succès :
 
 | Gate | Résultat observé |
 | --- | --- |
@@ -262,26 +261,29 @@ Le [run CI 42319371806](https://github.com/vitte-lang/vitte/actions/runs/4231937
 | Self-host, parité native, corpus et stages 0–3 | Réussi sous Linux, macOS et Windows (3/3). |
 | Construction et installation des paquets natifs | Réussi sous Linux (`.deb`), macOS (`.pkg`/`.dmg`) et Windows (NSIS), avec vérification des manifestes, installation réelle et smoke `vitte install` (3/3). |
 | Portabilité POSIX en VMs | Réussie sous FreeBSD, OpenBSD, NetBSD, Solaris, OmniOS et OpenIndiana (6/6). |
+| Architectures 32 bits et embarquées | Réussi : 10/10 jobs, avec Linux i386, ARMv6, ARMv7, MIPS32 et PowerPC32, Windows i386, FreeBSD i386/ARMv7, Android ARMv7 et l’objet bare-metal RV32. |
 | Extension et DAP natif | Réussi. |
-| Jobs de ce run | **100 % : 15/15 réussis**, sans job ignoré. |
+| Jobs de ce run | **100 % : 25/25 réussis**, sans job ignoré. |
 | Gate agrégé `Release readiness` de ce run | **Réussi.** |
 
-Le job compilateur a exécuté les 16 tests de charge en 389,6 s sur le runner
+Le job compilateur a exécuté les 16 tests de charge en 371,3 s sur le runner
 Linux, avec une entrée de 2 Mio en profil debug et un délai maximal de 180 s
 par processus. Le profil release conserve les entrées de 48 Mio. Sur le poste
-macOS local, `make MODE=release SHELL=/bin/zsh compiler-max-gate-fast` et
-`make MODE=release SHELL=/bin/zsh bootstrap-selfhost` ont également réussi ; le
-corpus a vérifié 93 cas positifs, 18 cas négatifs, zéro écart connu et zéro
-échec (2 cas ignorés). Les stages self-host 0–3 ainsi que les commandes CLI
-`help`, `version`, `explain` et `install`, y compris le rollback d’installation,
+macOS local, `make MODE=release test`, `make MODE=release test-runtime`,
+`make MODE=release test-native-bootstrap-parity` et
+`make MODE=release bootstrap-selfhost` ont également réussi ; le corpus a
+vérifié 93 cas positifs, 18 cas négatifs, zéro écart connu et zéro échec
+(2 cas ignorés). Les stages self-host 0–3 ainsi que les commandes CLI `help`,
+`version`, `explain` et `install`, y compris le rollback d’installation,
 ont été vérifiés.
 
-Le statut **100 %** ci-dessus décrit précisément le run cité : 15 jobs réussis
-sur 15, couvrant compilateur/runtime, self-host (3 systèmes), installation de
-paquets (3 systèmes), portabilité VM (6 systèmes), extension/DAP et le gate
-agrégé `Release readiness`. Le statut s’applique au commit `836e788` et à ce
-run CI ; il ne constitue pas à lui seul une déclaration d’autonomie complète du
-compilateur, qui dépend encore de l’audit des symboles du binaire principal.
+Le statut **100 %** ci-dessus décrit précisément le run cité : 25 jobs réussis
+sur 25, couvrant compilateur/runtime, self-host (3 systèmes), installation de
+paquets (3 systèmes), portabilité VM (6 systèmes), architectures (10 jobs),
+extension/DAP et le gate agrégé `Release readiness`. Le statut s’applique au
+commit `f460997` et à ce run CI ; il ne constitue pas à lui seul une déclaration
+d’autonomie complète du compilateur, qui dépend encore de l’audit des symboles
+du binaire principal.
 
 La branche `main` exige le statut `Release readiness`, avec les vérifications à
 jour et sans contournement administrateur. Les règles de protection GitHub sont
