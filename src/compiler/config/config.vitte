@@ -1599,8 +1599,8 @@ export proc vitte_config_load_file(config: *mut Config, path: *const char, sourc
     }
 
     let path_length = cstring_length(stable_path as *const u8);
-    let path_text = string.from_bytes(stable_path, path_length);
-    let mut buffer = FilesystemBuffer { data: null, length: 0, capacity: 0 };
+    let path_text: string = string.from_bytes(stable_path, path_length);
+    let mut buffer: FilesystemBuffer = FilesystemBuffer { data: null, length: 0, capacity: 0 };
     let read_result = vitte_filesystem_read_file(path_text, 0, &mut buffer);
     if read_result.error != FilesystemError.None {
         vitte_filesystem_buffer_destroy(&mut buffer);
