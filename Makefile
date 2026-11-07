@@ -56,6 +56,7 @@ PATH_LIST_SEPARATOR := $(if $(filter MINGW% MSYS% CYGWIN%,$(BUILD_HOST_OS)),;,:)
 CC ?= cc
 AR ?= ar
 RANLIB ?= ranlib
+NM ?= nm
 
 PYTHON ?= python3
 
@@ -269,8 +270,9 @@ $(BUILD_CONFIG_STAMP):
 	@printf '%s\n' '$(BUILD_CONFIG_KEY)' > "$(ACTIVE_BUILD_CONFIG)"
 
 # The bootstrap binary emits the Vitte API translation unit. The standard
-# executable links that Vitte frontend with only OS and ABI boundary objects;
-# the historical C compiler remains isolated in the bootstrap target.
+# executable links that Vitte frontend with native OS/ABI bridges and the
+# remaining bootstrap filesystem ABI object. The historical C compiler stays
+# isolated in the bootstrap target.
 NATIVE_FRONTEND_ENTRY := $(VITTE_ROOT)/compiler/api/api.vitte
 NATIVE_FRONTEND_SOURCES := $(shell find $(VITTE_ROOT)/compiler -type f -name '*.vitte' | LC_ALL=C sort)
 # The manifest defines the package prefix stripped by the source module loader.
@@ -1120,9 +1122,14 @@ test-frontend: $(TARGET_BIN)
 
 RUNTIME_CANDIDATES := \
 	$(TEST_DIR)/aggregate_runtime.vit \
+	$(TEST_DIR)/asm_runtime.vit \
+	$(TEST_DIR)/assert_runtime.vit \
+	$(TEST_DIR)/async_runtime.vit \
 	$(TEST_DIR)/contracts_ok.vit \
+	$(TEST_DIR)/defer_runtime.vit \
 	$(TEST_DIR)/generic_trait_method_dispatch_runtime.vit \
 	$(TEST_DIR)/generic_pick_runtime.vit \
+	$(TEST_DIR)/intrinsic_runtime.vit \
 	$(TEST_DIR)/ir_declaration_runtime.vit \
 	$(TEST_DIR)/native_fixed_array_runtime.vit \
 	$(TEST_DIR)/llvm_array_runtime.vit \
@@ -1206,11 +1213,19 @@ test-build-invalidation: $(BOOTSTRAP_TARGET_BIN)
 test-packaging-matrix:
 	$(PYTHON) scripts/test-packaging-matrix.py
 
-# Blocking release criteria: every diagnostic is owned and every native
-# frontend action/fallback path has a checked witness in the compiler gate.
+# Blocking release criteria: every diagnostic and binary owner is accounted
+# for, and every native frontend action/fallback path has a checked witness.
 .PHONY: compiler-release-criteria
-compiler-release-criteria:
+compiler-release-criteria: compiler-binary-ownership
 	$(PYTHON) scripts/check-release-criteria.py
+
+.PHONY: compiler-binary-ownership
+compiler-binary-ownership: $(TARGET_BIN)
+	$(PYTHON) scripts/audit-native-binary-ownership.py \
+		--nm "$(NM)" \
+		--binary "$(TARGET_BIN)" \
+		--frontend-object "$(NATIVE_FRONTEND_OBJECT)" \
+		--filesystem-object "$(NATIVE_FILESYSTEM_OBJECT)"
 
 .PHONY: compiler-power-gate
 compiler-power-gate: \
@@ -1228,6 +1243,8 @@ compiler-power-gate: \
 	test-imports \
 	test-native-frontend-subset \
 	test-native-bootstrap-parity \
+	test-runtime \
+	test-robustness \
 	test-ir-backend \
 	test-mir-control-flow \
 	test-build-invalidation \

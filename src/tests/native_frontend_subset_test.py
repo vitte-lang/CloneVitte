@@ -41,6 +41,15 @@ proc same<T>(left: T, right: T) -> T { return left; }
     return same(42, 40) - 42;
 }
 """,
+    "procedure attribute compatibility fallback": """\
+#[cold] proc main() -> i64 { return 0; }
+""",
+    "native print compatibility fallback": """\
+proc main() -> i64 {
+    print("native-print-fallback");
+    return 0;
+}
+""",
     "generic procedure falls back when native IR cannot specialize": """\
 proc identity<T>(value: T) -> T { return value; }
 proc first<T, U>(left: T, right: U) -> T { return left; }
@@ -488,6 +497,10 @@ def diagnostics_for(result: subprocess.CompletedProcess[str], label: str):
 def assert_ast_fallback(binary: Path, directory: Path, name: str, source: str, expectation: str):
     source_path = directory / (name.replace(" ", "_") + ".vit")
     source_path.write_text(source, encoding="utf-8")
+    assert_ast_fallback_path(binary, source_path, name, expectation)
+
+
+def assert_ast_fallback_path(binary: Path, source_path: Path, name: str, expectation: str):
     result = subprocess.run(
         [
             str(binary), "compile", str(source_path), "--emit-c", "--quiet",
@@ -573,6 +586,13 @@ def main() -> int:
     binary = Path(sys.argv[1]).resolve()
     with tempfile.TemporaryDirectory(prefix="vitte-native-frontend-") as value:
         directory = Path(value)
+        c17_fallback_cases = {
+            "generic procedure C17 specializations cover bool and multiple parameters",
+            "generic procedure falls back when native IR cannot specialize",
+            "postfix optional unwrap returns its payload",
+            "procedure attribute compatibility fallback",
+            "native print compatibility fallback",
+        }
         for name, source in VALID_CASES.items():
             source_path = directory / (name.replace(" ", "_") + ".vit")
             source_path.write_text(source, encoding="utf-8")
@@ -582,6 +602,8 @@ def main() -> int:
                     f"{name}: check returned {checked.returncode}; "
                     f"stdout={checked.stdout!r}; stderr={checked.stderr!r}"
                 )
+            if name in c17_fallback_cases:
+                assert_ast_fallback_path(binary, source_path, name, "accept")
             if name == "scalar operators and compound assignment":
                 executed = invoke(binary, "run", source_path)
                 if executed.returncode != 0:
@@ -616,6 +638,14 @@ def main() -> int:
                     raise AssertionError(
                         f"{name}: native fallback runtime failed; "
                         f"stdout={executed.stdout!r}; stderr={executed.stderr!r}"
+                    )
+            if name == "native print compatibility fallback":
+                executed = invoke(binary, "run", source_path)
+                if executed.returncode != 0 or "native-print-fallback" not in executed.stdout:
+                    raise AssertionError(
+                        f"{name}: expected printed fallback output; "
+                        f"return={executed.returncode}; stdout={executed.stdout!r}; "
+                        f"stderr={executed.stderr!r}"
                     )
             if name == "postfix optional unwrap returns its payload":
                 output_path = directory / "optional_unwrap.c"
@@ -857,6 +887,15 @@ def main() -> int:
 
         for name, (source, expectation) in AST_FALLBACK_CASES.items():
             assert_ast_fallback(binary, directory, name, source, expectation)
+
+        runtime_fallbacks = (
+            ("module alias import compatibility fallback", "llvm_imports_runtime.vit"),
+            ("string intrinsic compatibility fallback", "string_intrinsics_runtime.vit"),
+            ("generic pick compatibility fallback", "generic_pick_runtime.vit"),
+        )
+        for name, fixture in runtime_fallbacks:
+            source_path = Path(__file__).with_name(fixture).resolve()
+            assert_ast_fallback_path(binary, source_path, name, "accept-runtime")
 
     assert_generic_form_runtime(binary)
 
