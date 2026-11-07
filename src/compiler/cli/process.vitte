@@ -36,6 +36,7 @@ use compiler::cli::cli::{
     VITTE_CLI_SEEN_PACKAGE_VERSION,
     VITTE_CLI_SEEN_GLOBAL,
     VITTE_CLI_SEEN_QUIET,
+    VITTE_CLI_SEEN_STOP_AFTER_SEMA,
     VITTE_CLI_SEEN_VERBOSE
 };
 use vitte::core::pointer::{add_bytes_const, read};
@@ -210,7 +211,7 @@ proc cli_entry_run_parsed(argc: i32, argv: *const string) -> i32 {
         let compile_options = VITTE_CLI_SEEN_COLOR | VITTE_CLI_SEEN_EMIT_C |
             VITTE_CLI_SEEN_OUTPUT | VITTE_CLI_SEEN_QUIET |
             VITTE_CLI_SEEN_VERBOSE | VITTE_CLI_SEEN_DIAGNOSTICS |
-            VITTE_CLI_SEEN_EMIT_IR;
+            VITTE_CLI_SEEN_EMIT_IR | VITTE_CLI_SEEN_STOP_AFTER_SEMA;
         if (vitte_cli_seen_options(&cli) & ~compile_options) != 0 {
             vitte_cli_destroy(&mut cli);
             return cli_entry_unavailable("vitte compile: one or more options are not available in the native driver");
@@ -224,10 +225,26 @@ proc cli_entry_run_parsed(argc: i32, argv: *const string) -> i32 {
         }
         let selected_output = vitte_cli_selected_output(&cli);
         let output_path: string = if selected_output == null { "" } else { selected_output? };
-        let status = if (vitte_cli_seen_options(&cli) & VITTE_CLI_SEEN_EMIT_IR) != 0 {
+        let seen_options = vitte_cli_seen_options(&cli);
+        let mut output_pointer: ?string = null;
+        if selected_output != null {
+            set output_pointer = selected_output;
+        }
+        let status = if (seen_options & VITTE_CLI_SEEN_STOP_AFTER_SEMA) != 0 {
+            vitte_api_check_path(input?)
+        } else if (seen_options & VITTE_CLI_SEEN_EMIT_IR) != 0 {
             vitte_api_emit_ir_path(input?)
-        } else {
+        } else if (seen_options & VITTE_CLI_SEEN_EMIT_C) != 0 {
             vitte_api_compile_path(input?, output_path)
+        } else {
+            vitte_api_build_path(
+                input?,
+                output_pointer,
+                false,
+                vitte_cli_selected_diagnostic_format(&cli) == CliDiagnosticFormat.Json,
+                0,
+                null
+            )
         };
         vitte_cli_destroy(&mut cli);
         return status;
