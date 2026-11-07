@@ -218,8 +218,9 @@ Le workflow réutilisable
 QEMU via VMActions depuis des runners GitHub Actions Ubuntu hébergés : FreeBSD,
 OpenBSD, NetBSD, Solaris, OmniOS et OpenIndiana. Aucun runner personnel n’est
 requis. Dans chaque invité, le gate construit le compilateur en release, vérifie
-`--version`, `help` et `check`, exécute les tests runtime et installe le paquet
-JSON avec `vitte install`. Le job POSIX est requis par `Release readiness`.
+`--version`, `help` et `check`, exécute `vitte run examples/hello.vit`, puis
+installe le paquet JSON avec `vitte install`. Le job POSIX est requis par
+`Release readiness`.
 
 #### Smoke tests d’architectures 32 bits et embarquées
 
@@ -240,7 +241,7 @@ Android n’est pas lancé dans ce gate.
 | ARMv6 Linux / Raspberry Pi 1 | Bonne | Build complet et smoke CLI sous QEMU ARMv6, puis exécution du programme C généré avec ABI soft-float. Cela vérifie l’ABI Linux ARMv6, pas un appareil Pi 1 physique. |
 | ARMv7 Linux | Bonne | Build complet, CLI et programme C généré exécutés sous QEMU ARMv7 hard-float. |
 | ARMv7 FreeBSD | Bonne | Compilation des objets du compilateur avec la cible FreeBSD ARMv7 depuis une VM FreeBSD AArch64 ; pas d’exécution ARMv7. |
-| ARMv7 Android | Bonne | Lien complet avec le NDK Android ARMv7 et vérification ELF ; l’exécutable n’est pas lancé sur un appareil ou émulateur Android. |
+| ARMv7 Android | Bonne | Lien complet avec le NDK ARMv7, cible Android API 28, et vérification ELF ; l’exécutable n’est pas lancé sur un appareil ou émulateur Android. |
 | RISC-V RV32 Linux embarqué / bare-metal | Expérimentale | Compilation du C d’un petit programme Vitte vers un objet ELF32 RISC-V avec GCC bare-metal (`rv32imac`, ABI `ilp32`) ; pas de lien ni d’exécution du compilateur RV32. |
 | MIPS32 Linux | Bonne | Build complet, CLI et programme C généré exécutés sous QEMU MIPS32 little-endian. |
 | PowerPC 32 Linux | Possible | Build complet, CLI et programme C généré exécutés sous QEMU PowerPC big-endian ; cela ne vérifie pas Mac OS X PowerPC. |

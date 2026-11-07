@@ -23,39 +23,39 @@ jobs:
             cflags: -m32
             runner: qemu-i386
             sysroot: /
-            elf: ELF 32-bit
+            elf: Intel 80386
           - architecture: armv6-linux-rpi1
             mode: run
-            packages: gcc-arm-linux-gnueabi qemu-user file
+            packages: gcc-arm-linux-gnueabi libc6-dev-armel-cross qemu-user file
             compiler: arm-linux-gnueabi-gcc
             cflags: -march=armv6 -marm -mfloat-abi=soft
             runner: qemu-arm
             sysroot: /usr/arm-linux-gnueabi
-            elf: ELF 32-bit
+            elf: ARM
           - architecture: armv7-linux
             mode: run
-            packages: gcc-arm-linux-gnueabihf qemu-user file
+            packages: gcc-arm-linux-gnueabihf libc6-dev-armhf-cross qemu-user file
             compiler: arm-linux-gnueabihf-gcc
             cflags: -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=hard
             runner: qemu-arm
             sysroot: /usr/arm-linux-gnueabihf
-            elf: ELF 32-bit
+            elf: ARM
           - architecture: mips32-linux
             mode: run
-            packages: gcc-mipsel-linux-gnu qemu-user file
+            packages: gcc-mipsel-linux-gnu libc6-dev-mipsel-cross qemu-user file
             compiler: mipsel-linux-gnu-gcc
             cflags: -march=mips32r2 -mabi=32
             runner: qemu-mipsel
             sysroot: /usr/mipsel-linux-gnu
-            elf: ELF 32-bit
+            elf: MIPS
           - architecture: powerpc32-linux
             mode: run
-            packages: gcc-powerpc-linux-gnu qemu-user file
+            packages: gcc-powerpc-linux-gnu libc6-dev-powerpc-cross qemu-user file
             compiler: powerpc-linux-gnu-gcc
             cflags: -m32 -mcpu=powerpc
             runner: qemu-ppc
             sysroot: /usr/powerpc-linux-gnu
-            elf: ELF 32-bit
+            elf: PowerPC
           - architecture: riscv32-baremetal
             mode: rv32-object
             packages: gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf file
@@ -105,11 +105,11 @@ jobs:
         env:
           ANDROID_NDK_VERSION: 27.2.12479018
           ARCH_CFLAGS: -fPIC
-          ARCH_EXPECT_FILE: ELF 32-bit
+          ARCH_EXPECT_FILE: ARM
           ARCH_EXE_SUFFIX: ''
         shell: bash
         run: |
-          export ARCH_CC="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
+          export ARCH_CC="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi28-clang"
           sh scripts/ci/architecture-smoke.sh build android-armv7
 
   windows-i386:

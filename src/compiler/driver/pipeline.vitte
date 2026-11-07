@@ -1179,6 +1179,26 @@ proc native_pipeline_requires_ast_codegen(parser: &Parser) -> bool {
     return false;
 }
 
+/// Module-qualified paths through an import alias are resolved by the C17 AST
+/// emitter. HIR currently drops the import binding needed by native IR codegen.
+proc native_pipeline_has_module_alias_import(parser: &Parser) -> bool {
+    if parser.nodes == null { return false; }
+    let mut index: usize = 0;
+    while index < parser.node_count {
+        let use_node = &parser.nodes[index];
+        if use_node.kind == ASTNodeKind.UseDecl and use_node.child_count == 2 {
+            let path = vitte_parser_get_node(parser, use_node.children[0]);
+            let alias = vitte_parser_get_node(parser, use_node.children[1]);
+            if path != null and path.kind == ASTNodeKind.Path and
+               alias != null and alias.kind == ASTNodeKind.Identifier {
+                return true;
+            }
+        }
+        set index += 1;
+    }
+    return false;
+}
+
 proc native_pipeline_has_print_call(parser: &Parser) -> bool {
     if parser.nodes == null { return false; }
     let mut index: usize = 0;
@@ -1194,6 +1214,36 @@ proc native_pipeline_has_print_call(parser: &Parser) -> bool {
             };
             let name = vitte_parser_node_token(parser, name_node);
             if name != null and (*name).lexeme == "print" { return true; }
+        }
+        set index += 1;
+    }
+    return false;
+}
+
+/// These string helpers are emitted by the C17 AST backend but are not yet
+/// registered as native semantic builtins. Keep their run/compile path on the
+/// backend that provides their implementations until semantic registration is
+/// complete.
+proc native_pipeline_has_string_intrinsic_call(parser: &Parser) -> bool {
+    if parser.nodes == null { return false; }
+    let mut index: usize = 0;
+    while index < parser.node_count {
+        let node = &parser.nodes[index];
+        if node.kind == ASTNodeKind.CallExpr and node.child_count != 0 {
+            let callee = vitte_parser_get_node(parser, node.children[0]);
+            let name_node = if callee != null and callee.kind == ASTNodeKind.Path and
+                callee.child_count != 0 {
+                vitte_parser_get_node(parser, callee.children[callee.child_count - 1])
+            } else {
+                callee
+            };
+            let name = vitte_parser_node_token(parser, name_node);
+            if name != null and
+               ((*name).lexeme == "trim" or
+                (*name).lexeme == "starts_with" or
+                (*name).lexeme == "ends_with") {
+                return true;
+            }
         }
         set index += 1;
     }
@@ -1697,7 +1747,9 @@ proc native_pipeline_run_with_config(
         return result;
     }
 
-    let semantic_fallback = native_pipeline_requires_ast_codegen(&parser);
+    let semantic_fallback = native_pipeline_requires_ast_codegen(&parser) or
+        (action == NATIVE_FRONTEND_ACTION_COMPILE and
+         native_pipeline_has_string_intrinsic_call(&parser));
     let print_ast_fallback = action == NATIVE_FRONTEND_ACTION_COMPILE and
         native_pipeline_has_print_call(&parser);
     let generic_pick_ast_fallback = action == NATIVE_FRONTEND_ACTION_COMPILE and
@@ -1705,7 +1757,9 @@ proc native_pipeline_run_with_config(
     let ast_fallback = semantic_fallback or print_ast_fallback or
         native_pipeline_requires_reference_codegen(&parser) or
         native_pipeline_requires_attribute_codegen(&parser) or
-        generic_pick_ast_fallback;
+        generic_pick_ast_fallback or
+        (action == NATIVE_FRONTEND_ACTION_COMPILE and
+         native_pipeline_has_module_alias_import(&parser));
     let generic_proc_c17_fallback = action == NATIVE_FRONTEND_ACTION_COMPILE and
         native_pipeline_has_generic_proc_call(&parser);
 
