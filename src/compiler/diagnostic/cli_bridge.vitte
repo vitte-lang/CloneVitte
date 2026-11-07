@@ -643,7 +643,7 @@ export proc vitte_cli_diagnostic_transport_destroy(batch: *mut u8) {
         let mut slot: usize = 0;
         while slot < CLI_TRANSPORT_TEXT_SLOTS {
             let text_index: usize = index * CLI_TRANSPORT_TEXT_SLOTS + slot;
-            let text: *const char = (*header).owned_text[text_index];
+            let text = (*header).owned_text[text_index];
             if text != null { deallocate(text as *mut u8); }
             set slot += 1;
         }

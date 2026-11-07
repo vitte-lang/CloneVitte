@@ -607,7 +607,7 @@ proc api_module_directory(path: str) -> string {
 
 proc api_module_resolve_path(importer: str, name: str) -> ?string {
     let relative = api_module_import_path(name);
-    let local: ?string = api_module_try_root(api_module_directory(importer), relative);
+    let local = api_module_try_root(api_module_directory(importer), relative);
     if local != null {
         return local?;
     }
@@ -627,7 +627,7 @@ proc api_module_resolve_path(importer: str, name: str) -> ?string {
             if at_end or semicolon or colon {
                 if index > root_start {
                     let root: str = roots.slice(root_start, index);
-                    let candidate: ?string = api_module_try_root(root, relative);
+                    let candidate = api_module_try_root(root, relative);
                     if candidate != null {
                         return candidate?;
                     }
@@ -641,7 +641,7 @@ proc api_module_resolve_path(importer: str, name: str) -> ?string {
     let fallback_roots: [string] = [".", "src", "modules/core/src"];
     let mut root_index: usize = 0;
     while root_index < fallback_roots.len() {
-        let candidate: ?string = api_module_try_root(fallback_roots[root_index], relative);
+        let candidate = api_module_try_root(fallback_roots[root_index], relative);
         if candidate != null {
             return candidate?;
         }
@@ -669,10 +669,6 @@ proc api_module_use_name(source: str, start: usize, end: usize) -> ?string {
     while cursor < end and bytes[cursor] != 59 and bytes[cursor] != 123 and
           bytes[cursor] != 32 and bytes[cursor] != 9 and bytes[cursor] != 10 {
         set cursor += 1;
-    }
-    if cursor >= name_start + 3 and bytes[cursor - 3] == 58 and
-       bytes[cursor - 2] == 58 and bytes[cursor - 1] == 42 {
-        set cursor -= 3;
     }
     while cursor > name_start and bytes[cursor - 1] == 58 {
         set cursor -= 1;
@@ -760,8 +756,6 @@ proc api_module_segment_end(lexer: &Lexer, start: usize) -> usize {
     let mut parentheses: usize = 0;
     let mut brackets: usize = 0;
     let mut braces: usize = 0;
-    let is_proc_declaration = start < lexer.token_count and
-        api_module_declaration_priority(lexer, start, lexer.token_count - 1) == 5;
     while index < lexer.token_count {
         let kind = lexer.tokens[index].kind;
         if kind == TokenKind.Eof {
@@ -789,15 +783,6 @@ proc api_module_segment_end(lexer: &Lexer, start: usize) -> usize {
             }
         } elif kind == TokenKind.Semicolon and parentheses == 0 and
                brackets == 0 and braces == 0 {
-            if is_proc_declaration and index + 1 < lexer.token_count {
-                let next_kind = lexer.tokens[index + 1].kind;
-                if next_kind == TokenKind.KwRequires or
-                   next_kind == TokenKind.KwEnsures or
-                   next_kind == TokenKind.LeftBrace {
-                    set index += 1;
-                    continue;
-                }
-            }
             return index;
         }
         set index += 1;

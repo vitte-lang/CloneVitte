@@ -374,7 +374,7 @@ export proc vitte_filesystem_normalize(path: string) -> string {
         set output_length = 1;
     }
     set output[output_length] = 0;
-    let normalized: string = string.from_bytes(output, output_length);
+    let normalized = string.from_bytes(output, output_length);
     deallocate(output);
     deallocate(stack_offsets as *mut u8);
     return normalized;

@@ -1339,7 +1339,7 @@ proc parser_has_generic_suffix_at(
     required_follow: TokenKind
 ) -> bool {
     if parser == null { return false; }
-    let start: *const ParserToken = parser_peek(parser, start_offset);
+    let start = parser_peek(parser, start_offset);
     if start == null or (*start).kind != TokenKind.Less {
         return false;
     }

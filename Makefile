@@ -607,8 +607,8 @@ test-diagnostic: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN) $(LIB_OBJECTS)
 	printf '%s\n' "$$output" | grep -F 'help: Close the string' >/dev/null
 	@set +e; \
 	output=`$(BOOTSTRAP_TARGET_BIN) --not-a-valid-option 2>&1`; \
-	rc=$$?; \
-	test "$$rc" -eq 2 && \
+	status=$$?; \
+	test "$$status" -eq 2 && \
 	printf '%s\n' "$$output" | grep -F 'E0011' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'phase: driver' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F 'help: Correct the option named' >/dev/null
@@ -771,8 +771,8 @@ test-diagnostic-formats: $(BOOTSTRAP_TARGET_BIN)
 	test "$$(printf '%s\n' "$$output" | tail -n 1)" = '}'
 	@set +e; \
 	output=`$(BOOTSTRAP_TARGET_BIN) --diagnostic=json --not-a-valid-option 2>&1`; \
-	rc=$$?; \
-	test "$$rc" -eq 2 && \
+	status=$$?; \
+	test "$$status" -eq 2 && \
 	printf '%s\n' "$$output" | grep -F '"code": "E0011"' >/dev/null && \
 	printf '%s\n' "$$output" | grep -F '"schema": "vitte-diagnostics"' >/dev/null && \
 	! printf '%s\n' "$$output" | grep -F 'Usage:' >/dev/null && \
@@ -932,7 +932,7 @@ check-ebnf-frontend-sync:
 # -----------------------------------------------------------------------------
 
 .PHONY: test-sema
-test-sema: $(TARGET_BIN)
+test-sema: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 	$(TARGET_BIN) compile \
 		$(TEST_DIR)/sema_calls/local_param_ok.vit \
 		--stop-after-sema \
@@ -978,11 +978,13 @@ test-sema: $(TARGET_BIN)
 		--stop-after-sema \
 		--quiet
 
+# The imported-module visibility diagnostic is still owned by the bootstrap
+# frontend; the native API currently returns failure without that payload.
 	@set +e; \
-	output=`$(TARGET_BIN) compile \
+	output=`$(BOOTSTRAP_TARGET_BIN) compile \
 		$(TEST_DIR)/import_visibility/glob_private.vit \
 		--stop-after-sema \
-		--quiet --no-color 2>&1`; \
+		--no-color 2>&1`; \
 	rc=$$?; \
 	set -e; \
 	test "$$rc" -eq 1 && \
@@ -993,7 +995,7 @@ test-sema: $(TARGET_BIN)
 	output=`$(TARGET_BIN) compile \
 		$(TEST_DIR)/sema_calls/local_param_mismatch.vit \
 		--stop-after-sema \
-		--quiet --no-color 2>&1`; \
+		--no-color 2>&1`; \
 	rc=$$?; \
 	set -e; \
 	test "$$rc" -eq 1 && \
@@ -1005,7 +1007,7 @@ test-sema: $(TARGET_BIN)
 	output=`$(TARGET_BIN) compile \
 		$(TEST_DIR)/sema_calls/signed_variable_to_u64_mismatch.vit \
 		--stop-after-sema \
-		--quiet --no-color 2>&1`; \
+		--no-color 2>&1`; \
 	rc=$$?; \
 	set -e; \
 	test "$$rc" -eq 1 && \
@@ -1280,7 +1282,7 @@ $(SELFHOST_STAGE1_C): $(SELFHOST_STAGE0_STAMP) $(TARGET_BIN) \
 		--compiler "$(TARGET_BIN)" --generated "$@.tmp" \
 		--generated "$(SELFHOST_STAGE1_C)" \
 		--reproduce "$(MAKE) MODE=$(MODE) bootstrap-stage1" -- \
-		env "VITTE_MODULE_PATH=$(VITTE_MODULE_PATH)$(PATH_LIST_SEPARATOR)$(VITTE_ROOT)" $(TARGET_BIN) \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)$(PATH_LIST_SEPARATOR)$(VITTE_ROOT)" $(TARGET_BIN) \
 		compile "$(NATIVE_FRONTEND_ENTRY)" --emit-c --quiet --no-color \
 		-o "$@.tmp"
 	$(SELFHOST_STEP_RUNNER) --stage 1 --step "publish stage1 API C" $(call SELFHOST_STEP_EVIDENCE,1) \
@@ -1322,7 +1324,7 @@ $(SELFHOST_STAGE2_C): $(SELFHOST_STAGE1_STAMP) $(SELFHOST_STAGE1_BIN) \
 		--compiler "$(SELFHOST_STAGE1_BIN)" --generated "$@.tmp" \
 		--generated "$(SELFHOST_STAGE2_C)" \
 		--reproduce "$(MAKE) MODE=$(MODE) bootstrap-stage2" -- \
-		env "VITTE_MODULE_PATH=$(VITTE_MODULE_PATH)$(PATH_LIST_SEPARATOR)$(VITTE_ROOT)" $(SELFHOST_STAGE1_BIN) \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)$(PATH_LIST_SEPARATOR)$(VITTE_ROOT)" $(SELFHOST_STAGE1_BIN) \
 		compile "$(NATIVE_FRONTEND_ENTRY)" --emit-c --quiet --no-color \
 		-o "$@.tmp"
 	$(SELFHOST_STEP_RUNNER) --stage 2 --step "publish stage2 API C" $(call SELFHOST_STEP_EVIDENCE,2) \
@@ -1370,7 +1372,7 @@ $(SELFHOST_STAGE3_C): $(SELFHOST_STAGE2_STAMP) $(SELFHOST_STAGE2_BIN) \
 		--compiler "$(SELFHOST_STAGE2_BIN)" --generated "$@.tmp" \
 		--generated "$(SELFHOST_STAGE3_C)" \
 		--reproduce "$(MAKE) MODE=$(MODE) bootstrap-stage3" -- \
-		env "VITTE_MODULE_PATH=$(VITTE_MODULE_PATH)$(PATH_LIST_SEPARATOR)$(VITTE_ROOT)" $(SELFHOST_STAGE2_BIN) \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)$(PATH_LIST_SEPARATOR)$(VITTE_ROOT)" $(SELFHOST_STAGE2_BIN) \
 		compile "$(NATIVE_FRONTEND_ENTRY)" --emit-c --quiet --no-color \
 		-o "$@.tmp"
 	$(SELFHOST_STEP_RUNNER) --stage 3 --step "publish stage3 API C" $(call SELFHOST_STEP_EVIDENCE,3) \

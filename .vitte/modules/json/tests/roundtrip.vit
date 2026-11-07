@@ -1,0 +1,2102 @@
+/// Comprehensive JSON encode/decode round-trip tests.
+///
+/// This suite verifies the central JSON invariant:
+///
+///     parse(encode(value)) == value
+///
+/// and, where appropriate:
+///
+///     encode(parse(source))
+///
+/// produces valid JSON that parses back to an equivalent value.
+///
+/// Coverage:
+///
+/// - null
+/// - booleans
+/// - integers
+/// - floating-point values
+/// - strings
+/// - escape sequences
+/// - Unicode
+/// - arrays
+/// - objects
+/// - nested structures
+/// - compact encoding
+/// - pretty encoding
+/// - parser/encoder interoperability
+/// - repeated round trips
+/// - structural equality
+/// - deterministic encoding
+/// - realistic documents
+/// - regression cases
+
+space json::tests::roundtrip;
+
+use json::core::value as json_core;
+use json::encode::encoder::{
+    JsonEncodeResult,
+    encode,
+    encode_compact,
+    encode_pretty
+};
+use json::parser::parser::{
+    JsonParseResult,
+    parse
+};
+
+/// -------------------------------------------------------------------------
+/// Helpers
+/// -------------------------------------------------------------------------
+
+proc parses(source: string) -> bool {
+    let result: JsonParseResult =
+        parse(source);
+
+    return result.ok;
+}
+
+proc roundtrip_value(value: &json_core::JsonValue) -> bool {
+    let encoded: JsonEncodeResult =
+        encode(value);
+
+    if not encoded.ok {
+        return false;
+    }
+
+    let decoded: JsonParseResult =
+        parse(encoded.text);
+
+    if not decoded.ok {
+        return false;
+    }
+
+    return json_core::equals(
+        value,
+        &decoded.value);
+}
+
+proc roundtrip_source(source: string) -> bool {
+    let first: JsonParseResult =
+        parse(source);
+
+    if not first.ok {
+        return false;
+    }
+
+    let encoded: JsonEncodeResult =
+        encode(&first.value);
+
+    if not encoded.ok {
+        return false;
+    }
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    if not second.ok {
+        return false;
+    }
+
+    return json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+proc roundtrip_source_twice(source: string) -> bool {
+    let first: JsonParseResult =
+        parse(source);
+
+    if not first.ok {
+        return false;
+    }
+
+    let encoded_first: JsonEncodeResult =
+        encode(&first.value);
+
+    if not encoded_first.ok {
+        return false;
+    }
+
+    let second: JsonParseResult =
+        parse(encoded_first.text);
+
+    if not second.ok {
+        return false;
+    }
+
+    let encoded_second: JsonEncodeResult =
+        encode(&second.value);
+
+    if not encoded_second.ok {
+        return false;
+    }
+
+    let third: JsonParseResult =
+        parse(encoded_second.text);
+
+    if not third.ok {
+        return false;
+    }
+
+    return
+        json_core::equals(
+            &first.value,
+            &second.value)
+        &&
+        json_core::equals(
+            &second.value,
+            &third.value);
+}
+
+proc stable_source(source: string) -> bool {
+    let parsed_value: JsonParseResult =
+        parse(source);
+
+    if not parsed_value.ok {
+        return false;
+    }
+
+    let first: JsonEncodeResult =
+        encode(&parsed_value.value);
+
+    if not first.ok {
+        return false;
+    }
+
+    let reparsed: JsonParseResult =
+        parse(first.text);
+
+    if not reparsed.ok {
+        return false;
+    }
+
+    let second: JsonEncodeResult =
+        encode(&reparsed.value);
+
+    if not second.ok {
+        return false;
+    }
+
+    return first.text == second.text;
+}
+
+proc pretty_roundtrip_source(source: string) -> bool {
+    let first: JsonParseResult =
+        parse(source);
+
+    if not first.ok {
+        return false;
+    }
+
+    let encoded: JsonEncodeResult =
+        encode_pretty(&first.value);
+
+    if not encoded.ok {
+        return false;
+    }
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    if not second.ok {
+        return false;
+    }
+
+    return json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Null
+/// -------------------------------------------------------------------------
+
+test "roundtrip null value" {
+    let value: json_core::JsonValue =
+        json_core::null_value();
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip null source" {
+    assert roundtrip_source("null");
+}
+
+test "roundtrip null whitespace source" {
+    assert roundtrip_source(
+        " \t\r\n null \t\r\n ");
+}
+
+test "roundtrip null repeated" {
+    assert roundtrip_source_twice(
+        "null");
+}
+
+test "roundtrip null stable encoding" {
+    assert stable_source(
+        "null");
+}
+
+/// -------------------------------------------------------------------------
+/// Booleans
+/// -------------------------------------------------------------------------
+
+test "roundtrip true value" {
+    let value: json_core::JsonValue =
+        json_core::boolean(true);
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip false value" {
+    let value: json_core::JsonValue =
+        json_core::boolean(false);
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip true source" {
+    assert roundtrip_source(
+        "true");
+}
+
+test "roundtrip false source" {
+    assert roundtrip_source(
+        "false");
+}
+
+test "roundtrip true repeated" {
+    assert roundtrip_source_twice(
+        "true");
+}
+
+test "roundtrip false repeated" {
+    assert roundtrip_source_twice(
+        "false");
+}
+
+test "roundtrip boolean stable encoding" {
+    assert stable_source("true");
+    assert stable_source("false");
+}
+
+/// -------------------------------------------------------------------------
+/// Integers
+/// -------------------------------------------------------------------------
+
+test "roundtrip integer zero value" {
+    let value: json_core::JsonValue =
+        json_core::integer(0);
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip integer one value" {
+    let value: json_core::JsonValue =
+        json_core::integer(1);
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip integer negative one value" {
+    let value: json_core::JsonValue =
+        json_core::integer(-1);
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip integer forty two value" {
+    let value: json_core::JsonValue =
+        json_core::integer(42);
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip integer negative forty two value" {
+    let value: json_core::JsonValue =
+        json_core::integer(-42);
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip integer zero source" {
+    assert roundtrip_source("0");
+}
+
+test "roundtrip integer positive source" {
+    assert roundtrip_source("42");
+}
+
+test "roundtrip integer negative source" {
+    assert roundtrip_source("-42");
+}
+
+test "roundtrip large positive integer source" {
+    assert roundtrip_source(
+        "123456789");
+}
+
+test "roundtrip large negative integer source" {
+    assert roundtrip_source(
+        "-123456789");
+}
+
+test "roundtrip i64 maximum source" {
+    assert roundtrip_source(
+        "9223372036854775807");
+}
+
+test "roundtrip i64 minimum source" {
+    assert roundtrip_source(
+        "-9223372036854775808");
+}
+
+test "roundtrip integer stable encoding" {
+    assert stable_source("0");
+    assert stable_source("1");
+    assert stable_source("-1");
+    assert stable_source("42");
+    assert stable_source("-42");
+}
+
+/// -------------------------------------------------------------------------
+/// Floating-point numbers
+/// -------------------------------------------------------------------------
+
+test "roundtrip float source one half" {
+    assert roundtrip_source(
+        "1.5");
+}
+
+test "roundtrip negative float source" {
+    assert roundtrip_source(
+        "-1.5");
+}
+
+test "roundtrip fractional source" {
+    assert roundtrip_source(
+        "0.125");
+}
+
+test "roundtrip negative fractional source" {
+    assert roundtrip_source(
+        "-0.125");
+}
+
+test "roundtrip long fractional source" {
+    assert roundtrip_source(
+        "12345.6789");
+}
+
+test "roundtrip small fractional source" {
+    assert roundtrip_source(
+        "0.000001");
+}
+
+test "roundtrip exponent source" {
+    assert roundtrip_source(
+        "1e3");
+}
+
+test "roundtrip uppercase exponent source" {
+    assert roundtrip_source(
+        "1E3");
+}
+
+test "roundtrip positive exponent source" {
+    assert roundtrip_source(
+        "1e+3");
+}
+
+test "roundtrip negative exponent source" {
+    assert roundtrip_source(
+        "1e-3");
+}
+
+test "roundtrip decimal exponent source" {
+    assert roundtrip_source(
+        "1.25e3");
+}
+
+test "roundtrip negative decimal exponent source" {
+    assert roundtrip_source(
+        "-1.25e-3");
+}
+
+/// -------------------------------------------------------------------------
+/// Empty strings
+/// -------------------------------------------------------------------------
+
+test "roundtrip empty string value" {
+    let value: json_core::JsonValue =
+        json_core::string("");
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip empty string source" {
+    assert roundtrip_source(
+        "\"\"");
+}
+
+test "roundtrip empty string stable encoding" {
+    assert stable_source(
+        "\"\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Ordinary strings
+/// -------------------------------------------------------------------------
+
+test "roundtrip simple string value" {
+    let value: json_core::JsonValue =
+        json_core::string("Vitte");
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip string with spaces value" {
+    let value: json_core::JsonValue =
+        json_core::string(
+            "Vitte programming language");
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip simple string source" {
+    assert roundtrip_source(
+        "\"Vitte\"");
+}
+
+test "roundtrip string with spaces source" {
+    assert roundtrip_source(
+        "\"hello world\"");
+}
+
+test "roundtrip numeric looking string" {
+    assert roundtrip_source(
+        "\"42\"");
+}
+
+test "roundtrip boolean looking string" {
+    assert roundtrip_source(
+        "\"true\"");
+}
+
+test "roundtrip null looking string" {
+    assert roundtrip_source(
+        "\"null\"");
+}
+
+test "roundtrip punctuation string" {
+    assert roundtrip_source(
+        "\"{}[],:\"");
+}
+
+test "roundtrip string stable encoding" {
+    assert stable_source(
+        "\"Vitte\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Escaped strings
+/// -------------------------------------------------------------------------
+
+test "roundtrip quote escape" {
+    assert roundtrip_source(
+        "\"a\\\"b\"");
+}
+
+test "roundtrip backslash escape" {
+    assert roundtrip_source(
+        "\"a\\\\b\"");
+}
+
+test "roundtrip slash escape" {
+    assert roundtrip_source(
+        "\"a\\/b\"");
+}
+
+test "roundtrip backspace escape" {
+    assert roundtrip_source(
+        "\"a\\bb\"");
+}
+
+test "roundtrip form feed escape" {
+    assert roundtrip_source(
+        "\"a\\fb\"");
+}
+
+test "roundtrip newline escape" {
+    assert roundtrip_source(
+        "\"a\\nb\"");
+}
+
+test "roundtrip carriage return escape" {
+    assert roundtrip_source(
+        "\"a\\rb\"");
+}
+
+test "roundtrip tab escape" {
+    assert roundtrip_source(
+        "\"a\\tb\"");
+}
+
+test "roundtrip all standard escapes" {
+    assert roundtrip_source(
+        "\"\\\"\\\\\\/\\b\\f\\n\\r\\t\"");
+}
+
+test "roundtrip complex escaped string" {
+    assert roundtrip_source(
+        "\"quote=\\\" slash=\\/ backslash=\\\\ newline=\\n tab=\\t\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Strings constructed from decoded characters
+/// -------------------------------------------------------------------------
+
+test "roundtrip decoded quote value" {
+    let value: json_core::JsonValue =
+        json_core::string(
+            "a\"b");
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip decoded backslash value" {
+    let value: json_core::JsonValue =
+        json_core::string(
+            "a\\b");
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip decoded newline value" {
+    let value: json_core::JsonValue =
+        json_core::string(
+            "line1\nline2");
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip decoded tab value" {
+    let value: json_core::JsonValue =
+        json_core::string(
+            "a\tb");
+
+    assert roundtrip_value(&value);
+}
+
+test "roundtrip decoded carriage return value" {
+    let value: json_core::JsonValue =
+        json_core::string(
+            "a\rb");
+
+    assert roundtrip_value(&value);
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode
+/// -------------------------------------------------------------------------
+
+test "roundtrip unicode ascii escape" {
+    assert roundtrip_source(
+        "\"\\u0041\"");
+}
+
+test "roundtrip unicode latin escape" {
+    assert roundtrip_source(
+        "\"caf\\u00E9\"");
+}
+
+test "roundtrip unicode repeated escapes" {
+    assert roundtrip_source(
+        "\"\\u0041\\u0042\\u0043\"");
+}
+
+test "roundtrip unicode literal latin" {
+    assert roundtrip_source(
+        "\"café\"");
+}
+
+test "roundtrip unicode literal greek" {
+    assert roundtrip_source(
+        "\"αβγ\"");
+}
+
+test "roundtrip unicode literal cyrillic" {
+    assert roundtrip_source(
+        "\"Привет\"");
+}
+
+test "roundtrip unicode literal japanese" {
+    assert roundtrip_source(
+        "\"こんにちは\"");
+}
+
+test "roundtrip unicode literal value" {
+    let value: json_core::JsonValue =
+        json_core::string(
+            "café αβγ Привет こんにちは");
+
+    assert roundtrip_value(&value);
+}
+
+/// -------------------------------------------------------------------------
+/// Supplementary Unicode
+/// -------------------------------------------------------------------------
+
+test "roundtrip minimum supplementary scalar" {
+    assert roundtrip_source(
+        "\"\\uD800\\uDC00\"");
+}
+
+test "roundtrip maximum unicode scalar" {
+    assert roundtrip_source(
+        "\"\\uDBFF\\uDFFF\"");
+}
+
+test "roundtrip emoji surrogate pair" {
+    assert roundtrip_source(
+        "\"\\uD83D\\uDE00\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Empty arrays
+/// -------------------------------------------------------------------------
+
+test "roundtrip empty array source" {
+    assert roundtrip_source(
+        "[]");
+}
+
+test "roundtrip empty array whitespace source" {
+    assert roundtrip_source(
+        "[   ]");
+}
+
+test "roundtrip empty array multiline source" {
+    assert roundtrip_source(
+        "[\n\t\r\n]");
+}
+
+test "roundtrip empty array repeated" {
+    assert roundtrip_source_twice(
+        "[]");
+}
+
+test "roundtrip empty array stable encoding" {
+    assert stable_source(
+        "[]");
+}
+
+/// -------------------------------------------------------------------------
+/// Primitive arrays
+/// -------------------------------------------------------------------------
+
+test "roundtrip null array" {
+    assert roundtrip_source(
+        "[null]");
+}
+
+test "roundtrip boolean array" {
+    assert roundtrip_source(
+        "[true,false,true]");
+}
+
+test "roundtrip integer array" {
+    assert roundtrip_source(
+        "[0,1,-1,42,-42]");
+}
+
+test "roundtrip float array" {
+    assert roundtrip_source(
+        "[0.5,-0.5,1.25,10.75]");
+}
+
+test "roundtrip string array" {
+    assert roundtrip_source(
+        "[\"a\",\"b\",\"c\"]");
+}
+
+test "roundtrip heterogeneous array" {
+    assert roundtrip_source(
+        "[null,true,false,0,42,1.5,\"Vitte\",[],{}]");
+}
+
+test "roundtrip array with whitespace" {
+    assert roundtrip_source(
+        "[ 1 , 2 , 3 ]");
+}
+
+test "roundtrip multiline array" {
+    assert roundtrip_source(
+        "[\n  1,\n  2,\n  3\n]");
+}
+
+/// -------------------------------------------------------------------------
+/// Nested arrays
+/// -------------------------------------------------------------------------
+
+test "roundtrip nested empty arrays" {
+    assert roundtrip_source(
+        "[[],[],[]]");
+}
+
+test "roundtrip nested integer arrays" {
+    assert roundtrip_source(
+        "[[1,2],[3,4],[5,6]]");
+}
+
+test "roundtrip nested heterogeneous arrays" {
+    assert roundtrip_source(
+        "[[null,true],[42,\"text\"],[[],{}]]");
+}
+
+test "roundtrip deeply nested arrays" {
+    assert roundtrip_source(
+        "[[[[[[[[42]]]]]]]]");
+}
+
+/// -------------------------------------------------------------------------
+/// Empty objects
+/// -------------------------------------------------------------------------
+
+test "roundtrip empty object source" {
+    assert roundtrip_source(
+        "{}");
+}
+
+test "roundtrip empty object whitespace source" {
+    assert roundtrip_source(
+        "{   }");
+}
+
+test "roundtrip empty object multiline source" {
+    assert roundtrip_source(
+        "{\n\t\r\n}");
+}
+
+test "roundtrip empty object repeated" {
+    assert roundtrip_source_twice(
+        "{}");
+}
+
+test "roundtrip empty object stable encoding" {
+    assert stable_source(
+        "{}");
+}
+
+/// -------------------------------------------------------------------------
+/// Object primitives
+/// -------------------------------------------------------------------------
+
+test "roundtrip object null" {
+    assert roundtrip_source(
+        "{\"value\":null}");
+}
+
+test "roundtrip object boolean" {
+    assert roundtrip_source(
+        "{\"value\":true}");
+}
+
+test "roundtrip object integer" {
+    assert roundtrip_source(
+        "{\"value\":42}");
+}
+
+test "roundtrip object float" {
+    assert roundtrip_source(
+        "{\"value\":1.5}");
+}
+
+test "roundtrip object string" {
+    assert roundtrip_source(
+        "{\"value\":\"Vitte\"}");
+}
+
+test "roundtrip object mixed primitive members" {
+    assert roundtrip_source(
+        "{" +
+        "\"null\":null," +
+        "\"true\":true," +
+        "\"false\":false," +
+        "\"integer\":42," +
+        "\"float\":1.5," +
+        "\"string\":\"Vitte\"" +
+        "}");
+}
+
+/// -------------------------------------------------------------------------
+/// Empty object keys
+/// -------------------------------------------------------------------------
+
+test "roundtrip empty object key" {
+    assert roundtrip_source(
+        "{\"\":42}");
+}
+
+test "roundtrip empty and nonempty keys" {
+    assert roundtrip_source(
+        "{\"\":1,\"a\":2}");
+}
+
+/// -------------------------------------------------------------------------
+/// Escaped object keys
+/// -------------------------------------------------------------------------
+
+test "roundtrip quoted object key" {
+    assert roundtrip_source(
+        "{\"a\\\"b\":1}");
+}
+
+test "roundtrip backslash object key" {
+    assert roundtrip_source(
+        "{\"a\\\\b\":1}");
+}
+
+test "roundtrip unicode object key" {
+    assert roundtrip_source(
+        "{\"caf\\u00E9\":1}");
+}
+
+test "roundtrip newline escaped object key" {
+    assert roundtrip_source(
+        "{\"line\\nkey\":1}");
+}
+
+/// -------------------------------------------------------------------------
+/// Multiple object members
+/// -------------------------------------------------------------------------
+
+test "roundtrip object multiple members" {
+    assert roundtrip_source(
+        "{\"a\":1,\"b\":2,\"c\":3}");
+}
+
+test "roundtrip object heterogeneous members" {
+    assert roundtrip_source(
+        "{" +
+        "\"a\":null," +
+        "\"b\":true," +
+        "\"c\":42," +
+        "\"d\":1.5," +
+        "\"e\":\"text\"," +
+        "\"f\":[]," +
+        "\"g\":{}" +
+        "}");
+}
+
+test "roundtrip object whitespace" {
+    assert roundtrip_source(
+        "{ \"a\" : 1 , \"b\" : 2 }");
+}
+
+test "roundtrip multiline object" {
+    assert roundtrip_source(
+        "{\n" +
+        "  \"a\": 1,\n" +
+        "  \"b\": 2\n" +
+        "}");
+}
+
+/// -------------------------------------------------------------------------
+/// Nested objects
+/// -------------------------------------------------------------------------
+
+test "roundtrip nested object" {
+    assert roundtrip_source(
+        "{\"outer\":{\"inner\":42}}");
+}
+
+test "roundtrip deeply nested object" {
+    assert roundtrip_source(
+        "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":42}}}}}");
+}
+
+/// -------------------------------------------------------------------------
+/// Arrays and objects
+/// -------------------------------------------------------------------------
+
+test "roundtrip object containing array" {
+    assert roundtrip_source(
+        "{\"values\":[1,2,3]}");
+}
+
+test "roundtrip array containing objects" {
+    assert roundtrip_source(
+        "[{\"id\":1},{\"id\":2},{\"id\":3}]");
+}
+
+test "roundtrip object containing object array" {
+    assert roundtrip_source(
+        "{" +
+        "\"users\":[" +
+            "{\"id\":1,\"name\":\"one\"}," +
+            "{\"id\":2,\"name\":\"two\"}" +
+        "]" +
+        "}");
+}
+
+test "roundtrip mixed recursive tree" {
+    assert roundtrip_source(
+        "{" +
+        "\"a\":[" +
+            "{\"b\":[1,2,3]}," +
+            "{\"c\":true}" +
+        "]," +
+        "\"d\":null" +
+        "}");
+}
+
+/// -------------------------------------------------------------------------
+/// Compact encoder
+/// -------------------------------------------------------------------------
+
+test "compact roundtrip primitive" {
+    let first: JsonParseResult =
+        parse("42");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode_compact(
+            &first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+test "compact roundtrip array" {
+    let first: JsonParseResult =
+        parse(
+            "[1,2,3]");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode_compact(
+            &first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+test "compact roundtrip object" {
+    let first: JsonParseResult =
+        parse(
+            "{\"a\":1,\"b\":2}");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode_compact(
+            &first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Pretty encoder
+/// -------------------------------------------------------------------------
+
+test "pretty roundtrip null" {
+    assert pretty_roundtrip_source(
+        "null");
+}
+
+test "pretty roundtrip primitive array" {
+    assert pretty_roundtrip_source(
+        "[null,true,false,42,\"Vitte\"]");
+}
+
+test "pretty roundtrip object" {
+    assert pretty_roundtrip_source(
+        "{\"name\":\"Vitte\",\"version\":1}");
+}
+
+test "pretty roundtrip nested object" {
+    assert pretty_roundtrip_source(
+        "{" +
+        "\"project\":\"Vitte\"," +
+        "\"compiler\":{" +
+            "\"backend\":\"c17\"," +
+            "\"optimization\":2" +
+        "}," +
+        "\"targets\":[" +
+            "\"macos-arm64\"," +
+            "\"linux-x86_64\"" +
+        "]" +
+        "}");
+}
+
+/// -------------------------------------------------------------------------
+/// Pretty output remains valid JSON
+/// -------------------------------------------------------------------------
+
+test "pretty encoded array parses" {
+    let parsed_value: JsonParseResult =
+        parse(
+            "[1,2,3]");
+
+    assert parsed_value.ok;
+
+    let encoded: JsonEncodeResult =
+        encode_pretty(
+            &parsed_value.value);
+
+    assert encoded.ok;
+    assert parses(encoded.text);
+}
+
+test "pretty encoded object parses" {
+    let parsed_value: JsonParseResult =
+        parse(
+            "{\"a\":1,\"b\":[2,3]}");
+
+    assert parsed_value.ok;
+
+    let encoded: JsonEncodeResult =
+        encode_pretty(
+            &parsed_value.value);
+
+    assert encoded.ok;
+    assert parses(encoded.text);
+}
+
+/// -------------------------------------------------------------------------
+/// Canonicalization through encode
+/// -------------------------------------------------------------------------
+
+test "roundtrip removes insignificant leading whitespace" {
+    let parsed_value: JsonParseResult =
+        parse(
+            "   [1,2,3]");
+
+    assert parsed_value.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    assert encoded.ok;
+
+    let reparsed: JsonParseResult =
+        parse(encoded.text);
+
+    assert reparsed.ok;
+
+    assert json_core::equals(
+        &parsed_value.value,
+        &reparsed.value);
+}
+
+test "roundtrip removes insignificant trailing whitespace" {
+    let parsed_value: JsonParseResult =
+        parse(
+            "[1,2,3]   ");
+
+    assert parsed_value.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    assert encoded.ok;
+
+    let reparsed: JsonParseResult =
+        parse(encoded.text);
+
+    assert reparsed.ok;
+
+    assert json_core::equals(
+        &parsed_value.value,
+        &reparsed.value);
+}
+
+test "roundtrip removes structural whitespace" {
+    let parsed_value: JsonParseResult =
+        parse(
+            "{ \"a\" : [ 1 , 2 , 3 ] }");
+
+    assert parsed_value.ok;
+
+    let encoded: JsonEncodeResult =
+        encode_compact(
+            &parsed_value.value);
+
+    assert encoded.ok;
+
+    let reparsed: JsonParseResult =
+        parse(encoded.text);
+
+    assert reparsed.ok;
+
+    assert json_core::equals(
+        &parsed_value.value,
+        &reparsed.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Escape canonicalization
+/// -------------------------------------------------------------------------
+
+test "escaped slash roundtrip remains equivalent" {
+    let first: JsonParseResult =
+        parse(
+            "\"a\\/b\"");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(
+            &first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+test "unicode escape roundtrip remains equivalent" {
+    let first: JsonParseResult =
+        parse(
+            "\"caf\\u00E9\"");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(
+            &first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+test "short escape roundtrip remains equivalent" {
+    let first: JsonParseResult =
+        parse(
+            "\"a\\nb\\tc\"");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(
+            &first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Repeated round trips
+/// -------------------------------------------------------------------------
+
+test "repeat primitive roundtrip" {
+    assert roundtrip_source_twice(
+        "42");
+}
+
+test "repeat string roundtrip" {
+    assert roundtrip_source_twice(
+        "\"Vitte\"");
+}
+
+test "repeat escaped string roundtrip" {
+    assert roundtrip_source_twice(
+        "\"a\\nb\\tc\"");
+}
+
+test "repeat array roundtrip" {
+    assert roundtrip_source_twice(
+        "[null,true,42,\"Vitte\"]");
+}
+
+test "repeat object roundtrip" {
+    assert roundtrip_source_twice(
+        "{\"name\":\"Vitte\",\"version\":1}");
+}
+
+test "repeat nested roundtrip" {
+    assert roundtrip_source_twice(
+        "{" +
+        "\"a\":[" +
+            "{\"b\":1}," +
+            "{\"b\":2}" +
+        "]" +
+        "}");
+}
+
+/// -------------------------------------------------------------------------
+/// Deterministic encoding
+/// -------------------------------------------------------------------------
+
+test "encoding same primitive twice is deterministic" {
+    let parsed_value: JsonParseResult =
+        parse("42");
+
+    assert parsed_value.ok;
+
+    let first: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    let second: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    assert first.ok;
+    assert second.ok;
+    assert first.text == second.text;
+}
+
+test "encoding same string twice is deterministic" {
+    let parsed_value: JsonParseResult =
+        parse(
+            "\"a\\nb\"");
+
+    assert parsed_value.ok;
+
+    let first: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    let second: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    assert first.ok;
+    assert second.ok;
+    assert first.text == second.text;
+}
+
+test "encoding same array twice is deterministic" {
+    let parsed_value: JsonParseResult =
+        parse(
+            "[1,2,3]");
+
+    assert parsed_value.ok;
+
+    let first: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    let second: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    assert first.ok;
+    assert second.ok;
+    assert first.text == second.text;
+}
+
+test "encoding same object twice is deterministic" {
+    let parsed_value: JsonParseResult =
+        parse(
+            "{\"z\":1,\"a\":2,\"m\":3}");
+
+    assert parsed_value.ok;
+
+    let first: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    let second: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    assert first.ok;
+    assert second.ok;
+    assert first.text == second.text;
+}
+
+/// -------------------------------------------------------------------------
+/// Member order preservation
+/// -------------------------------------------------------------------------
+
+test "roundtrip preserves object member ordering" {
+    let first: JsonParseResult =
+        parse(
+            "{\"z\":1,\"a\":2,\"m\":3}");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(
+            &first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+    assert json_core::object_len(&second.value) == 3;
+
+    let member0: &json_core::JsonMember =
+        json_core::object_member_ref(
+            &second.value,
+            0);
+
+    let member1: &json_core::JsonMember =
+        json_core::object_member_ref(
+            &second.value,
+            1);
+
+    let member2: &json_core::JsonMember =
+        json_core::object_member_ref(
+            &second.value,
+            2);
+
+    assert member0.key == "z";
+    assert member1.key == "a";
+    assert member2.key == "m";
+}
+
+/// -------------------------------------------------------------------------
+/// Realistic configuration
+/// -------------------------------------------------------------------------
+
+test "roundtrip realistic configuration" {
+    let source: string =
+        "{" +
+        "\"project\":\"Vitte\"," +
+        "\"version\":\"1.0.0\"," +
+        "\"compiler\":{" +
+            "\"backend\":\"c17\"," +
+            "\"optimization\":2," +
+            "\"debug\":false" +
+        "}," +
+        "\"targets\":[" +
+            "\"macos-arm64\"," +
+            "\"linux-x86_64\"," +
+            "\"windows-x86_64\"" +
+        "]," +
+        "\"features\":{" +
+            "\"diagnostics\":true," +
+            "\"lsp\":true," +
+            "\"formatter\":true" +
+        "}" +
+        "}";
+
+    assert roundtrip_source(source);
+    assert roundtrip_source_twice(source);
+    assert pretty_roundtrip_source(source);
+    assert stable_source(source);
+}
+
+/// -------------------------------------------------------------------------
+/// Realistic package manifest
+/// -------------------------------------------------------------------------
+
+test "roundtrip package manifest" {
+    let source: string =
+        "{" +
+        "\"name\":\"json\"," +
+        "\"version\":\"1.0.0\"," +
+        "\"description\":\"JSON support for Vitte\"," +
+        "\"authors\":[\"Vitte Foundation\"]," +
+        "\"dependencies\":{}," +
+        "\"features\":[" +
+            "\"parser\"," +
+            "\"encoder\"," +
+            "\"pretty\"" +
+        "]," +
+        "\"private\":false" +
+        "}";
+
+    assert roundtrip_source(source);
+    assert roundtrip_source_twice(source);
+    assert pretty_roundtrip_source(source);
+}
+
+/// -------------------------------------------------------------------------
+/// Realistic diagnostic document
+/// -------------------------------------------------------------------------
+
+test "roundtrip diagnostic document" {
+    let source: string =
+        "{" +
+        "\"severity\":\"error\"," +
+        "\"code\":\"E1001\"," +
+        "\"message\":\"unexpected token\"," +
+        "\"location\":{" +
+            "\"file\":\"main.vit\"," +
+            "\"line\":12," +
+            "\"column\":8" +
+        "}," +
+        "\"notes\":[" +
+            "\"expected expression\"," +
+            "\"found closing brace\"" +
+        "]," +
+        "\"help\":\"insert an expression\"" +
+        "}";
+
+    assert roundtrip_source(source);
+    assert pretty_roundtrip_source(source);
+}
+
+/// -------------------------------------------------------------------------
+/// Realistic compiler metadata
+/// -------------------------------------------------------------------------
+
+test "roundtrip compiler metadata" {
+    let source: string =
+        "{" +
+        "\"compiler\":{" +
+            "\"name\":\"vittec\"," +
+            "\"version\":\"0.1.0\"," +
+            "\"backend\":\"c17\"" +
+        "}," +
+        "\"input\":{" +
+            "\"file\":\"main.vit\"," +
+            "\"module\":\"main\"" +
+        "}," +
+        "\"output\":{" +
+            "\"success\":true," +
+            "\"diagnostics\":[]," +
+            "\"artifact\":\"main\"" +
+        "}" +
+        "}";
+
+    assert roundtrip_source(source);
+    assert stable_source(source);
+}
+
+/// -------------------------------------------------------------------------
+/// Realistic module registry response
+/// -------------------------------------------------------------------------
+
+test "roundtrip module registry response" {
+    let source: string =
+        "{" +
+        "\"module\":\"json\"," +
+        "\"versions\":[" +
+            "{" +
+                "\"version\":\"1.0.0\"," +
+                "\"stable\":true" +
+            "}," +
+            "{" +
+                "\"version\":\"0.9.0\"," +
+                "\"stable\":false" +
+            "}" +
+        "]," +
+        "\"latest\":\"1.0.0\"" +
+        "}";
+
+    assert roundtrip_source(source);
+}
+
+/// -------------------------------------------------------------------------
+/// Large heterogeneous document
+/// -------------------------------------------------------------------------
+
+test "roundtrip large heterogeneous document" {
+    let source: string =
+        "{" +
+        "\"null\":null," +
+        "\"booleans\":[true,false]," +
+        "\"integers\":[" +
+            "0,1,-1,42,-42," +
+            "1000,-1000" +
+        "]," +
+        "\"floats\":[" +
+            "0.5,-0.5,1.25,10.75," +
+            "1e3,1e-3" +
+        "]," +
+        "\"strings\":[" +
+            "\"\"," +
+            "\"Vitte\"," +
+            "\"hello world\"," +
+            "\"a\\nb\"," +
+            "\"a\\tb\"," +
+            "\"caf\\u00E9\"" +
+        "]," +
+        "\"arrays\":[" +
+            "[]," +
+            "[1]," +
+            "[1,2,3]," +
+            "[[1,2],[3,4]]" +
+        "]," +
+        "\"objects\":[" +
+            "{}," +
+            "{\"a\":1}," +
+            "{\"a\":1,\"b\":2}," +
+            "{\"nested\":{\"value\":42}}" +
+        "]" +
+        "}";
+
+    assert roundtrip_source(source);
+    assert roundtrip_source_twice(source);
+    assert pretty_roundtrip_source(source);
+}
+
+/// -------------------------------------------------------------------------
+/// Deep recursive document
+/// -------------------------------------------------------------------------
+
+test "roundtrip deep recursive document" {
+    let source: string =
+        "{" +
+        "\"root\":[" +
+            "{" +
+                "\"name\":\"level-1\"," +
+                "\"children\":[" +
+                    "{" +
+                        "\"name\":\"level-2\"," +
+                        "\"children\":[" +
+                            "{" +
+                                "\"name\":\"level-3\"," +
+                                "\"children\":[" +
+                                    "{" +
+                                        "\"name\":\"level-4\"," +
+                                        "\"value\":42" +
+                                    "}" +
+                                "]" +
+                            "}" +
+                        "]" +
+                    "}" +
+                "]" +
+            "}" +
+        "]" +
+        "}";
+
+    assert roundtrip_source(source);
+    assert roundtrip_source_twice(source);
+}
+
+/// -------------------------------------------------------------------------
+/// Encoder output can always be reparsed
+/// -------------------------------------------------------------------------
+
+test "encoded null reparses" {
+    let value: json_core::JsonValue =
+        json_core::null_value();
+
+    let encoded: JsonEncodeResult =
+        encode(&value);
+
+    assert encoded.ok;
+    assert parses(encoded.text);
+}
+
+test "encoded boolean reparses" {
+    let value: json_core::JsonValue =
+        json_core::boolean(true);
+
+    let encoded: JsonEncodeResult =
+        encode(&value);
+
+    assert encoded.ok;
+    assert parses(encoded.text);
+}
+
+test "encoded integer reparses" {
+    let value: json_core::JsonValue =
+        json_core::integer(42);
+
+    let encoded: JsonEncodeResult =
+        encode(&value);
+
+    assert encoded.ok;
+    assert parses(encoded.text);
+}
+
+test "encoded string reparses" {
+    let value: json_core::JsonValue =
+        json_core::string(
+            "Vitte\nJSON\t\"test\"");
+
+    let encoded: JsonEncodeResult =
+        encode(&value);
+
+    assert encoded.ok;
+    assert parses(encoded.text);
+}
+
+/// -------------------------------------------------------------------------
+/// Whitespace normalization
+/// -------------------------------------------------------------------------
+
+test "whitespace variants produce equivalent values" {
+    let compact: JsonParseResult =
+        parse(
+            "{\"a\":[1,2,3],\"b\":true}");
+
+    let spaced: JsonParseResult =
+        parse(
+            " { \"a\" : [ 1 , 2 , 3 ] , \"b\" : true } ");
+
+    let multiline: JsonParseResult =
+        parse(
+            "{\n" +
+            "  \"a\": [\n" +
+            "    1,\n" +
+            "    2,\n" +
+            "    3\n" +
+            "  ],\n" +
+            "  \"b\": true\n" +
+            "}");
+
+    assert compact.ok;
+    assert spaced.ok;
+    assert multiline.ok;
+
+    assert json_core::equals(
+        &compact.value,
+        &spaced.value);
+
+    assert json_core::equals(
+        &spaced.value,
+        &multiline.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Escape representations normalize to equivalent values
+/// -------------------------------------------------------------------------
+
+test "literal and unicode escaped ascii are equivalent" {
+    let literal: JsonParseResult =
+        parse("\"A\"");
+
+    let escaped: JsonParseResult =
+        parse("\"\\u0041\"");
+
+    assert literal.ok;
+    assert escaped.ok;
+
+    assert json_core::equals(
+        &literal.value,
+        &escaped.value);
+}
+
+test "literal and unicode escaped latin are equivalent" {
+    let literal: JsonParseResult =
+        parse("\"café\"");
+
+    let escaped: JsonParseResult =
+        parse("\"caf\\u00E9\"");
+
+    assert literal.ok;
+    assert escaped.ok;
+
+    assert json_core::equals(
+        &literal.value,
+        &escaped.value);
+}
+
+test "escaped slash and literal slash are equivalent" {
+    let literal: JsonParseResult =
+        parse("\"a/b\"");
+
+    let escaped: JsonParseResult =
+        parse("\"a\\/b\"");
+
+    assert literal.ok;
+    assert escaped.ok;
+
+    assert json_core::equals(
+        &literal.value,
+        &escaped.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Type preservation
+/// -------------------------------------------------------------------------
+
+test "roundtrip preserves null type" {
+    let first: JsonParseResult =
+        parse("null");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(&first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+    assert json_core::is_null(&second.value);
+}
+
+test "roundtrip preserves boolean type" {
+    let first: JsonParseResult =
+        parse("true");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(&first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+    assert json_core::is_bool(&second.value);
+}
+
+test "roundtrip preserves integer type" {
+    let first: JsonParseResult =
+        parse("42");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(&first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+    assert json_core::is_integer(&second.value);
+}
+
+test "roundtrip preserves string type" {
+    let first: JsonParseResult =
+        parse("\"42\"");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(&first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+    assert json_core::is_string(&second.value);
+}
+
+test "roundtrip preserves array type" {
+    let first: JsonParseResult =
+        parse("[1,2,3]");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(&first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+    assert json_core::is_array(&second.value);
+}
+
+test "roundtrip preserves object type" {
+    let first: JsonParseResult =
+        parse("{\"a\":1}");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode(&first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+    assert json_core::is_object(&second.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Regression: structural characters in strings
+/// -------------------------------------------------------------------------
+
+test "roundtrip braces inside string" {
+    assert roundtrip_source(
+        "\"{}\"");
+}
+
+test "roundtrip brackets inside string" {
+    assert roundtrip_source(
+        "\"[]\"");
+}
+
+test "roundtrip colon inside string" {
+    assert roundtrip_source(
+        "\":\"");
+}
+
+test "roundtrip comma inside string" {
+    assert roundtrip_source(
+        "\",\"");
+}
+
+test "roundtrip json looking text inside string" {
+    assert roundtrip_source(
+        "\"{\\\"a\\\":[1,2,3]}\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Regression: keys containing structural characters
+/// -------------------------------------------------------------------------
+
+test "roundtrip key containing colon" {
+    assert roundtrip_source(
+        "{\"a:b\":1}");
+}
+
+test "roundtrip key containing comma" {
+    assert roundtrip_source(
+        "{\"a,b\":1}");
+}
+
+test "roundtrip key containing braces" {
+    assert roundtrip_source(
+        "{\"{}\":1}");
+}
+
+test "roundtrip key containing brackets" {
+    assert roundtrip_source(
+        "{\"[]\":1}");
+}
+
+/// -------------------------------------------------------------------------
+/// Stability matrix
+/// -------------------------------------------------------------------------
+
+test "stable encoding primitive matrix" {
+    assert stable_source("null");
+    assert stable_source("true");
+    assert stable_source("false");
+    assert stable_source("0");
+    assert stable_source("1");
+    assert stable_source("-1");
+    assert stable_source("\"\"");
+    assert stable_source("\"Vitte\"");
+}
+
+test "stable encoding array matrix" {
+    assert stable_source("[]");
+    assert stable_source("[1]");
+    assert stable_source("[1,2,3]");
+    assert stable_source("[null,true,false]");
+    assert stable_source("[[],{}]");
+}
+
+test "stable encoding object matrix" {
+    assert stable_source("{}");
+    assert stable_source("{\"a\":1}");
+    assert stable_source("{\"a\":1,\"b\":2}");
+    assert stable_source("{\"a\":[],\"b\":{}}");
+}
+
+/// -------------------------------------------------------------------------
+/// Full round-trip matrix
+/// -------------------------------------------------------------------------
+
+test "full primitive roundtrip matrix" {
+    assert roundtrip_source("null");
+
+    assert roundtrip_source("true");
+    assert roundtrip_source("false");
+
+    assert roundtrip_source("0");
+    assert roundtrip_source("1");
+    assert roundtrip_source("-1");
+    assert roundtrip_source("42");
+    assert roundtrip_source("-42");
+
+    assert roundtrip_source("0.5");
+    assert roundtrip_source("-0.5");
+    assert roundtrip_source("1.25");
+    assert roundtrip_source("1e3");
+    assert roundtrip_source("1e-3");
+
+    assert roundtrip_source("\"\"");
+    assert roundtrip_source("\"Vitte\"");
+    assert roundtrip_source("\"a\\nb\"");
+    assert roundtrip_source("\"\\u0041\"");
+}
+
+test "full container roundtrip matrix" {
+    assert roundtrip_source("[]");
+    assert roundtrip_source("{}");
+
+    assert roundtrip_source(
+        "[null,true,false]");
+
+    assert roundtrip_source(
+        "[0,1,-1,42,-42]");
+
+    assert roundtrip_source(
+        "[\"a\",\"b\",\"c\"]");
+
+    assert roundtrip_source(
+        "{\"a\":1}");
+
+    assert roundtrip_source(
+        "{\"a\":1,\"b\":2}");
+
+    assert roundtrip_source(
+        "{\"a\":[],\"b\":{}}");
+
+    assert roundtrip_source(
+        "[{\"a\":1},{\"b\":2}]");
+}
+
+/// -------------------------------------------------------------------------
+/// Final comprehensive integration
+/// -------------------------------------------------------------------------
+
+test "json complete roundtrip integration" {
+    let source: string =
+        "{" +
+        "\"project\":\"Vitte\"," +
+        "\"version\":\"1.0.0\"," +
+        "\"active\":true," +
+        "\"optional\":null," +
+        "\"numbers\":{" +
+            "\"zero\":0," +
+            "\"positive\":42," +
+            "\"negative\":-42," +
+            "\"fraction\":1.5," +
+            "\"exponent\":1e3" +
+        "}," +
+        "\"strings\":{" +
+            "\"empty\":\"\"," +
+            "\"plain\":\"hello world\"," +
+            "\"quote\":\"a\\\"b\"," +
+            "\"backslash\":\"a\\\\b\"," +
+            "\"newline\":\"a\\nb\"," +
+            "\"tab\":\"a\\tb\"," +
+            "\"unicode\":\"caf\\u00E9\"" +
+        "}," +
+        "\"arrays\":[" +
+            "[]," +
+            "[1,2,3]," +
+            "[null,true,false]," +
+            "[{\"id\":1},{\"id\":2}]" +
+        "]," +
+        "\"object\":{" +
+            "\"empty\":{}," +
+            "\"nested\":{" +
+                "\"value\":42," +
+                "\"items\":[" +
+                    "{\"name\":\"one\"}," +
+                    "{\"name\":\"two\"}" +
+                "]" +
+            "}" +
+        "}" +
+        "}";
+
+    let first: JsonParseResult =
+        parse(source);
+
+    assert first.ok;
+    assert json_core::validate(&first.value);
+
+    let compact: JsonEncodeResult =
+        encode_compact(
+            &first.value);
+
+    assert compact.ok;
+
+    let compact_parsed: JsonParseResult =
+        parse(compact.text);
+
+    assert compact_parsed.ok;
+    assert json_core::validate(&compact_parsed.value);
+
+    assert json_core::equals(
+        &first.value,
+        &compact_parsed.value);
+
+    let pretty: JsonEncodeResult =
+        encode_pretty(
+            &first.value);
+
+    assert pretty.ok;
+
+    let pretty_parsed: JsonParseResult =
+        parse(pretty.text);
+
+    assert pretty_parsed.ok;
+    assert json_core::validate(&pretty_parsed.value);
+
+    assert json_core::equals(
+        &first.value,
+        &pretty_parsed.value);
+
+    assert json_core::equals(
+        &compact_parsed.value,
+        &pretty_parsed.value);
+
+    let encoded_again: JsonEncodeResult =
+        encode_compact(
+            &compact_parsed.value);
+
+    assert encoded_again.ok;
+
+    assert compact.text ==
+        encoded_again.text;
+
+    assert roundtrip_source(source);
+    assert roundtrip_source_twice(source);
+    assert pretty_roundtrip_source(source);
+    assert stable_source(source);
+}

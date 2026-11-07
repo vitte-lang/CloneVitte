@@ -1,0 +1,20 @@
+proc concatenate(
+    left: string,
+    right: string,
+    suffix: string
+) -> string {
+    let mut result: string = left;
+    set result = result + right;
+    set result = result + suffix;
+    return result;
+}
+
+export proc main() -> int {
+    let result: string = concatenate("a", "b", "c");
+    if result[0] == 'a' and
+        result[1] == 'b' and
+        result[2] == 'c' {
+        return 0;
+    }
+    return 1;
+}

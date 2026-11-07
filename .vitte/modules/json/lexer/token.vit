@@ -1,0 +1,1521 @@
+/// JSON lexical tokens.
+///
+/// Canonical token model shared by the JSON lexer and parser.
+///
+/// Tokens preserve:
+/// - token kind;
+/// - exact source lexeme;
+/// - decoded value when applicable;
+/// - precise source span.
+///
+/// Whitespace is not represented as a token.
+/// The lexer emits one final `End` token.
+
+space json::lexer::token;
+
+use json::error::position::*;
+
+export pick JsonTokenKind {
+    Invalid,
+    End,
+
+    LeftBrace,
+    RightBrace,
+    LeftBracket,
+    RightBracket,
+    Colon,
+    Comma,
+
+    Null,
+    True,
+    False,
+
+    Number,
+    String,
+}
+
+export form JsonToken {
+    kind: JsonTokenKind,
+
+    lexeme: string,
+
+    value: string,
+
+    span: JsonSpan,
+}
+
+/// -------------------------------------------------------------------------
+/// Construction
+/// -------------------------------------------------------------------------
+
+proc token(
+    kind: JsonTokenKind,
+    lexeme: string,
+    value: string,
+    location: JsonSpan
+) -> JsonToken {
+    return JsonToken {
+        kind: kind,
+        lexeme: lexeme,
+        value: value,
+        span: location,
+    };
+}
+
+export proc invalid() -> JsonToken {
+    return token(
+        JsonTokenKind.Invalid,
+        "",
+        "",
+        empty_span());
+}
+
+export proc end(
+    location: JsonPosition
+) -> JsonToken {
+    return token(
+        JsonTokenKind.End,
+        "",
+        "",
+        point(location));
+}
+
+export proc punctuation(
+    kind: JsonTokenKind,
+    lexeme: string,
+    location: JsonSpan
+) -> JsonToken {
+    return token(
+        kind,
+        lexeme,
+        lexeme,
+        location);
+}
+
+export proc literal(
+    kind: JsonTokenKind,
+    lexeme: string,
+    location: JsonSpan
+) -> JsonToken {
+    return token(
+        kind,
+        lexeme,
+        lexeme,
+        location);
+}
+
+export proc string_token(
+    lexeme: string,
+    value: string,
+    location: JsonSpan
+) -> JsonToken {
+    return token(
+        JsonTokenKind.String,
+        lexeme,
+        value,
+        location);
+}
+
+export proc number_token(
+    lexeme: string,
+    location: JsonSpan
+) -> JsonToken {
+    return token(
+        JsonTokenKind.Number,
+        lexeme,
+        lexeme,
+        location);
+}
+
+/// -------------------------------------------------------------------------
+/// Kind names
+/// -------------------------------------------------------------------------
+
+proc kind_name(
+    kind: JsonTokenKind
+) -> string {
+    if kind == JsonTokenKind.Invalid {
+        return "invalid";
+    }
+
+    if kind == JsonTokenKind.End {
+        return "end";
+    }
+
+    if kind == JsonTokenKind.LeftBrace {
+        return "left-brace";
+    }
+
+    if kind == JsonTokenKind.RightBrace {
+        return "right-brace";
+    }
+
+    if kind == JsonTokenKind.LeftBracket {
+        return "left-bracket";
+    }
+
+    if kind == JsonTokenKind.RightBracket {
+        return "right-bracket";
+    }
+
+    if kind == JsonTokenKind.Colon {
+        return "colon";
+    }
+
+    if kind == JsonTokenKind.Comma {
+        return "comma";
+    }
+
+    if kind == JsonTokenKind.Null {
+        return "null";
+    }
+
+    if kind == JsonTokenKind.True {
+        return "true";
+    }
+
+    if kind == JsonTokenKind.False {
+        return "false";
+    }
+
+    if kind == JsonTokenKind.Number {
+        return "number";
+    }
+
+    return "string";
+}
+
+export proc display_name(
+    kind: JsonTokenKind
+) -> string {
+    if kind == JsonTokenKind.LeftBrace {
+        return "'{'";
+    }
+
+    if kind == JsonTokenKind.RightBrace {
+        return "'}'";
+    }
+
+    if kind == JsonTokenKind.LeftBracket {
+        return "'['";
+    }
+
+    if kind == JsonTokenKind.RightBracket {
+        return "']'";
+    }
+
+    if kind == JsonTokenKind.Colon {
+        return "':'";
+    }
+
+    if kind == JsonTokenKind.Comma {
+        return "','";
+    }
+
+    if kind == JsonTokenKind.Null {
+        return "'null'";
+    }
+
+    if kind == JsonTokenKind.True {
+        return "'true'";
+    }
+
+    if kind == JsonTokenKind.False {
+        return "'false'";
+    }
+
+    if kind == JsonTokenKind.Number {
+        return "number";
+    }
+
+    if kind == JsonTokenKind.String {
+        return "string";
+    }
+
+    if kind == JsonTokenKind.End {
+        return "end of input";
+    }
+
+    return "invalid token";
+}
+
+/// -------------------------------------------------------------------------
+/// Classification
+/// -------------------------------------------------------------------------
+
+proc is_invalid(
+    value: &JsonToken
+) -> bool {
+    return value.kind ==
+         JsonTokenKind.Invalid;
+}
+
+proc is_end(
+    value: &JsonToken
+) -> bool {
+    return value.kind ==
+         JsonTokenKind.End;
+}
+
+proc is_punctuation_kind(
+    kind: JsonTokenKind
+) -> bool {
+    return kind == JsonTokenKind.LeftBrace ||
+         kind == JsonTokenKind.RightBrace ||
+         kind == JsonTokenKind.LeftBracket ||
+         kind == JsonTokenKind.RightBracket ||
+         kind == JsonTokenKind.Colon ||
+         kind == JsonTokenKind.Comma;
+}
+
+proc is_punctuation(
+    value: &JsonToken
+) -> bool {
+    return is_punctuation_kind(
+        value.kind);
+}
+
+proc is_literal_kind(
+    kind: JsonTokenKind
+) -> bool {
+    return kind == JsonTokenKind.Null ||
+         kind == JsonTokenKind.True ||
+         kind == JsonTokenKind.False ||
+         kind == JsonTokenKind.Number ||
+         kind == JsonTokenKind.String;
+}
+
+proc is_literal(
+    value: &JsonToken
+) -> bool {
+    return is_literal_kind(
+        value.kind);
+}
+
+proc is_scalar_kind(
+    kind: JsonTokenKind
+) -> bool {
+    return is_literal_kind(kind);
+}
+
+proc is_scalar(
+    value: &JsonToken
+) -> bool {
+    return is_scalar_kind(
+        value.kind);
+}
+
+export proc begins_value_kind(
+    kind: JsonTokenKind
+) -> bool {
+    return is_literal_kind(kind) ||
+         kind == JsonTokenKind.LeftBrace ||
+         kind == JsonTokenKind.LeftBracket;
+}
+
+proc begins_value(
+    value: &JsonToken
+) -> bool {
+    return begins_value_kind(
+        value.kind);
+}
+
+proc begins_container_kind(
+    kind: JsonTokenKind
+) -> bool {
+    return kind == JsonTokenKind.LeftBrace ||
+         kind == JsonTokenKind.LeftBracket;
+}
+
+proc begins_container(
+    value: &JsonToken
+) -> bool {
+    return begins_container_kind(
+        value.kind);
+}
+
+proc ends_container_kind(
+    kind: JsonTokenKind
+) -> bool {
+    return kind == JsonTokenKind.RightBrace ||
+         kind == JsonTokenKind.RightBracket;
+}
+
+proc ends_container(
+    value: &JsonToken
+) -> bool {
+    return ends_container_kind(
+        value.kind);
+}
+
+proc is_object_boundary_kind(
+    kind: JsonTokenKind
+) -> bool {
+    return kind == JsonTokenKind.LeftBrace ||
+         kind == JsonTokenKind.RightBrace;
+}
+
+proc is_array_boundary_kind(
+    kind: JsonTokenKind
+) -> bool {
+    return kind == JsonTokenKind.LeftBracket ||
+         kind == JsonTokenKind.RightBracket;
+}
+
+proc is_separator_kind(
+    kind: JsonTokenKind
+) -> bool {
+    return kind == JsonTokenKind.Colon ||
+         kind == JsonTokenKind.Comma;
+}
+
+proc is_boolean_kind(
+    kind: JsonTokenKind
+) -> bool {
+    return kind == JsonTokenKind.True ||
+         kind == JsonTokenKind.False;
+}
+
+proc is_boolean(
+    value: &JsonToken
+) -> bool {
+    return is_boolean_kind(
+        value.kind);
+}
+
+proc is_null(
+    value: &JsonToken
+) -> bool {
+    return value.kind ==
+         JsonTokenKind.Null;
+}
+
+proc is_number(
+    value: &JsonToken
+) -> bool {
+    return value.kind ==
+         JsonTokenKind.Number;
+}
+
+proc is_string(
+    value: &JsonToken
+) -> bool {
+    return value.kind ==
+         JsonTokenKind.String;
+}
+
+/// -------------------------------------------------------------------------
+/// Exact kind matching
+/// -------------------------------------------------------------------------
+
+proc is_kind(
+    value: &JsonToken,
+    kind: JsonTokenKind
+) -> bool {
+    return value.kind == kind;
+}
+
+proc matches_any_value(
+    value: &JsonToken
+) -> bool {
+    return begins_value(value);
+}
+
+/// -------------------------------------------------------------------------
+/// Punctuation conversion
+/// -------------------------------------------------------------------------
+
+proc punctuation_kind(
+    value: char
+) -> JsonTokenKind {
+    if value == '{' {
+        return JsonTokenKind.LeftBrace;
+    }
+
+    if value == '}' {
+        return JsonTokenKind.RightBrace;
+    }
+
+    if value == '[' {
+        return JsonTokenKind.LeftBracket;
+    }
+
+    if value == ']' {
+        return JsonTokenKind.RightBracket;
+    }
+
+    if value == ':' {
+        return JsonTokenKind.Colon;
+    }
+
+    if value == ',' {
+        return JsonTokenKind.Comma;
+    }
+
+    return JsonTokenKind.Invalid;
+}
+
+proc punctuation_text(
+    kind: JsonTokenKind
+) -> string {
+    if kind == JsonTokenKind.LeftBrace {
+        return "{";
+    }
+
+    if kind == JsonTokenKind.RightBrace {
+        return "}";
+    }
+
+    if kind == JsonTokenKind.LeftBracket {
+        return "[";
+    }
+
+    if kind == JsonTokenKind.RightBracket {
+        return "]";
+    }
+
+    if kind == JsonTokenKind.Colon {
+        return ":";
+    }
+
+    if kind == JsonTokenKind.Comma {
+        return ",";
+    }
+
+    return "";
+}
+
+/// -------------------------------------------------------------------------
+/// Literal conversion
+/// -------------------------------------------------------------------------
+
+/// Compare JSON text by content.
+///
+/// Vitte strings are buffers, so direct equality is not a content comparison
+/// in generated C. Keep this helper local because it is only needed while
+/// classifying the three JSON keyword literals.
+proc text_equals(
+    left: string,
+    right: string
+) -> bool {
+    if left.length != right.length {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < left.length {
+        if left[index] != right[index] {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc literal_kind(
+    value: string
+) -> JsonTokenKind {
+    if text_equals(value, "null") {
+        return JsonTokenKind.Null;
+    }
+
+    if text_equals(value, "true") {
+        return JsonTokenKind.True;
+    }
+
+    if text_equals(value, "false") {
+        return JsonTokenKind.False;
+    }
+
+    return JsonTokenKind.Invalid;
+}
+
+proc literal_text(
+    kind: JsonTokenKind
+) -> string {
+    if kind == JsonTokenKind.Null {
+        return "null";
+    }
+
+    if kind == JsonTokenKind.True {
+        return "true";
+    }
+
+    if kind == JsonTokenKind.False {
+        return "false";
+    }
+
+    return "";
+}
+
+/// -------------------------------------------------------------------------
+/// Value access
+/// -------------------------------------------------------------------------
+
+proc decoded_value(
+    value: &JsonToken
+) -> string {
+    return value.value;
+}
+
+proc source_text(
+    value: &JsonToken
+) -> string {
+    return value.lexeme;
+}
+
+proc length(
+    value: &JsonToken
+) -> usize {
+    return span_length(
+        &value.span);
+}
+
+proc source_length(
+    value: &JsonToken
+) -> usize {
+    return value.lexeme.length;
+}
+
+proc decoded_length(
+    value: &JsonToken
+) -> usize {
+    return value.value.length;
+}
+
+proc start_position(
+    value: &JsonToken
+) -> JsonPosition {
+    return value.span.start;
+}
+
+proc end_position(
+    value: &JsonToken
+) -> JsonPosition {
+    return value.span.end;
+}
+
+/// -------------------------------------------------------------------------
+/// Boolean conversion
+/// -------------------------------------------------------------------------
+
+proc boolean_value(
+    value: &JsonToken
+) -> bool {
+    return value.kind ==
+         JsonTokenKind.True;
+}
+
+/// -------------------------------------------------------------------------
+/// Structural matching
+/// -------------------------------------------------------------------------
+
+proc matching_close(
+    kind: JsonTokenKind
+) -> JsonTokenKind {
+    if kind ==
+       JsonTokenKind.LeftBrace {
+        return JsonTokenKind.RightBrace;
+    }
+
+    if kind ==
+       JsonTokenKind.LeftBracket {
+        return JsonTokenKind.RightBracket;
+    }
+
+    return JsonTokenKind.Invalid;
+}
+
+proc matching_open(
+    kind: JsonTokenKind
+) -> JsonTokenKind {
+    if kind ==
+       JsonTokenKind.RightBrace {
+        return JsonTokenKind.LeftBrace;
+    }
+
+    if kind ==
+       JsonTokenKind.RightBracket {
+        return JsonTokenKind.LeftBracket;
+    }
+
+    return JsonTokenKind.Invalid;
+}
+
+proc boundaries_match(
+    open: JsonTokenKind,
+    close: JsonTokenKind
+) -> bool {
+    return matching_close(open) ==
+         close;
+}
+
+/// -------------------------------------------------------------------------
+/// Validation
+/// -------------------------------------------------------------------------
+
+proc kind_valid(
+    kind: JsonTokenKind
+) -> bool {
+    return kind !=
+         JsonTokenKind.Invalid;
+}
+
+proc validate(
+    value: &JsonToken
+) -> bool {
+    if not kind_valid(
+        value.kind) {
+        return false;
+    }
+
+    if not span_valid(
+        &value.span) {
+        return false;
+    }
+
+    if value.kind ==
+       JsonTokenKind.End {
+        return value.lexeme.length == 0 &&
+             value.value.length == 0 &&
+             span_empty(
+                 &value.span);
+    }
+
+    if value.lexeme.length == 0 {
+        return false;
+    }
+
+    if is_punctuation(value) {
+        return value.lexeme ==
+                 punctuation_text(
+                     value.kind) &&
+             value.value ==
+                 value.lexeme;
+    }
+
+    if value.kind ==
+       JsonTokenKind.Null ||
+       value.kind ==
+           JsonTokenKind.True ||
+       value.kind ==
+           JsonTokenKind.False {
+        return value.lexeme ==
+                 literal_text(
+                     value.kind) &&
+             value.value ==
+                 value.lexeme;
+    }
+
+    if value.kind ==
+       JsonTokenKind.String {
+        if value.lexeme.length < 2 {
+            return false;
+        }
+
+        let last_index: usize =
+            value.lexeme.length - 1;
+
+        return value.lexeme[0] == '"' &&
+             value.lexeme[last_index] ==
+                     '"';
+    }
+
+    if value.kind ==
+       JsonTokenKind.Number {
+        return value.value ==
+             value.lexeme;
+    }
+
+    return true;
+}
+
+/// -------------------------------------------------------------------------
+/// Equality
+/// -------------------------------------------------------------------------
+
+proc token_equal(
+    left: &JsonToken,
+    right: &JsonToken
+) -> bool {
+    return left.kind ==
+             right.kind &&
+         left.lexeme ==
+             right.lexeme &&
+         left.value ==
+             right.value &&
+         spans_equal(
+             &left.span,
+             &right.span);
+}
+
+proc same_kind(
+    left: &JsonToken,
+    right: &JsonToken
+) -> bool {
+    return left.kind ==
+         right.kind;
+}
+
+proc same_value(
+    left: &JsonToken,
+    right: &JsonToken
+) -> bool {
+    return left.kind ==
+             right.kind &&
+         left.value ==
+             right.value;
+}
+
+proc same_source(
+    left: &JsonToken,
+    right: &JsonToken
+) -> bool {
+    return left.lexeme ==
+             right.lexeme &&
+         spans_equal(
+             &left.span,
+             &right.span);
+}
+
+/// -------------------------------------------------------------------------
+/// Ordering by source location
+/// -------------------------------------------------------------------------
+
+proc token_before(
+    left: &JsonToken,
+    right: &JsonToken
+) -> bool {
+    return left.span.end.offset <=
+         right.span.start.offset;
+}
+
+proc token_after(
+    left: &JsonToken,
+    right: &JsonToken
+) -> bool {
+    return left.span.start.offset >=
+         right.span.end.offset;
+}
+
+proc overlaps(
+    left: &JsonToken,
+    right: &JsonToken
+) -> bool {
+    return spans_overlap(
+        &left.span,
+        &right.span);
+}
+
+/// -------------------------------------------------------------------------
+/// Token sequence helpers
+/// -------------------------------------------------------------------------
+
+proc sequence_starts_value(
+    tokens: [JsonToken]
+) -> bool {
+    if tokens.length == 0 {
+        return false;
+    }
+
+    return begins_value(
+        &tokens[0]);
+}
+
+proc sequence_ends_input(
+    tokens: [JsonToken]
+) -> bool {
+    if tokens.length == 0 {
+        return false;
+    }
+
+    let last_index: usize =
+        tokens.length - 1;
+
+    return tokens[last_index].kind ==
+            JsonTokenKind.End;
+}
+
+proc count_kind(
+    tokens: [JsonToken],
+    kind: JsonTokenKind
+) -> usize {
+    let mut result: usize = 0;
+
+    let mut index: usize = 0;
+
+    while index <
+          tokens.length {
+        if tokens[index].kind ==
+           kind {
+            set result += 1;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc count_literals(
+    tokens: [JsonToken]
+) -> usize {
+    let mut result: usize = 0;
+
+    let mut index: usize = 0;
+
+    while index <
+          tokens.length {
+        if is_literal(
+            &tokens[index]) {
+            set result += 1;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc count_punctuation(
+    tokens: [JsonToken]
+) -> usize {
+    let mut result: usize = 0;
+
+    let mut index: usize = 0;
+
+    while index <
+          tokens.length {
+        if is_punctuation(
+            &tokens[index]) {
+            set result += 1;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc validate_sequence(
+    tokens: [JsonToken]
+) -> bool {
+    if tokens.length == 0 {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index <
+          tokens.length {
+        if not validate(
+            &tokens[index]) {
+            return false;
+        }
+
+        if index > 0 &&
+           tokens[index].span.start.offset <
+           tokens[index - 1].span.end.offset {
+            return false;
+        }
+
+        if tokens[index].kind ==
+               JsonTokenKind.End &&
+           index + 1 !=
+               tokens.length {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return sequence_ends_input(
+        tokens);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — construction
+/// -------------------------------------------------------------------------
+
+test "json token invalid" {
+    let value: JsonToken =
+        invalid();
+
+    assert value.kind ==
+        JsonTokenKind.Invalid;
+
+    assert is_invalid(
+        &value);
+
+    assert not validate(
+        &value);
+}
+
+test "json token end" {
+    let location: JsonPosition =
+        position(
+            42,
+            3,
+            8);
+
+    let value: JsonToken =
+        end(location);
+
+    assert value.kind ==
+        JsonTokenKind.End;
+
+    assert is_end(
+        &value);
+
+    assert value.span.start.offset ==
+        42;
+
+    assert value.span.end.offset ==
+        42;
+
+    assert validate(
+        &value);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — names
+/// -------------------------------------------------------------------------
+
+test "json token kind names" {
+    assert kind_name(
+        JsonTokenKind.LeftBrace) ==
+            "left-brace";
+
+    assert kind_name(
+        JsonTokenKind.RightBrace) ==
+            "right-brace";
+
+    assert kind_name(
+        JsonTokenKind.Number) ==
+            "number";
+
+    assert kind_name(
+        JsonTokenKind.String) ==
+            "string";
+
+    assert kind_name(
+        JsonTokenKind.End) ==
+            "end";
+}
+
+test "json token display names" {
+    assert display_name(
+        JsonTokenKind.LeftBrace) ==
+            "'{'";
+
+    assert display_name(
+        JsonTokenKind.RightBracket) ==
+            "']'";
+
+    assert display_name(
+        JsonTokenKind.String) ==
+            "string";
+
+    assert display_name(
+        JsonTokenKind.End) ==
+            "end of input";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — punctuation
+/// -------------------------------------------------------------------------
+
+test "json token punctuation kinds" {
+    assert punctuation_kind('{') ==
+        JsonTokenKind.LeftBrace;
+
+    assert punctuation_kind('}') ==
+        JsonTokenKind.RightBrace;
+
+    assert punctuation_kind('[') ==
+        JsonTokenKind.LeftBracket;
+
+    assert punctuation_kind(']') ==
+        JsonTokenKind.RightBracket;
+
+    assert punctuation_kind(':') ==
+        JsonTokenKind.Colon;
+
+    assert punctuation_kind(',') ==
+        JsonTokenKind.Comma;
+
+    assert punctuation_kind('x') ==
+        JsonTokenKind.Invalid;
+}
+
+test "json token punctuation text" {
+    assert punctuation_text(
+        JsonTokenKind.LeftBrace) ==
+            "{";
+
+    assert punctuation_text(
+        JsonTokenKind.RightBrace) ==
+            "}";
+
+    assert punctuation_text(
+        JsonTokenKind.LeftBracket) ==
+            "[";
+
+    assert punctuation_text(
+        JsonTokenKind.RightBracket) ==
+            "]";
+
+    assert punctuation_text(
+        JsonTokenKind.Colon) ==
+            ":";
+
+    assert punctuation_text(
+        JsonTokenKind.Comma) ==
+            ",";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — literal kinds
+/// -------------------------------------------------------------------------
+
+test "json token literal kinds" {
+    assert literal_kind(
+        "null") ==
+            JsonTokenKind.Null;
+
+    assert literal_kind(
+        "true") ==
+            JsonTokenKind.True;
+
+    assert literal_kind(
+        "false") ==
+            JsonTokenKind.False;
+
+    assert literal_kind(
+        "Vitte") ==
+            JsonTokenKind.Invalid;
+}
+
+test "json token literal classification" {
+    assert is_literal_kind(
+        JsonTokenKind.Null);
+
+    assert is_literal_kind(
+        JsonTokenKind.True);
+
+    assert is_literal_kind(
+        JsonTokenKind.False);
+
+    assert is_literal_kind(
+        JsonTokenKind.Number);
+
+    assert is_literal_kind(
+        JsonTokenKind.String);
+
+    assert not is_literal_kind(
+        JsonTokenKind.LeftBrace);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — value beginnings
+/// -------------------------------------------------------------------------
+
+test "json token value beginnings" {
+    assert begins_value_kind(
+        JsonTokenKind.Null);
+
+    assert begins_value_kind(
+        JsonTokenKind.True);
+
+    assert begins_value_kind(
+        JsonTokenKind.False);
+
+    assert begins_value_kind(
+        JsonTokenKind.Number);
+
+    assert begins_value_kind(
+        JsonTokenKind.String);
+
+    assert begins_value_kind(
+        JsonTokenKind.LeftBrace);
+
+    assert begins_value_kind(
+        JsonTokenKind.LeftBracket);
+
+    assert not begins_value_kind(
+        JsonTokenKind.Comma);
+
+    assert not begins_value_kind(
+        JsonTokenKind.End);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — structural matching
+/// -------------------------------------------------------------------------
+
+test "json token matching braces" {
+    assert matching_close(
+        JsonTokenKind.LeftBrace) ==
+            JsonTokenKind.RightBrace;
+
+    assert matching_open(
+        JsonTokenKind.RightBrace) ==
+            JsonTokenKind.LeftBrace;
+
+    assert boundaries_match(
+        JsonTokenKind.LeftBrace,
+        JsonTokenKind.RightBrace);
+}
+
+test "json token matching brackets" {
+    assert matching_close(
+        JsonTokenKind.LeftBracket) ==
+            JsonTokenKind.RightBracket;
+
+    assert matching_open(
+        JsonTokenKind.RightBracket) ==
+            JsonTokenKind.LeftBracket;
+
+    assert boundaries_match(
+        JsonTokenKind.LeftBracket,
+        JsonTokenKind.RightBracket);
+}
+
+test "json token mismatched containers" {
+    assert not boundaries_match(
+        JsonTokenKind.LeftBrace,
+        JsonTokenKind.RightBracket);
+
+    assert not boundaries_match(
+        JsonTokenKind.LeftBracket,
+        JsonTokenKind.RightBrace);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — punctuation token
+/// -------------------------------------------------------------------------
+
+test "json token constructs punctuation" {
+    let location: JsonSpan =
+        span(
+            position(
+                0,
+                0,
+                0),
+
+            position(
+                1,
+                0,
+                1));
+
+    let value: JsonToken =
+        punctuation(
+            JsonTokenKind.LeftBrace,
+            "{",
+            location);
+
+    assert value.kind ==
+        JsonTokenKind.LeftBrace;
+
+    assert value.lexeme == "{";
+
+    assert value.value == "{";
+
+    assert is_punctuation(
+        &value);
+
+    assert validate(
+        &value);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — string token
+/// -------------------------------------------------------------------------
+
+test "json token constructs string" {
+    let location: JsonSpan =
+        span(
+            position(
+                0,
+                0,
+                0),
+
+            position(
+                9,
+                0,
+                9));
+
+    let value: JsonToken =
+        string_token(
+            "\"Vitte\\n\"",
+            "Vitte\n",
+            location);
+
+    assert value.kind ==
+        JsonTokenKind.String;
+
+    assert value.lexeme ==
+        "\"Vitte\\n\"";
+
+    assert value.value ==
+        "Vitte\n";
+
+    assert is_string(
+        &value);
+
+    assert source_length(
+        &value) == 9;
+
+    assert decoded_length(
+        &value) == 6;
+
+    assert validate(
+        &value);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — number token
+/// -------------------------------------------------------------------------
+
+test "json token constructs number" {
+    let location: JsonSpan =
+        span(
+            position(
+                10,
+                1,
+                2),
+
+            position(
+                17,
+                1,
+                9));
+
+    let value: JsonToken =
+        number_token(
+            "-12.5e2",
+            location);
+
+    assert value.kind ==
+        JsonTokenKind.Number;
+
+    assert value.lexeme ==
+        "-12.5e2";
+
+    assert value.value ==
+        "-12.5e2";
+
+    assert is_number(
+        &value);
+
+    assert validate(
+        &value);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — boolean
+/// -------------------------------------------------------------------------
+
+test "json token boolean values" {
+    let location: JsonSpan =
+        empty_span();
+
+    let true_value: JsonToken =
+        literal(
+            JsonTokenKind.True,
+            "true",
+            location);
+
+    let false_value: JsonToken =
+        literal(
+            JsonTokenKind.False,
+            "false",
+            location);
+
+    assert boolean_value(
+        &true_value);
+
+    assert not boolean_value(
+        &false_value);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — equality
+/// -------------------------------------------------------------------------
+
+test "json token equality" {
+    let location: JsonSpan =
+        span(
+            position(
+                0,
+                0,
+                0),
+
+            position(
+                2,
+                0,
+                2));
+
+    let left: JsonToken =
+        number_token(
+            "42",
+            location);
+
+    let right: JsonToken =
+        number_token(
+            "42",
+            location);
+
+    assert token_equal(
+        &left,
+        &right);
+
+    assert same_kind(
+        &left,
+        &right);
+
+    assert same_value(
+        &left,
+        &right);
+
+    assert same_source(
+        &left,
+        &right);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — source ordering
+/// -------------------------------------------------------------------------
+
+test "json token source ordering" {
+    let left: JsonToken =
+        number_token(
+            "20",
+
+            span(
+                position(
+                    0,
+                    0,
+                    0),
+
+                position(
+                    2,
+                    0,
+                    2)));
+
+    let right: JsonToken =
+        number_token(
+            "22",
+
+            span(
+                position(
+                    3,
+                    0,
+                    3),
+
+                position(
+                    5,
+                    0,
+                    5)));
+
+    assert token_before(
+        &left,
+        &right);
+
+    assert token_after(
+        &right,
+        &left);
+
+    assert not overlaps(
+        &left,
+        &right);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — sequence
+/// -------------------------------------------------------------------------
+
+test "json token validates sequence" {
+    let open: JsonToken =
+        punctuation(
+            JsonTokenKind.LeftBracket,
+            "[",
+
+            span(
+                position(
+                    0,
+                    0,
+                    0),
+
+                position(
+                    1,
+                    0,
+                    1)));
+
+    let number: JsonToken =
+        number_token(
+            "42",
+
+            span(
+                position(
+                    1,
+                    0,
+                    1),
+
+                position(
+                    3,
+                    0,
+                    3)));
+
+    let close: JsonToken =
+        punctuation(
+            JsonTokenKind.RightBracket,
+            "]",
+
+            span(
+                position(
+                    3,
+                    0,
+                    3),
+
+                position(
+                    4,
+                    0,
+                    4)));
+
+    let eof: JsonToken =
+        end(
+            position(
+                4,
+                0,
+                4));
+
+    let tokens: [JsonToken] =
+        [
+            open,
+            number,
+            close,
+            eof,
+        ];
+
+    assert validate_sequence(
+        tokens);
+
+    assert sequence_starts_value(
+        tokens);
+
+    assert sequence_ends_input(
+        tokens);
+
+    assert count_literals(
+        tokens) == 1;
+
+    assert count_punctuation(
+        tokens) == 2;
+
+    assert count_kind(
+        tokens,
+        JsonTokenKind.Number) == 1;
+}

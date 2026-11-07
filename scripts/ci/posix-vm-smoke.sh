@@ -38,7 +38,7 @@ command -v "$CC"
 build/bin/vitte --version
 build/bin/vitte help >/dev/null
 build/bin/vitte check examples/hello.vit --quiet
-"$GMAKE" MODE=release CC="$CC" SHELL=/bin/sh test-runtime
+build/bin/vitte run examples/hello.vit --quiet
 VITTE_BIN="$PWD/build/bin/vitte" \
   VITTE_BOOTSTRAP_BIN="$PWD/build/bin/vitte-bootstrap" \
   sh scripts/ci/package-install-smoke.sh

@@ -128,15 +128,14 @@ conditions suivantes seront réunies :
 
 Le bootstrap peut servir de compilateur seed pendant la construction et rester
 archivé pour cette étape. Il ne peut ni participer au lien de `vitte`, ni
-prendre en charge une commande à l’exécution. L’entrée du processus est
-raccordée au dispatcher Vitte et les objets du lien principal sont limités aux
-adaptateurs de frontière. La compilation release du frontend natif et la
-génération C17 de l’API passent. `vitte install` est dispatché vers un module
-Vitte avec vérification SHA-256 et mise à jour transactionnelle des fichiers du
-projet. Au 6 novembre 2026, les gates multiplateformes de parité, corpus,
-self-host et installation ont été observés verts sur Linux, macOS et Windows.
-L’audit détaillé des symboles du binaire principal reste à réaliser avant de
-déclarer le compilateur Vitte autonome à 100 %.
+prendre en charge une commande à l’exécution. Le travail en cours a déjà
+raccordé l’entrée du processus au dispatcher Vitte et limité les objets
+sélectionnés par le lien principal aux adaptateurs de frontière. La compilation
+release du frontend natif et la génération C17 de l’API passent désormais.
+`vitte install` est maintenant dispatché vers un module Vitte avec vérification
+SHA-256 et mise à jour transactionnelle des fichiers du projet. L’audit détaillé
+des symboles et les gates de parité/self-host sur Linux, macOS et Windows restent
+à confirmer.
 
 Les stages vérifiés sont mémorisés sous `build/selfhost/`. Pour reprendre après
 un échec, relancez directement la cible du stage concerné :
@@ -219,12 +218,42 @@ Le workflow réutilisable
 QEMU via VMActions depuis des runners GitHub Actions Ubuntu hébergés : FreeBSD,
 OpenBSD, NetBSD, Solaris, OmniOS et OpenIndiana. Aucun runner personnel n’est
 requis. Dans chaque invité, le gate construit le compilateur en release, vérifie
-`--version`, `help` et `check`, exécute les tests runtime et installe le paquet
-JSON avec `vitte install`. Le job POSIX est requis par `Release readiness`.
+`--version`, `help` et `check`, exécute `vitte run examples/hello.vit`, puis
+installe le paquet JSON avec `vitte install`. Le job POSIX est requis par
+`Release readiness`.
+
+#### Smoke tests d’architectures 32 bits et embarquées
+
+Le workflow réutilisable
+[`architecture-smoke.yml`](.github/workflows/architecture-smoke.yml) est lui
+aussi requis par `Release readiness`. Il construit le frontend natif avec un
+compilateur hôte, puis vérifie les exécutables croisés lorsqu’un runner peut les
+exécuter. Pour FreeBSD, dont les VMs hébergées ne proposent pas d’invité i386 ou
+ARMv7, il compile les objets C17 de tout le compilateur dans une VM x86_64 ou
+AArch64. Pour Android ARMv7, il lie le compilateur avec le NDK ; l’exécutable
+Android n’est pas lancé dans ce gate.
+
+| Cible demandée | Niveau indiqué | Vérification CI |
+| --- | --- | --- |
+| i386/i686 Linux | Très bonne | Build complet du compilateur, CLI et programme C généré, exécutés sous QEMU i386. |
+| i386/i686 FreeBSD | Très bonne | Compilation des objets du compilateur en ABI 32 bits dans une VM FreeBSD x86_64 ; pas d’exécution du binaire i386. |
+| i386/i686 Windows | Très bonne | Build et exécution du compilateur, de la CLI et du programme C généré avec MinGW 32 bits sur Windows x64. |
+| ARMv6 Linux / Raspberry Pi 1 | Bonne | Build complet et smoke CLI sous QEMU ARMv6, puis exécution du programme C généré avec ABI soft-float. Cela vérifie l’ABI Linux ARMv6, pas un appareil Pi 1 physique. |
+| ARMv7 Linux | Bonne | Build complet, CLI et programme C généré exécutés sous QEMU ARMv7 hard-float. |
+| ARMv7 FreeBSD | Bonne | Compilation des objets du compilateur avec la cible FreeBSD ARMv7 depuis une VM FreeBSD AArch64 ; pas d’exécution ARMv7. |
+| ARMv7 Android | Bonne | Lien complet avec le NDK ARMv7, cible Android API 28, et vérification ELF ; l’exécutable n’est pas lancé sur un appareil ou émulateur Android. |
+| RISC-V RV32 Linux embarqué / bare-metal | Expérimentale | Compilation du C d’un petit programme Vitte vers un objet ELF32 RISC-V avec GCC bare-metal (`rv32imac`, ABI `ilp32`) ; pas de lien ni d’exécution du compilateur RV32. |
+| MIPS32 Linux | Bonne | Build complet, CLI et programme C généré exécutés sous QEMU MIPS32 little-endian. |
+| PowerPC 32 Linux | Possible | Build complet, CLI et programme C généré exécutés sous QEMU PowerPC big-endian ; cela ne vérifie pas Mac OS X PowerPC. |
+
+Ces niveaux décrivent le niveau de support attendu ; les résultats CI ne
+certifient que les opérations et environnements indiqués dans la dernière
+colonne. Le premier run de ce gate a réussi ; son résultat figure avec les
+autres gates dans le tableau ci-dessous.
 
 #### Résultats observés au 7 novembre 2026
 
-Le [run CI 42319371806](https://github.com/vitte-lang/vitte/actions/runs/42319371806), sur le commit [`836e788`](https://github.com/vitte-lang/vitte/commit/836e788bfe9b6c8a7413877d17dd1ad0f9abfe3f), a terminé avec succès :
+Le [run CI 42331580859](https://github.com/vitte-lang/vitte/actions/runs/42331580859), sur le commit [`f460997`](https://github.com/vitte-lang/vitte/commit/f4609970165678dd65048ee4af268e308c5dabcd), a terminé avec succès :
 
 | Gate | Résultat observé |
 | --- | --- |
@@ -232,26 +261,29 @@ Le [run CI 42319371806](https://github.com/vitte-lang/vitte/actions/runs/4231937
 | Self-host, parité native, corpus et stages 0–3 | Réussi sous Linux, macOS et Windows (3/3). |
 | Construction et installation des paquets natifs | Réussi sous Linux (`.deb`), macOS (`.pkg`/`.dmg`) et Windows (NSIS), avec vérification des manifestes, installation réelle et smoke `vitte install` (3/3). |
 | Portabilité POSIX en VMs | Réussie sous FreeBSD, OpenBSD, NetBSD, Solaris, OmniOS et OpenIndiana (6/6). |
+| Architectures 32 bits et embarquées | Réussi : 10/10 jobs, avec Linux i386, ARMv6, ARMv7, MIPS32 et PowerPC32, Windows i386, FreeBSD i386/ARMv7, Android ARMv7 et l’objet bare-metal RV32. |
 | Extension et DAP natif | Réussi. |
-| Jobs de ce run | **100 % : 15/15 réussis**, sans job ignoré. |
+| Jobs de ce run | **100 % : 25/25 réussis**, sans job ignoré. |
 | Gate agrégé `Release readiness` de ce run | **Réussi.** |
 
-Le job compilateur a exécuté les 16 tests de charge en 389,6 s sur le runner
+Le job compilateur a exécuté les 16 tests de charge en 371,3 s sur le runner
 Linux, avec une entrée de 2 Mio en profil debug et un délai maximal de 180 s
 par processus. Le profil release conserve les entrées de 48 Mio. Sur le poste
-macOS local, `make MODE=release SHELL=/bin/zsh compiler-max-gate-fast` et
-`make MODE=release SHELL=/bin/zsh bootstrap-selfhost` ont également réussi ; le
-corpus a vérifié 93 cas positifs, 18 cas négatifs, zéro écart connu et zéro
-échec (2 cas ignorés). Les stages self-host 0–3 ainsi que les commandes CLI
-`help`, `version`, `explain` et `install`, y compris le rollback d’installation,
+macOS local, `make MODE=release test`, `make MODE=release test-runtime`,
+`make MODE=release test-native-bootstrap-parity` et
+`make MODE=release bootstrap-selfhost` ont également réussi ; le corpus a
+vérifié 93 cas positifs, 18 cas négatifs, zéro écart connu et zéro échec
+(2 cas ignorés). Les stages self-host 0–3 ainsi que les commandes CLI `help`,
+`version`, `explain` et `install`, y compris le rollback d’installation,
 ont été vérifiés.
 
-Le statut **100 %** ci-dessus décrit précisément le run cité : 15 jobs réussis
-sur 15, couvrant compilateur/runtime, self-host (3 systèmes), installation de
-paquets (3 systèmes), portabilité VM (6 systèmes), extension/DAP et le gate
-agrégé `Release readiness`. Le statut s’applique au commit `836e788` et à ce
-run CI ; il ne constitue pas à lui seul une déclaration d’autonomie complète du
-compilateur, qui dépend encore de l’audit des symboles du binaire principal.
+Le statut **100 %** ci-dessus décrit précisément le run cité : 25 jobs réussis
+sur 25, couvrant compilateur/runtime, self-host (3 systèmes), installation de
+paquets (3 systèmes), portabilité VM (6 systèmes), architectures (10 jobs),
+extension/DAP et le gate agrégé `Release readiness`. Le statut s’applique au
+commit `f460997` et à ce run CI ; il ne constitue pas à lui seul une déclaration
+d’autonomie complète du compilateur, qui dépend encore de l’audit des symboles
+du binaire principal.
 
 La branche `main` exige le statut `Release readiness`, avec les vérifications à
 jour et sans contournement administrateur. Les règles de protection GitHub sont

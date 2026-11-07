@@ -1,0 +1,3017 @@
+/// Comprehensive JSON parser tests.
+///
+/// This suite validates successful parsing of standards-compliant JSON.
+///
+/// Covered:
+///
+/// - null
+/// - booleans
+/// - integers
+/// - floating-point numbers
+/// - exponent notation
+/// - strings
+/// - escapes
+/// - Unicode escapes
+/// - arrays
+/// - objects
+/// - nested structures
+/// - whitespace
+/// - complete-input consumption
+/// - value kinds
+/// - decoded values
+/// - object member lookup
+/// - deterministic parsing
+/// - parser reuse
+/// - realistic documents
+/// - boundary and regression cases
+
+space json::tests::parse;
+
+use json::core::value as json_core;
+use json::lexer::lexer::{
+    JsonLexerError,
+    JsonLexerLimits,
+    JsonLexerResult,
+    default_lexer_limits,
+    lex_with_limits,
+    lexer_limits_valid,
+    new_lexer_limits
+};
+use json::parser::parser::{
+    JsonParserDuplicateKeyPolicy,
+    JsonParserError,
+    JsonParserLimits,
+    JsonParseResult,
+    default_parser_limits,
+    new_parser_limits,
+    parse,
+    parse_tokens_with_limits,
+    parse_strict_with_limits,
+    parse_with_limits,
+    parser_limits_valid,
+    strict_parser_limits
+};
+use json::runtime::numeric::{
+    JSON_NUMERIC_I64_MAX,
+    JSON_NUMERIC_I64_MIN,
+    valid
+};
+
+/// -------------------------------------------------------------------------
+/// Helpers
+/// -------------------------------------------------------------------------
+
+proc parses(source: string) -> bool {
+    let result: JsonParseResult =
+        parse(source);
+
+    return result.ok;
+}
+
+proc parsed(source: string) -> json_core::JsonValue {
+    let result: JsonParseResult =
+        parse(source);
+
+    assert result.ok;
+
+    return result.value;
+}
+
+/// -------------------------------------------------------------------------
+/// Null
+/// -------------------------------------------------------------------------
+
+test "parse null" {
+    let result: JsonParseResult =
+        parse("null");
+
+    assert result.ok;
+    assert json_core::is_null(&result.value);
+}
+
+test "parse null with leading whitespace" {
+    let result: JsonParseResult =
+        parse("   null");
+
+    assert result.ok;
+    assert json_core::is_null(&result.value);
+}
+
+test "parse null with trailing whitespace" {
+    let result: JsonParseResult =
+        parse("null   ");
+
+    assert result.ok;
+    assert json_core::is_null(&result.value);
+}
+
+test "parse null surrounded by whitespace" {
+    let result: JsonParseResult =
+        parse(" \t\r\n null \t\r\n ");
+
+    assert result.ok;
+    assert json_core::is_null(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Booleans
+/// -------------------------------------------------------------------------
+
+test "parse true" {
+    let result: JsonParseResult =
+        parse("true");
+
+    assert result.ok;
+    assert json_core::is_bool(&result.value);
+    assert json_core::bool_or(&result.value, false);
+}
+
+test "parse false" {
+    let result: JsonParseResult =
+        parse("false");
+
+    assert result.ok;
+    assert json_core::is_bool(&result.value);
+    assert not json_core::bool_or(&result.value, true);
+}
+
+test "parse true with whitespace" {
+    let result: JsonParseResult =
+        parse(" \n true \t ");
+
+    assert result.ok;
+    assert json_core::is_bool(&result.value);
+    assert json_core::bool_or(&result.value, false);
+}
+
+test "parse false with whitespace" {
+    let result: JsonParseResult =
+        parse("\r\nfalse\r\n");
+
+    assert result.ok;
+    assert json_core::is_bool(&result.value);
+    assert not json_core::bool_or(&result.value, true);
+}
+
+/// -------------------------------------------------------------------------
+/// Integer numbers
+/// -------------------------------------------------------------------------
+
+test "parse integer zero" {
+    let result: JsonParseResult =
+        parse("0");
+
+    assert result.ok;
+    assert json_core::is_integer(&result.value);
+    assert json_core::integer_or(&result.value, -1) == 0;
+}
+
+test "parse positive integer" {
+    let result: JsonParseResult =
+        parse("42");
+
+    assert result.ok;
+    assert json_core::is_integer(&result.value);
+    assert json_core::integer_or(&result.value, 0) == 42;
+}
+
+test "parse negative integer" {
+    let result: JsonParseResult =
+        parse("-42");
+
+    assert result.ok;
+    assert json_core::is_integer(&result.value);
+    assert json_core::integer_or(&result.value, 0) == -42;
+}
+
+test "parse integer one" {
+    let result: JsonParseResult =
+        parse("1");
+
+    assert result.ok;
+    assert json_core::integer_or(&result.value, 0) == 1;
+}
+
+test "parse negative one" {
+    let result: JsonParseResult =
+        parse("-1");
+
+    assert result.ok;
+    assert json_core::integer_or(&result.value, 0) == -1;
+}
+
+test "parse large positive integer" {
+    let result: JsonParseResult =
+        parse("123456789");
+
+    assert result.ok;
+    assert json_core::is_integer(&result.value);
+
+    assert json_core::integer_or(
+        &result.value,
+        0) == 123456789;
+}
+
+test "parse large negative integer" {
+    let result: JsonParseResult =
+        parse("-123456789");
+
+    assert result.ok;
+    assert json_core::is_integer(&result.value);
+
+    assert json_core::integer_or(
+        &result.value,
+        0) == -123456789;
+}
+
+test "parse i64 maximum" {
+    let result: JsonParseResult =
+        parse("9223372036854775807");
+
+    assert result.ok;
+    assert json_core::is_integer(&result.value);
+
+    assert json_core::integer_or(
+        &result.value,
+        0) ==
+        JSON_NUMERIC_I64_MAX;
+}
+
+test "parse i64 minimum" {
+    let result: JsonParseResult =
+        parse("-9223372036854775808");
+
+    assert result.ok;
+    assert json_core::is_integer(&result.value);
+
+    assert json_core::integer_or(
+        &result.value,
+        0) ==
+        JSON_NUMERIC_I64_MIN;
+}
+
+/// -------------------------------------------------------------------------
+/// Decimal numbers
+/// -------------------------------------------------------------------------
+
+test "parse simple decimal" {
+    let result: JsonParseResult =
+        parse("1.5");
+
+    assert result.ok;
+    assert json_core::is_float(&result.value);
+}
+
+test "parse negative decimal" {
+    let result: JsonParseResult =
+        parse("-1.5");
+
+    assert result.ok;
+    assert json_core::is_float(&result.value);
+}
+
+test "parse zero decimal" {
+    let result: JsonParseResult =
+        parse("0.5");
+
+    assert result.ok;
+    assert json_core::is_float(&result.value);
+}
+
+test "parse negative zero decimal" {
+    let result: JsonParseResult =
+        parse("-0.5");
+
+    assert result.ok;
+    assert json_core::is_float(&result.value);
+}
+
+test "parse long decimal" {
+    let result: JsonParseResult =
+        parse("12345.6789");
+
+    assert result.ok;
+    assert json_core::is_float(&result.value);
+}
+
+test "parse small decimal" {
+    let result: JsonParseResult =
+        parse("0.000001");
+
+    assert result.ok;
+    assert json_core::is_float(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Exponent notation
+/// -------------------------------------------------------------------------
+
+test "parse lowercase exponent" {
+    let result: JsonParseResult =
+        parse("1e3");
+
+    assert result.ok;
+    assert json_core::is_number(&result.value);
+}
+
+test "parse uppercase exponent" {
+    let result: JsonParseResult =
+        parse("1E3");
+
+    assert result.ok;
+    assert json_core::is_number(&result.value);
+}
+
+test "parse positive exponent" {
+    let result: JsonParseResult =
+        parse("1e+3");
+
+    assert result.ok;
+    assert json_core::is_number(&result.value);
+}
+
+test "parse negative exponent" {
+    let result: JsonParseResult =
+        parse("1e-3");
+
+    assert result.ok;
+    assert json_core::is_number(&result.value);
+}
+
+test "parse uppercase positive exponent" {
+    let result: JsonParseResult =
+        parse("1E+3");
+
+    assert result.ok;
+    assert json_core::is_number(&result.value);
+}
+
+test "parse uppercase negative exponent" {
+    let result: JsonParseResult =
+        parse("1E-3");
+
+    assert result.ok;
+    assert json_core::is_number(&result.value);
+}
+
+test "parse decimal exponent" {
+    let result: JsonParseResult =
+        parse("1.25e3");
+
+    assert result.ok;
+    assert json_core::is_number(&result.value);
+}
+
+test "parse negative decimal exponent" {
+    let result: JsonParseResult =
+        parse("-1.25e-3");
+
+    assert result.ok;
+    assert json_core::is_number(&result.value);
+}
+
+test "parse zero exponent" {
+    let result: JsonParseResult =
+        parse("0e0");
+
+    assert result.ok;
+    assert json_core::is_number(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Empty strings
+/// -------------------------------------------------------------------------
+
+test "parse empty string" {
+    let result: JsonParseResult =
+        parse("\"\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+
+    assert json_core::string_or(
+        &result.value,
+        "invalid") == "";
+}
+
+/// -------------------------------------------------------------------------
+/// Ordinary strings
+/// -------------------------------------------------------------------------
+
+test "parse simple string" {
+    let result: JsonParseResult =
+        parse("\"hello\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "hello";
+}
+
+test "parse string with spaces" {
+    let result: JsonParseResult =
+        parse("\"hello world\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "hello world";
+}
+
+test "parse numeric looking string" {
+    let result: JsonParseResult =
+        parse("\"42\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "42";
+}
+
+test "parse boolean looking string" {
+    let result: JsonParseResult =
+        parse("\"true\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "true";
+}
+
+test "parse null looking string" {
+    let result: JsonParseResult =
+        parse("\"null\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "null";
+}
+
+test "parse structural characters inside string" {
+    let result: JsonParseResult =
+        parse("\"{}[],:\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "{}[],:";
+}
+
+/// -------------------------------------------------------------------------
+/// Standard string escapes
+/// -------------------------------------------------------------------------
+
+test "parse escaped quote" {
+    let result: JsonParseResult =
+        parse("\"a\\\"b\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "a\"b";
+}
+
+test "parse escaped backslash" {
+    let result: JsonParseResult =
+        parse("\"a\\\\b\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "a\\b";
+}
+
+test "parse escaped slash" {
+    let result: JsonParseResult =
+        parse("\"a\\/b\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "a/b";
+}
+
+test "parse escaped backspace" {
+    let result: JsonParseResult =
+        parse("\"a\\bb\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "a\bb";
+}
+
+test "parse escaped form feed" {
+    let result: JsonParseResult =
+        parse("\"a\\fb\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "a\fb";
+}
+
+test "parse escaped newline" {
+    let result: JsonParseResult =
+        parse("\"a\\nb\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "a\nb";
+}
+
+test "parse escaped carriage return" {
+    let result: JsonParseResult =
+        parse("\"a\\rb\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "a\rb";
+}
+
+test "parse escaped tab" {
+    let result: JsonParseResult =
+        parse("\"a\\tb\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "a\tb";
+}
+
+test "parse every short escape" {
+    let result: JsonParseResult =
+        parse("\"\\\"\\\\\\/\\b\\f\\n\\r\\t\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode escapes
+/// -------------------------------------------------------------------------
+
+test "parse unicode ascii escape" {
+    let result: JsonParseResult =
+        parse("\"\\u0041\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "A";
+}
+
+test "parse unicode lowercase hex" {
+    let result: JsonParseResult =
+        parse("\"\\u0061\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "a";
+}
+
+test "parse unicode null scalar escape" {
+    let result: JsonParseResult =
+        parse("\"\\u0000\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+test "parse unicode newline scalar escape" {
+    let result: JsonParseResult =
+        parse("\"\\u000A\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "\n";
+}
+
+test "parse unicode quote scalar escape" {
+    let result: JsonParseResult =
+        parse("\"\\u0022\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "\"";
+}
+
+test "parse unicode backslash scalar escape" {
+    let result: JsonParseResult =
+        parse("\"\\u005C\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "\\";
+}
+
+test "parse unicode latin escape" {
+    let result: JsonParseResult =
+        parse("\"caf\\u00E9\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "café";
+}
+
+test "parse multiple unicode escapes" {
+    let result: JsonParseResult =
+        parse("\"\\u0041\\u0042\\u0043\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "ABC";
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode surrogate pairs
+/// -------------------------------------------------------------------------
+
+test "parse minimum supplementary scalar" {
+    let result: JsonParseResult =
+        parse("\"\\uD800\\uDC00\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+test "parse maximum unicode scalar surrogate pair" {
+    let result: JsonParseResult =
+        parse("\"\\uDBFF\\uDFFF\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+test "parse common emoji surrogate pair" {
+    let result: JsonParseResult =
+        parse("\"\\uD83D\\uDE00\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Literal Unicode
+/// -------------------------------------------------------------------------
+
+test "parse literal accented unicode" {
+    let result: JsonParseResult =
+        parse("\"café\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "café";
+}
+
+test "parse literal greek unicode" {
+    let result: JsonParseResult =
+        parse("\"αβγ\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "αβγ";
+}
+
+test "parse literal cyrillic unicode" {
+    let result: JsonParseResult =
+        parse("\"Привет\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "Привет";
+}
+
+test "parse literal japanese unicode" {
+    let result: JsonParseResult =
+        parse("\"こんにちは\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "こんにちは";
+}
+
+/// -------------------------------------------------------------------------
+/// Empty arrays
+/// -------------------------------------------------------------------------
+
+test "parse empty array" {
+    let result: JsonParseResult =
+        parse("[]");
+
+    assert result.ok;
+    assert json_core::is_array(&result.value);
+
+    assert json_core::array_len(
+        &result.value) == 0;
+}
+
+test "parse whitespace empty array" {
+    let result: JsonParseResult =
+        parse("[   ]");
+
+    assert result.ok;
+    assert json_core::is_array(&result.value);
+
+    assert json_core::array_len(
+        &result.value) == 0;
+}
+
+test "parse multiline empty array" {
+    let result: JsonParseResult =
+        parse("[\n\t\r\n]");
+
+    assert result.ok;
+    assert json_core::is_array(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Single-element arrays
+/// -------------------------------------------------------------------------
+
+test "parse array with null" {
+    let result: JsonParseResult =
+        parse("[null]");
+
+    assert result.ok;
+    assert json_core::is_array(&result.value);
+    assert json_core::array_len(&result.value) == 1;
+
+    assert json_core::is_null(
+        json_core::array_get_ref(&result.value, 0));
+}
+
+test "parse array with true" {
+    let result: JsonParseResult =
+        parse("[true]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 1;
+
+    assert json_core::bool_or(
+        json_core::array_get_ref(&result.value, 0),
+        false);
+}
+
+test "parse array with integer" {
+    let result: JsonParseResult =
+        parse("[42]");
+
+    assert result.ok;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(&result.value, 0),
+        0) == 42;
+}
+
+test "parse array with string" {
+    let result: JsonParseResult =
+        parse("[\"Vitte\"]");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        json_core::array_get_ref(&result.value, 0),
+        "") == "Vitte";
+}
+
+/// -------------------------------------------------------------------------
+/// Primitive arrays
+/// -------------------------------------------------------------------------
+
+test "parse integer array" {
+    let result: JsonParseResult =
+        parse("[1,2,3]");
+
+    assert result.ok;
+    assert json_core::is_array(&result.value);
+    assert json_core::array_len(&result.value) == 3;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(&result.value, 0),
+        0) == 1;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(&result.value, 1),
+        0) == 2;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(&result.value, 2),
+        0) == 3;
+}
+
+test "parse boolean array" {
+    let result: JsonParseResult =
+        parse("[true,false,true]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 3;
+
+    assert json_core::bool_or(
+        json_core::array_get_ref(&result.value, 0),
+        false);
+
+    assert not json_core::bool_or(
+        json_core::array_get_ref(&result.value, 1),
+        true);
+
+    assert json_core::bool_or(
+        json_core::array_get_ref(&result.value, 2),
+        false);
+}
+
+test "parse string array" {
+    let result: JsonParseResult =
+        parse("[\"a\",\"b\",\"c\"]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 3;
+
+    assert json_core::string_or(
+        json_core::array_get_ref(&result.value, 0),
+        "") == "a";
+
+    assert json_core::string_or(
+        json_core::array_get_ref(&result.value, 1),
+        "") == "b";
+
+    assert json_core::string_or(
+        json_core::array_get_ref(&result.value, 2),
+        "") == "c";
+}
+
+test "parse heterogeneous array" {
+    let result: JsonParseResult =
+        parse(
+            "[null,true,false,42,1.5,\"Vitte\",[],{}]");
+
+    assert result.ok;
+    assert json_core::is_array(&result.value);
+    assert json_core::array_len(&result.value) == 8;
+
+    assert json_core::is_null(
+        json_core::array_get_ref(&result.value, 0));
+
+    assert json_core::is_bool(
+        json_core::array_get_ref(&result.value, 1));
+
+    assert json_core::is_bool(
+        json_core::array_get_ref(&result.value, 2));
+
+    assert json_core::is_integer(
+        json_core::array_get_ref(&result.value, 3));
+
+    assert json_core::is_float(
+        json_core::array_get_ref(&result.value, 4));
+
+    assert json_core::is_string(
+        json_core::array_get_ref(&result.value, 5));
+
+    assert json_core::is_array(
+        json_core::array_get_ref(&result.value, 6));
+
+    assert json_core::is_object(
+        json_core::array_get_ref(&result.value, 7));
+}
+
+/// -------------------------------------------------------------------------
+/// Array whitespace
+/// -------------------------------------------------------------------------
+
+test "parse array whitespace around values" {
+    let result: JsonParseResult =
+        parse(
+            "[ 1 , 2 , 3 ]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 3;
+}
+
+test "parse multiline array" {
+    let result: JsonParseResult =
+        parse(
+            "[\n  1,\n  2,\n  3\n]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 3;
+}
+
+test "parse array with mixed json whitespace" {
+    let result: JsonParseResult =
+        parse(
+            "[\t1,\r\n2,\n3\r]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 3;
+}
+
+/// -------------------------------------------------------------------------
+/// Nested arrays
+/// -------------------------------------------------------------------------
+
+test "parse nested empty arrays" {
+    let result: JsonParseResult =
+        parse("[[],[],[]]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 3;
+
+    assert json_core::is_array(
+        json_core::array_get_ref(&result.value, 0));
+
+    assert json_core::is_array(
+        json_core::array_get_ref(&result.value, 1));
+
+    assert json_core::is_array(
+        json_core::array_get_ref(&result.value, 2));
+}
+
+test "parse nested integer arrays" {
+    let result: JsonParseResult =
+        parse("[[1,2],[3,4]]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 2;
+
+    let first: &json_core::JsonValue =
+        json_core::array_get_ref(&result.value, 0);
+
+    let second: &json_core::JsonValue =
+        json_core::array_get_ref(&result.value, 1);
+
+    assert json_core::array_len(first) == 2;
+    assert json_core::array_len(second) == 2;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(first, 0),
+        0) == 1;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(first, 1),
+        0) == 2;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(second, 0),
+        0) == 3;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(second, 1),
+        0) == 4;
+}
+
+test "parse deeply nested arrays" {
+    let result: JsonParseResult =
+        parse("[[[[[42]]]]]");
+
+    assert result.ok;
+
+    let level1: &json_core::JsonValue =
+        json_core::array_get_ref(&result.value, 0);
+
+    let level2: &json_core::JsonValue =
+        json_core::array_get_ref(level1, 0);
+
+    let level3: &json_core::JsonValue =
+        json_core::array_get_ref(level2, 0);
+
+    let level4: &json_core::JsonValue =
+        json_core::array_get_ref(level3, 0);
+
+    let value: &json_core::JsonValue =
+        json_core::array_get_ref(level4, 0);
+
+    assert json_core::integer_or(value, 0) == 42;
+}
+
+/// -------------------------------------------------------------------------
+/// Empty objects
+/// -------------------------------------------------------------------------
+
+test "parse empty object" {
+    let result: JsonParseResult =
+        parse("{}");
+
+    assert result.ok;
+    assert json_core::is_object(&result.value);
+    assert json_core::object_len(&result.value) == 0;
+}
+
+test "parse whitespace empty object" {
+    let result: JsonParseResult =
+        parse("{   }");
+
+    assert result.ok;
+    assert json_core::is_object(&result.value);
+    assert json_core::object_len(&result.value) == 0;
+}
+
+test "parse multiline empty object" {
+    let result: JsonParseResult =
+        parse("{\n\t\r\n}");
+
+    assert result.ok;
+    assert json_core::is_object(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Single-member objects
+/// -------------------------------------------------------------------------
+
+test "parse object null member" {
+    let result: JsonParseResult =
+        parse("{\"value\":null}");
+
+    assert result.ok;
+    assert json_core::is_object(&result.value);
+    assert json_core::object_len(&result.value) == 1;
+
+    let value: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "value");
+
+    assert json_core::is_null(value);
+}
+
+test "parse object boolean member" {
+    let result: JsonParseResult =
+        parse("{\"enabled\":true}");
+
+    assert result.ok;
+
+    let value: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "enabled");
+
+    assert json_core::bool_or(value, false);
+}
+
+test "parse object integer member" {
+    let result: JsonParseResult =
+        parse("{\"answer\":42}");
+
+    assert result.ok;
+
+    let value: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "answer");
+
+    assert json_core::integer_or(value, 0) == 42;
+}
+
+test "parse object float member" {
+    let result: JsonParseResult =
+        parse("{\"value\":1.5}");
+
+    assert result.ok;
+
+    let value: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "value");
+
+    assert json_core::is_float(value);
+}
+
+test "parse object string member" {
+    let result: JsonParseResult =
+        parse("{\"name\":\"Vitte\"}");
+
+    assert result.ok;
+
+    let value: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "name");
+
+    assert json_core::string_or(
+        value,
+        "") == "Vitte";
+}
+
+/// -------------------------------------------------------------------------
+/// Empty object keys
+/// -------------------------------------------------------------------------
+
+test "parse empty object key" {
+    let result: JsonParseResult =
+        parse("{\"\":1}");
+
+    assert result.ok;
+    assert json_core::is_object(&result.value);
+    assert json_core::object_len(&result.value) == 1;
+
+    let value: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "");
+
+    assert json_core::integer_or(value, 0) == 1;
+}
+
+/// -------------------------------------------------------------------------
+/// Multiple object members
+/// -------------------------------------------------------------------------
+
+test "parse object with multiple members" {
+    let result: JsonParseResult =
+        parse(
+            "{\"name\":\"Vitte\",\"version\":1,\"stable\":true}");
+
+    assert result.ok;
+    assert json_core::is_object(&result.value);
+    assert json_core::object_len(&result.value) == 3;
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "name"),
+        "") == "Vitte";
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "version"),
+        0) == 1;
+
+    assert json_core::bool_or(
+        json_core::object_get_ref(
+            &result.value,
+            "stable"),
+        false);
+}
+
+/// -------------------------------------------------------------------------
+/// Object whitespace
+/// -------------------------------------------------------------------------
+
+test "parse object whitespace around punctuation" {
+    let result: JsonParseResult =
+        parse(
+            "{ \"a\" : 1 , \"b\" : 2 }");
+
+    assert result.ok;
+    assert json_core::object_len(&result.value) == 2;
+}
+
+test "parse multiline object" {
+    let result: JsonParseResult =
+        parse(
+            "{\n  \"a\": 1,\n  \"b\": 2\n}");
+
+    assert result.ok;
+    assert json_core::object_len(&result.value) == 2;
+}
+
+test "parse object with mixed whitespace" {
+    let result: JsonParseResult =
+        parse(
+            "{\t\"a\"\r\n:\t1,\n\"b\":\r2}");
+
+    assert result.ok;
+    assert json_core::object_len(&result.value) == 2;
+}
+
+/// -------------------------------------------------------------------------
+/// Escaped object keys
+/// -------------------------------------------------------------------------
+
+test "parse quoted object key" {
+    let result: JsonParseResult =
+        parse("{\"a\\\"b\":1}");
+
+    assert result.ok;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "a\"b"),
+        0) == 1;
+}
+
+test "parse backslash object key" {
+    let result: JsonParseResult =
+        parse("{\"a\\\\b\":1}");
+
+    assert result.ok;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "a\\b"),
+        0) == 1;
+}
+
+test "parse unicode object key" {
+    let result: JsonParseResult =
+        parse("{\"caf\\u00E9\":1}");
+
+    assert result.ok;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "café"),
+        0) == 1;
+}
+
+/// -------------------------------------------------------------------------
+/// Nested objects
+/// -------------------------------------------------------------------------
+
+test "parse nested object" {
+    let result: JsonParseResult =
+        parse(
+            "{\"outer\":{\"inner\":42}}");
+
+    assert result.ok;
+
+    let outer: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "outer");
+
+    assert json_core::is_object(outer);
+
+    let inner: &json_core::JsonValue =
+        json_core::object_get_ref(
+            outer,
+            "inner");
+
+    assert json_core::integer_or(inner, 0) == 42;
+}
+
+test "parse deeply nested object" {
+    let result: JsonParseResult =
+        parse(
+            "{\"a\":{\"b\":{\"c\":{\"d\":42}}}}");
+
+    assert result.ok;
+
+    let a: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "a");
+
+    let b: &json_core::JsonValue =
+        json_core::object_get_ref(a, "b");
+
+    let c: &json_core::JsonValue =
+        json_core::object_get_ref(b, "c");
+
+    let d: &json_core::JsonValue =
+        json_core::object_get_ref(c, "d");
+
+    assert json_core::integer_or(d, 0) == 42;
+}
+
+/// -------------------------------------------------------------------------
+/// Mixed arrays and objects
+/// -------------------------------------------------------------------------
+
+test "parse object containing array" {
+    let result: JsonParseResult =
+        parse(
+            "{\"values\":[1,2,3]}");
+
+    assert result.ok;
+
+    let values: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "values");
+
+    assert json_core::is_array(values);
+    assert json_core::array_len(values) == 3;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(values, 2),
+        0) == 3;
+}
+
+test "parse array containing objects" {
+    let result: JsonParseResult =
+        parse(
+            "[{\"id\":1},{\"id\":2}]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 2;
+
+    let first: &json_core::JsonValue =
+        json_core::array_get_ref(
+            &result.value,
+            0);
+
+    let second: &json_core::JsonValue =
+        json_core::array_get_ref(
+            &result.value,
+            1);
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(first, "id"),
+        0) == 1;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(second, "id"),
+        0) == 2;
+}
+
+test "parse mixed nested tree" {
+    let result: JsonParseResult =
+        parse(
+            "{\"a\":[{\"b\":[1,2,3]},{\"c\":true}],\"d\":null}");
+
+    assert result.ok;
+    assert json_core::is_object(&result.value);
+
+    let a: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "a");
+
+    assert json_core::is_array(a);
+    assert json_core::array_len(a) == 2;
+
+    let first: &json_core::JsonValue =
+        json_core::array_get_ref(a, 0);
+
+    let b: &json_core::JsonValue =
+        json_core::object_get_ref(
+            first,
+            "b");
+
+    assert json_core::array_len(b) == 3;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(b, 2),
+        0) == 3;
+
+    let second: &json_core::JsonValue =
+        json_core::array_get_ref(a, 1);
+
+    assert json_core::bool_or(
+        json_core::object_get_ref(
+            second,
+            "c"),
+        false);
+
+    assert json_core::is_null(
+        json_core::object_get_ref(
+            &result.value,
+            "d"));
+}
+
+/// -------------------------------------------------------------------------
+/// Value kind coverage
+/// -------------------------------------------------------------------------
+
+test "parser covers every json value kind" {
+    let result: JsonParseResult =
+        parse(
+            "[null,true,42,1.5,\"text\",[],{}]");
+
+    assert result.ok;
+
+    assert json_core::is_null(
+        json_core::array_get_ref(
+            &result.value,
+            0));
+
+    assert json_core::is_bool(
+        json_core::array_get_ref(
+            &result.value,
+            1));
+
+    assert json_core::is_integer(
+        json_core::array_get_ref(
+            &result.value,
+            2));
+
+    assert json_core::is_float(
+        json_core::array_get_ref(
+            &result.value,
+            3));
+
+    assert json_core::is_string(
+        json_core::array_get_ref(
+            &result.value,
+            4));
+
+    assert json_core::is_array(
+        json_core::array_get_ref(
+            &result.value,
+            5));
+
+    assert json_core::is_object(
+        json_core::array_get_ref(
+            &result.value,
+            6));
+}
+
+/// -------------------------------------------------------------------------
+/// Type preservation
+/// -------------------------------------------------------------------------
+
+test "parser distinguishes integer and numeric string" {
+    let number_result: JsonParseResult =
+        parse("42");
+
+    let string_result: JsonParseResult =
+        parse("\"42\"");
+
+    assert number_result.ok;
+    assert string_result.ok;
+
+    assert json_core::is_integer(
+        &number_result.value);
+
+    assert json_core::is_string(
+        &string_result.value);
+}
+
+test "parser distinguishes boolean and boolean string" {
+    let boolean_result: JsonParseResult =
+        parse("true");
+
+    let string_result: JsonParseResult =
+        parse("\"true\"");
+
+    assert boolean_result.ok;
+    assert string_result.ok;
+
+    assert json_core::is_bool(
+        &boolean_result.value);
+
+    assert json_core::is_string(
+        &string_result.value);
+}
+
+test "parser distinguishes null and null string" {
+    let null_result: JsonParseResult =
+        parse("null");
+
+    let string_result: JsonParseResult =
+        parse("\"null\"");
+
+    assert null_result.ok;
+    assert string_result.ok;
+
+    assert json_core::is_null(
+        &null_result.value);
+
+    assert json_core::is_string(
+        &string_result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Whitespace grammar
+/// -------------------------------------------------------------------------
+
+test "parse every json whitespace around value" {
+    let result: JsonParseResult =
+        parse(
+            " \t\r\n42 \t\r\n");
+
+    assert result.ok;
+
+    assert json_core::integer_or(
+        &result.value,
+        0) == 42;
+}
+
+test "parse extensive whitespace document" {
+    let result: JsonParseResult =
+        parse(
+            " \r\n\t {\r\n\t \"a\" \t : \t [\n 1 ,\r 2 ,\t3 \n] \r\n } \t ");
+
+    assert result.ok;
+
+    let array: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "a");
+
+    assert json_core::array_len(array) == 3;
+}
+
+/// -------------------------------------------------------------------------
+/// Complete input consumption
+/// -------------------------------------------------------------------------
+
+test "parser consumes complete primitive input" {
+    assert parses("null");
+    assert parses("true");
+    assert parses("false");
+    assert parses("42");
+    assert parses("1.5");
+    assert parses("\"text\"");
+}
+
+test "parser consumes complete container input" {
+    assert parses("[]");
+    assert parses("{}");
+    assert parses("[1,2,3]");
+    assert parses("{\"a\":1}");
+}
+
+/// -------------------------------------------------------------------------
+/// Number runtime integration
+/// -------------------------------------------------------------------------
+
+test "parsed valid numbers agree with numeric runtime" {
+    assert valid("0");
+    assert valid("-1");
+    assert valid("42");
+    assert valid("-42");
+    assert valid("1.5");
+    assert valid("-1.5");
+    assert valid("1e3");
+    assert valid("1e-3");
+
+    assert parses("0");
+    assert parses("-1");
+    assert parses("42");
+    assert parses("-42");
+    assert parses("1.5");
+    assert parses("-1.5");
+    assert parses("1e3");
+    assert parses("1e-3");
+}
+
+/// -------------------------------------------------------------------------
+/// Determinism
+/// -------------------------------------------------------------------------
+
+test "parse null deterministic" {
+    let first: JsonParseResult =
+        parse("null");
+
+    let second: JsonParseResult =
+        parse("null");
+
+    assert first.ok;
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+test "parse primitive deterministic" {
+    let first: JsonParseResult =
+        parse("42");
+
+    let second: JsonParseResult =
+        parse("42");
+
+    assert first.ok;
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+test "parse string deterministic" {
+    let first: JsonParseResult =
+        parse("\"Vitte\"");
+
+    let second: JsonParseResult =
+        parse("\"Vitte\"");
+
+    assert first.ok;
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+test "parse array deterministic" {
+    let source: string =
+        "[null,true,42,\"Vitte\"]";
+
+    let first: JsonParseResult =
+        parse(source);
+
+    let second: JsonParseResult =
+        parse(source);
+
+    assert first.ok;
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+test "parse object deterministic" {
+    let source: string =
+        "{\"name\":\"Vitte\",\"version\":1}";
+
+    let first: JsonParseResult =
+        parse(source);
+
+    let second: JsonParseResult =
+        parse(source);
+
+    assert first.ok;
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Parser state isolation
+/// -------------------------------------------------------------------------
+
+test "parse calls do not retain previous primitive" {
+    let first: JsonParseResult =
+        parse("1");
+
+    let second: JsonParseResult =
+        parse("2");
+
+    assert first.ok;
+    assert second.ok;
+
+    assert json_core::integer_or(
+        &first.value,
+        0) == 1;
+
+    assert json_core::integer_or(
+        &second.value,
+        0) == 2;
+}
+
+test "parse calls do not retain previous string" {
+    let first: JsonParseResult =
+        parse("\"first\"");
+
+    let second: JsonParseResult =
+        parse("\"second\"");
+
+    assert first.ok;
+    assert second.ok;
+
+    assert json_core::string_or(
+        &first.value,
+        "") == "first";
+
+    assert json_core::string_or(
+        &second.value,
+        "") == "second";
+}
+
+test "valid parse after invalid parse" {
+    let invalid_result: JsonParseResult =
+        parse("[1,,2]");
+
+    assert not invalid_result.ok;
+
+    let valid_result: JsonParseResult =
+        parse("[1,2]");
+
+    assert valid_result.ok;
+    assert json_core::array_len(&valid_result.value) == 2;
+}
+
+/// -------------------------------------------------------------------------
+/// Empty structures nested together
+/// -------------------------------------------------------------------------
+
+test "parse nested empty structures" {
+    let result: JsonParseResult =
+        parse(
+            "{\"array\":[],\"object\":{},\"nested\":[{},[]]}");
+
+    assert result.ok;
+
+    let array: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "array");
+
+    let object: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "object");
+
+    let nested: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "nested");
+
+    assert json_core::is_array(array);
+    assert json_core::array_len(array) == 0;
+
+    assert json_core::is_object(object);
+    assert json_core::object_len(object) == 0;
+
+    assert json_core::is_array(nested);
+    assert json_core::array_len(nested) == 2;
+}
+
+/// -------------------------------------------------------------------------
+/// Member ordering
+/// -------------------------------------------------------------------------
+
+test "parser preserves object member order" {
+    let result: JsonParseResult =
+        parse(
+            "{\"z\":1,\"a\":2,\"m\":3}");
+
+    assert result.ok;
+    assert json_core::object_len(&result.value) == 3;
+
+    let first: &json_core::JsonMember =
+        json_core::object_member_ref(
+            &result.value,
+            0);
+
+    let second: &json_core::JsonMember =
+        json_core::object_member_ref(
+            &result.value,
+            1);
+
+    let third: &json_core::JsonMember =
+        json_core::object_member_ref(
+            &result.value,
+            2);
+
+    assert first.key == "z";
+    assert second.key == "a";
+    assert third.key == "m";
+}
+
+/// -------------------------------------------------------------------------
+/// String regression cases
+/// -------------------------------------------------------------------------
+
+test "parse escaped quote does not terminate string early" {
+    let result: JsonParseResult =
+        parse(
+            "[\"a\\\"b\",42]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 2;
+
+    assert json_core::string_or(
+        json_core::array_get_ref(
+            &result.value,
+            0),
+        "") == "a\"b";
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(
+            &result.value,
+            1),
+        0) == 42;
+}
+
+test "parse escaped backslash before closing quote" {
+    let result: JsonParseResult =
+        parse(
+            "[\"a\\\\\",true]");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        json_core::array_get_ref(
+            &result.value,
+            0),
+        "") == "a\\";
+
+    assert json_core::bool_or(
+        json_core::array_get_ref(
+            &result.value,
+            1),
+        false);
+}
+
+test "parse escaped newline remains inside value" {
+    let result: JsonParseResult =
+        parse(
+            "{\"text\":\"line1\\nline2\",\"value\":42}");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "text"),
+        "") == "line1\nline2";
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "value"),
+        0) == 42;
+}
+
+/// -------------------------------------------------------------------------
+/// Structural regression cases
+/// -------------------------------------------------------------------------
+
+test "parse single array item" {
+    let result: JsonParseResult =
+        parse("[42]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 1;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(
+            &result.value,
+            0),
+        0) == 42;
+}
+
+test "parse single object member" {
+    let result: JsonParseResult =
+        parse("{\"x\":42}");
+
+    assert result.ok;
+    assert json_core::object_len(&result.value) == 1;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "x"),
+        0) == 42;
+}
+
+test "parse many array items" {
+    let result: JsonParseResult =
+        parse(
+            "[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]");
+
+    assert result.ok;
+    assert json_core::array_len(&result.value) == 16;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(
+            &result.value,
+            0),
+        -1) == 0;
+
+    assert json_core::integer_or(
+        json_core::array_get_ref(
+            &result.value,
+            15),
+        -1) == 15;
+}
+
+test "parse many object members" {
+    let result: JsonParseResult =
+        parse(
+            "{\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5,\"f\":6,\"g\":7,\"h\":8}");
+
+    assert result.ok;
+    assert json_core::object_len(&result.value) == 8;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "a"),
+        0) == 1;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "h"),
+        0) == 8;
+}
+
+/// -------------------------------------------------------------------------
+/// Moderate nesting depth
+/// -------------------------------------------------------------------------
+
+test "parse moderate array nesting" {
+    let result: JsonParseResult =
+        parse(
+            "[[[[[[[[42]]]]]]]]");
+
+    assert result.ok;
+
+    let level1: &json_core::JsonValue =
+        json_core::array_get_ref(&result.value, 0);
+
+    let level2: &json_core::JsonValue =
+        json_core::array_get_ref(level1, 0);
+
+    let level3: &json_core::JsonValue =
+        json_core::array_get_ref(level2, 0);
+
+    let level4: &json_core::JsonValue =
+        json_core::array_get_ref(level3, 0);
+
+    let level5: &json_core::JsonValue =
+        json_core::array_get_ref(level4, 0);
+
+    let level6: &json_core::JsonValue =
+        json_core::array_get_ref(level5, 0);
+
+    let level7: &json_core::JsonValue =
+        json_core::array_get_ref(level6, 0);
+
+    let value: &json_core::JsonValue =
+        json_core::array_get_ref(level7, 0);
+
+    assert json_core::integer_or(
+        value,
+        0) == 42;
+}
+
+test "parse moderate object nesting" {
+    let result: JsonParseResult =
+        parse(
+            "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":42}}}}}}");
+
+    assert result.ok;
+
+    let a: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "a");
+
+    let b: &json_core::JsonValue =
+        json_core::object_get_ref(a, "b");
+
+    let c: &json_core::JsonValue =
+        json_core::object_get_ref(b, "c");
+
+    let d: &json_core::JsonValue =
+        json_core::object_get_ref(c, "d");
+
+    let e: &json_core::JsonValue =
+        json_core::object_get_ref(d, "e");
+
+    let f: &json_core::JsonValue =
+        json_core::object_get_ref(e, "f");
+
+    assert json_core::integer_or(
+        f,
+        0) == 42;
+}
+
+/// -------------------------------------------------------------------------
+/// Realistic configuration document
+/// -------------------------------------------------------------------------
+
+test "parse realistic configuration document" {
+    let source: string =
+        "{" +
+        "\"project\":\"Vitte\"," +
+        "\"version\":1," +
+        "\"enabled\":true," +
+        "\"debug\":false," +
+        "\"output\":null," +
+        "\"compiler\":{" +
+            "\"backend\":\"c17\"," +
+            "\"optimization\":2" +
+        "}," +
+        "\"targets\":[" +
+            "\"macos-arm64\"," +
+            "\"linux-x86_64\"" +
+        "]" +
+        "}";
+
+    let result: JsonParseResult =
+        parse(source);
+
+    assert result.ok;
+    assert json_core::is_object(&result.value);
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "project"),
+        "") == "Vitte";
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "version"),
+        0) == 1;
+
+    assert json_core::bool_or(
+        json_core::object_get_ref(
+            &result.value,
+            "enabled"),
+        false);
+
+    assert not json_core::bool_or(
+        json_core::object_get_ref(
+            &result.value,
+            "debug"),
+        true);
+
+    assert json_core::is_null(
+        json_core::object_get_ref(
+            &result.value,
+            "output"));
+
+    let compiler_info: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "compiler");
+
+    assert json_core::is_object(compiler_info);
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            compiler_info,
+            "backend"),
+        "") == "c17";
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            compiler_info,
+            "optimization"),
+        0) == 2;
+
+    let targets: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "targets");
+
+    assert json_core::is_array(targets);
+    assert json_core::array_len(targets) == 2;
+}
+
+/// -------------------------------------------------------------------------
+/// Realistic package metadata
+/// -------------------------------------------------------------------------
+
+test "parse package metadata" {
+    let source: string =
+        "{" +
+        "\"name\":\"json\"," +
+        "\"version\":\"1.0.0\"," +
+        "\"description\":\"JSON module for Vitte\"," +
+        "\"dependencies\":{}," +
+        "\"features\":[\"parser\",\"encoder\"]," +
+        "\"private\":false" +
+        "}";
+
+    let result: JsonParseResult =
+        parse(source);
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "name"),
+        "") == "json";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "version"),
+        "") == "1.0.0";
+
+    let features: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "features");
+
+    assert json_core::array_len(features) == 2;
+
+    assert json_core::string_or(
+        json_core::array_get_ref(features, 0),
+        "") == "parser";
+
+    assert json_core::string_or(
+        json_core::array_get_ref(features, 1),
+        "") == "encoder";
+}
+
+/// -------------------------------------------------------------------------
+/// Realistic diagnostics payload
+/// -------------------------------------------------------------------------
+
+test "parse diagnostic payload" {
+    let source: string =
+        "{" +
+        "\"severity\":\"error\"," +
+        "\"code\":\"E1001\"," +
+        "\"message\":\"unexpected token\"," +
+        "\"location\":{" +
+            "\"line\":12," +
+            "\"column\":8" +
+        "}," +
+        "\"notes\":[" +
+            "\"expected expression\"," +
+            "\"found closing brace\"" +
+        "]" +
+        "}";
+
+    let result: JsonParseResult =
+        parse(source);
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "severity"),
+        "") == "error";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "code"),
+        "") == "E1001";
+
+    let location: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "location");
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            location,
+            "line"),
+        0) == 12;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            location,
+            "column"),
+        0) == 8;
+
+    let notes: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "notes");
+
+    assert json_core::array_len(notes) == 2;
+}
+
+/// -------------------------------------------------------------------------
+/// Deep mixed tree
+/// -------------------------------------------------------------------------
+
+test "parse deep mixed tree" {
+    let source: string =
+        "{" +
+        "\"root\":[" +
+            "{" +
+                "\"name\":\"first\"," +
+                "\"children\":[" +
+                    "{\"id\":1}," +
+                    "{\"id\":2}" +
+                "]" +
+            "}," +
+            "{" +
+                "\"name\":\"second\"," +
+                "\"children\":[" +
+                    "{\"id\":3}," +
+                    "{\"id\":4}" +
+                "]" +
+            "}" +
+        "]" +
+        "}";
+
+    let result: JsonParseResult =
+        parse(source);
+
+    assert result.ok;
+
+    let root: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "root");
+
+    assert json_core::is_array(root);
+    assert json_core::array_len(root) == 2;
+
+    let first: &json_core::JsonValue =
+        json_core::array_get_ref(root, 0);
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            first,
+            "name"),
+        "") == "first";
+
+    let children: &json_core::JsonValue =
+        json_core::object_get_ref(
+            first,
+            "children");
+
+    assert json_core::array_len(children) == 2;
+
+    let child: &json_core::JsonValue =
+        json_core::array_get_ref(
+            children,
+            1);
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            child,
+            "id"),
+        0) == 2;
+}
+
+/// -------------------------------------------------------------------------
+/// Parse helper
+/// -------------------------------------------------------------------------
+
+test "parsed helper null" {
+    let value: json_core::JsonValue =
+        parsed("null");
+
+    assert json_core::is_null(&value);
+}
+
+test "parsed helper integer" {
+    let value: json_core::JsonValue =
+        parsed("42");
+
+    assert json_core::integer_or(
+        &value,
+        0) == 42;
+}
+
+test "parsed helper string" {
+    let value: json_core::JsonValue =
+        parsed("\"Vitte\"");
+
+    assert json_core::string_or(
+        &value,
+        "") == "Vitte";
+}
+
+test "parsed helper array" {
+    let value: json_core::JsonValue =
+        parsed("[1,2,3]");
+
+    assert json_core::is_array(&value);
+    assert json_core::array_len(&value) == 3;
+}
+
+test "parsed helper object" {
+    let value: json_core::JsonValue =
+        parsed("{\"a\":1}");
+
+    assert json_core::is_object(&value);
+    assert json_core::object_len(&value) == 1;
+}
+
+/// -------------------------------------------------------------------------
+/// Statistics and structural inspection
+/// -------------------------------------------------------------------------
+
+test "parsed value depth primitive" {
+    let result: JsonParseResult =
+        parse("42");
+
+    assert result.ok;
+
+    assert json_core::depth(
+        &result.value) == 0;
+}
+
+test "parsed value depth nested array" {
+    let result: JsonParseResult =
+        parse("[[[42]]]");
+
+    assert result.ok;
+
+    assert json_core::depth(
+        &result.value) == 3;
+}
+
+test "parsed value count nested tree" {
+    let result: JsonParseResult =
+        parse(
+            "{\"a\":[1,2],\"b\":true}");
+
+    assert result.ok;
+
+    assert json_core::total_value_count(
+        &result.value) >= 4;
+}
+
+/// -------------------------------------------------------------------------
+/// Validation of parsed values
+/// -------------------------------------------------------------------------
+
+test "parsed null validates" {
+    let result: JsonParseResult =
+        parse("null");
+
+    assert result.ok;
+    assert json_core::validate(&result.value);
+}
+
+test "parsed string validates" {
+    let result: JsonParseResult =
+        parse("\"Vitte\"");
+
+    assert result.ok;
+    assert json_core::validate(&result.value);
+}
+
+test "parsed array validates" {
+    let result: JsonParseResult =
+        parse("[1,2,3]");
+
+    assert result.ok;
+    assert json_core::validate(&result.value);
+}
+
+test "parsed object validates" {
+    let result: JsonParseResult =
+        parse("{\"a\":1}");
+
+    assert result.ok;
+    assert json_core::validate(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Complete JSON value matrix
+/// -------------------------------------------------------------------------
+
+test "parse complete primitive matrix" {
+    assert parses("null");
+    assert parses("true");
+    assert parses("false");
+
+    assert parses("0");
+    assert parses("-1");
+    assert parses("42");
+
+    assert parses("0.5");
+    assert parses("-0.5");
+    assert parses("1e3");
+    assert parses("1e-3");
+
+    assert parses("\"\"");
+    assert parses("\"Vitte\"");
+    assert parses("\"a\\nb\"");
+    assert parses("\"\\u0041\"");
+}
+
+test "parse complete container matrix" {
+    assert parses("[]");
+    assert parses("{}");
+
+    assert parses("[null]");
+    assert parses("[true,false]");
+    assert parses("[1,2,3]");
+    assert parses("[\"a\",\"b\"]");
+
+    assert parses("{\"a\":null}");
+    assert parses("{\"a\":true}");
+    assert parses("{\"a\":1}");
+    assert parses("{\"a\":\"b\"}");
+
+    assert parses("[[],{}]");
+    assert parses("{\"a\":[],\"b\":{}}");
+}
+
+/// -------------------------------------------------------------------------
+/// Final integration test
+/// -------------------------------------------------------------------------
+
+test "json parser full integration smoke" {
+    let source: string =
+        "{" +
+        "\"null\":null," +
+        "\"true\":true," +
+        "\"false\":false," +
+        "\"integer\":42," +
+        "\"negative\":-42," +
+        "\"float\":1.5," +
+        "\"exponent\":1e3," +
+        "\"string\":\"Vitte\"," +
+        "\"escaped\":\"a\\\"b\\\\c\\nd\"," +
+        "\"unicode\":\"caf\\u00E9\"," +
+        "\"array\":[" +
+            "null," +
+            "true," +
+            "false," +
+            "0," +
+            "1.5," +
+            "\"text\"," +
+            "[]," +
+            "{}" +
+        "]," +
+        "\"object\":{" +
+            "\"name\":\"Vitte\"," +
+            "\"version\":1," +
+            "\"active\":true" +
+        "}" +
+        "}";
+
+    let result: JsonParseResult =
+        parse(source);
+
+    assert result.ok;
+    assert json_core::is_object(&result.value);
+    assert json_core::validate(&result.value);
+
+    assert json_core::is_null(
+        json_core::object_get_ref(
+            &result.value,
+            "null"));
+
+    assert json_core::bool_or(
+        json_core::object_get_ref(
+            &result.value,
+            "true"),
+        false);
+
+    assert not json_core::bool_or(
+        json_core::object_get_ref(
+            &result.value,
+            "false"),
+        true);
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "integer"),
+        0) == 42;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "negative"),
+        0) == -42;
+
+    assert json_core::is_float(
+        json_core::object_get_ref(
+            &result.value,
+            "float"));
+
+    assert json_core::is_number(
+        json_core::object_get_ref(
+            &result.value,
+            "exponent"));
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "string"),
+        "") == "Vitte";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "escaped"),
+        "") == "a\"b\\c\nd";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "unicode"),
+        "") == "café";
+
+    let array: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "array");
+
+    assert json_core::is_array(array);
+    assert json_core::array_len(array) == 8;
+
+    let object: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &result.value,
+            "object");
+
+    assert json_core::is_object(object);
+    assert json_core::object_len(object) == 3;
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            object,
+            "name"),
+        "") == "Vitte";
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            object,
+            "version"),
+        0) == 1;
+
+    assert json_core::bool_or(
+        json_core::object_get_ref(
+            object,
+            "active"),
+        false);
+}
+
+/// -------------------------------------------------------------------------
+/// Configurable resource profiles
+/// -------------------------------------------------------------------------
+
+test "public JSON resource profiles can be created and validated" {
+    let lexer_limits: JsonLexerLimits =
+        new_lexer_limits(
+            100,
+            100,
+            100,
+            100);
+
+    let parser_limits: JsonParserLimits =
+        new_parser_limits(
+            16,
+            100,
+            100,
+            100,
+            100,
+            JsonParserDuplicateKeyPolicy.Allow);
+
+    assert lexer_limits_valid(
+        &lexer_limits);
+
+    assert parser_limits_valid(
+        &parser_limits);
+}
+
+test "default JSON resource profiles match their documented values" {
+    let lexer_limits: JsonLexerLimits =
+        default_lexer_limits();
+
+    let parser_limits: JsonParserLimits =
+        default_parser_limits();
+
+    let strict_limits: JsonParserLimits =
+        strict_parser_limits();
+
+    assert lexer_limits.max_tokens == 1048576;
+    assert lexer_limits.max_string_length == 16777216;
+    assert lexer_limits.max_number_length == 4096;
+    assert lexer_limits.max_source_length == 268435456;
+
+    assert parser_limits.max_depth == 512;
+    assert parser_limits.max_values == 1048576;
+    assert parser_limits.max_array_elements == 1048576;
+    assert parser_limits.max_object_members == 1048576;
+    assert parser_limits.max_key_length == 16777216;
+    assert parser_limits.duplicate_keys ==
+        JsonParserDuplicateKeyPolicy.Allow;
+    assert strict_limits.duplicate_keys ==
+        JsonParserDuplicateKeyPolicy.Reject;
+}
+
+test "custom lexer limits reject overlong source tokens strings and numbers" {
+    let token_limits: JsonLexerLimits =
+        new_lexer_limits(
+            1,
+            100,
+            100,
+            100);
+
+    let string_limits: JsonLexerLimits =
+        new_lexer_limits(
+            100,
+            1,
+            100,
+            100);
+
+    let number_limits: JsonLexerLimits =
+        new_lexer_limits(
+            100,
+            100,
+            1,
+            100);
+
+    let source_limits: JsonLexerLimits =
+        new_lexer_limits(
+            100,
+            100,
+            100,
+            3);
+
+    let token_boundary: JsonLexerResult =
+        lex_with_limits(
+            "null",
+            new_lexer_limits(
+                2,
+                100,
+                100,
+                100));
+
+    let string_boundary: JsonLexerResult =
+        lex_with_limits(
+            "\"ab\"",
+            new_lexer_limits(
+                100,
+                2,
+                100,
+                100));
+
+    let number_boundary: JsonLexerResult =
+        lex_with_limits(
+            "12",
+            new_lexer_limits(
+                100,
+                100,
+                2,
+                100));
+
+    let source_boundary: JsonLexerResult =
+        lex_with_limits(
+            "null",
+            new_lexer_limits(
+                100,
+                100,
+                100,
+                4));
+
+    let token_result: JsonLexerResult =
+        lex_with_limits(
+            "null",
+            token_limits);
+
+    let string_result: JsonLexerResult =
+        lex_with_limits(
+            "\"ab\"",
+            string_limits);
+
+    let number_result: JsonLexerResult =
+        lex_with_limits(
+            "12",
+            number_limits);
+
+    let source_result: JsonLexerResult =
+        lex_with_limits(
+            "null",
+            source_limits);
+
+    assert not token_result.ok;
+    assert token_result.error.error ==
+        JsonLexerError.TooManyTokens;
+
+    assert not string_result.ok;
+    assert string_result.error.error ==
+        JsonLexerError.StringTooLong;
+
+    assert not number_result.ok;
+    assert number_result.error.error ==
+        JsonLexerError.NumberTooLong;
+
+    assert not source_result.ok;
+    assert source_result.error.error ==
+        JsonLexerError.SourceTooLarge;
+
+    assert token_boundary.ok;
+    assert string_boundary.ok;
+    assert number_boundary.ok;
+    assert source_boundary.ok;
+}
+
+test "invalid lexer limits are rejected and reported" {
+    let lexer_limits: JsonLexerLimits =
+        new_lexer_limits(
+            0,
+            100,
+            100,
+            100);
+
+    assert not lexer_limits_valid(
+        &lexer_limits);
+
+    let result: JsonLexerResult =
+        lex_with_limits(
+            "null",
+            lexer_limits);
+
+    assert not result.ok;
+    assert result.error.error ==
+        JsonLexerError.Internal;
+}
+
+test "source parsing preserves lexical diagnostics explicitly" {
+    let lexer_limits: JsonLexerLimits =
+        new_lexer_limits(
+            0,
+            100,
+            100,
+            100);
+
+    let result: JsonParseResult =
+        parse_with_limits(
+            "null",
+            lexer_limits,
+            default_parser_limits());
+
+    assert not result.ok;
+    assert result.report.error ==
+        JsonParserError.InvalidTokenStream;
+    assert result.report.message ==
+        "invalid JSON lexer limits";
+    assert result.report.detail ==
+        "all JSON lexer limits must be greater than zero";
+}
+
+test "parser container key and nesting limits have exact boundaries" {
+    let lexer_limits: JsonLexerLimits =
+        default_lexer_limits();
+
+    let depth_limits: JsonParserLimits =
+        new_parser_limits(
+            1,
+            100,
+            100,
+            100,
+            100,
+            JsonParserDuplicateKeyPolicy.Allow);
+
+    let array_limits: JsonParserLimits =
+        new_parser_limits(
+            16,
+            100,
+            1,
+            100,
+            100,
+            JsonParserDuplicateKeyPolicy.Allow);
+
+    let object_limits: JsonParserLimits =
+        new_parser_limits(
+            16,
+            100,
+            100,
+            1,
+            100,
+            JsonParserDuplicateKeyPolicy.Allow);
+
+    let key_limits: JsonParserLimits =
+        new_parser_limits(
+            16,
+            100,
+            100,
+            100,
+            1,
+            JsonParserDuplicateKeyPolicy.Allow);
+
+    let at_depth: JsonParseResult =
+        parse_with_limits(
+            "[]",
+            lexer_limits,
+            depth_limits);
+
+    let at_array_limit: JsonParseResult =
+        parse_with_limits(
+            "[0]",
+            lexer_limits,
+            array_limits);
+
+    let at_object_limit: JsonParseResult =
+        parse_with_limits(
+            "{\"a\":0}",
+            lexer_limits,
+            object_limits);
+
+    let at_key_limit: JsonParseResult =
+        parse_with_limits(
+            "{\"a\":0}",
+            lexer_limits,
+            key_limits);
+
+    let over_depth: JsonParseResult =
+        parse_with_limits(
+            "[[0]]",
+            lexer_limits,
+            depth_limits);
+
+    let over_array: JsonParseResult =
+        parse_with_limits(
+            "[0,1]",
+            lexer_limits,
+            array_limits);
+
+    let over_object: JsonParseResult =
+        parse_with_limits(
+            "{\"a\":0,\"b\":1}",
+            lexer_limits,
+            object_limits);
+
+    let over_key: JsonParseResult =
+        parse_with_limits(
+            "{\"ab\":0}",
+            lexer_limits,
+            key_limits);
+
+    assert at_depth.ok;
+    assert at_array_limit.ok;
+    assert at_object_limit.ok;
+    assert at_key_limit.ok;
+
+    assert not over_depth.ok;
+    assert over_depth.report.error ==
+        JsonParserError.DepthExceeded;
+
+    assert not over_array.ok;
+    assert over_array.report.error ==
+        JsonParserError.TooManyArrayElements;
+
+    assert not over_object.ok;
+    assert over_object.report.error ==
+        JsonParserError.TooManyObjectMembers;
+
+    assert not over_key.ok;
+    assert over_key.report.error ==
+        JsonParserError.ObjectKeyTooLong;
+}
+
+test "token parser enforces its custom total value budget" {
+    let lexical: JsonLexerResult =
+        lex_with_limits(
+            "[1,2]",
+            default_lexer_limits());
+
+    let parser_limits: JsonParserLimits =
+        new_parser_limits(
+            16,
+            2,
+            100,
+            100,
+            100,
+            JsonParserDuplicateKeyPolicy.Allow);
+
+    assert lexical.ok;
+
+    let result: JsonParseResult =
+        parse_tokens_with_limits(
+            lexical.tokens,
+            parser_limits);
+
+    assert not result.ok;
+    assert result.report.error ==
+        JsonParserError.TooManyValues;
+    assert result.statistics.value_count == 3;
+}
+
+test "invalid parser profile is rejected before lexing source" {
+    let lexer_limits: JsonLexerLimits =
+        new_lexer_limits(
+            100,
+            100,
+            100,
+            1);
+
+    let parser_limits: JsonParserLimits =
+        new_parser_limits(
+            16,
+            0,
+            100,
+            100,
+            100,
+            JsonParserDuplicateKeyPolicy.Allow);
+
+    assert not parser_limits_valid(
+        &parser_limits);
+
+    let result: JsonParseResult =
+        parse_with_limits(
+            "null",
+            lexer_limits,
+            parser_limits);
+
+    assert not result.ok;
+    assert result.report.error ==
+        JsonParserError.Internal;
+    assert result.report.detail ==
+        "all parser limits must be greater than zero";
+}
+
+test "custom JSON value limit rejects before a document is built" {
+    let lexer_limits: JsonLexerLimits =
+        new_lexer_limits(
+            100,
+            100,
+            100,
+            100);
+
+    let parser_limits: JsonParserLimits =
+        new_parser_limits(
+            16,
+            2,
+            100,
+            100,
+            100,
+            JsonParserDuplicateKeyPolicy.Allow);
+
+    let at_limit: JsonParseResult =
+        parse_with_limits(
+            "[1]",
+            lexer_limits,
+            parser_limits);
+
+    assert at_limit.ok;
+    assert at_limit.statistics.value_count == 2;
+
+    let over_limit: JsonParseResult =
+        parse_with_limits(
+            "[1,2]",
+            lexer_limits,
+            parser_limits);
+
+    assert not over_limit.ok;
+    assert over_limit.report.error ==
+        JsonParserError.TooManyValues;
+    assert over_limit.statistics.value_count == 3;
+}
+
+test "strict parsing with custom limits rejects duplicate keys" {
+    let lexer_limits: JsonLexerLimits =
+        new_lexer_limits(
+            100,
+            100,
+            100,
+            100);
+
+    let parser_limits: JsonParserLimits =
+        new_parser_limits(
+            16,
+            100,
+            100,
+            100,
+            100,
+            JsonParserDuplicateKeyPolicy.Allow);
+
+    let reject_limits: JsonParserLimits =
+        new_parser_limits(
+            16,
+            100,
+            100,
+            100,
+            100,
+            JsonParserDuplicateKeyPolicy.Reject);
+
+    let result: JsonParseResult =
+        parse_strict_with_limits(
+            "{\"key\":1,\"key\":2}",
+            lexer_limits,
+            parser_limits);
+
+    let configured_result: JsonParseResult =
+        parse_with_limits(
+            "{\"key\":1,\"key\":2}",
+            lexer_limits,
+            reject_limits);
+
+    assert not result.ok;
+    assert result.report.error ==
+        JsonParserError.DuplicateObjectKey;
+    assert result.report.detail ==
+        "duplicate JSON object member name";
+
+    assert not configured_result.ok;
+    assert configured_result.report.error ==
+        JsonParserError.DuplicateObjectKey;
+}

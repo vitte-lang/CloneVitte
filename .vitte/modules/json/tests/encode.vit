@@ -1,0 +1,47 @@
+/// Public contract tests for the JSON value and encoder APIs.
+
+space json::tests::encode;
+
+use json::core::value::{
+    null_value,
+    integer,
+    string
+};
+use json::encode::encoder::{
+    encode,
+    encode_compact
+};
+
+test "encode null through the public API" {
+    let value = null_value();
+    let result = encode(&value);
+
+    assert result.ok;
+    assert result.text.length == 4;
+    assert result.text[0] == 'n';
+    assert result.text[1] == 'u';
+    assert result.text[2] == 'l';
+    assert result.text[3] == 'l';
+}
+
+test "encode an integer through the public API" {
+    let value = integer(42);
+    let result = encode_compact(&value);
+
+    assert result.ok;
+    assert result.text.length == 2;
+    assert result.text[0] == '4';
+    assert result.text[1] == '2';
+}
+
+test "encode a string through the public API" {
+    let value = string("ok");
+    let result = encode(&value);
+
+    assert result.ok;
+    assert result.text.length == 4;
+    assert result.text[0] == '"';
+    assert result.text[1] == 'o';
+    assert result.text[2] == 'k';
+    assert result.text[3] == '"';
+}

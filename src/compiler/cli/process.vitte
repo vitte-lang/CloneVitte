@@ -208,7 +208,7 @@ proc cli_entry_run_parsed(argc: i32, argv: *const string) -> i32 {
     let command = vitte_cli_selected_command(&cli);
     if command == CliCommand.Build and argc > 1 and
        cli_entry_argument(argv, 1) == "compile" {
-        let compile_options: u64 = VITTE_CLI_SEEN_COLOR | VITTE_CLI_SEEN_EMIT_C |
+        let compile_options = VITTE_CLI_SEEN_COLOR | VITTE_CLI_SEEN_EMIT_C |
             VITTE_CLI_SEEN_OUTPUT | VITTE_CLI_SEEN_QUIET |
             VITTE_CLI_SEEN_VERBOSE | VITTE_CLI_SEEN_DIAGNOSTICS |
             VITTE_CLI_SEEN_EMIT_IR | VITTE_CLI_SEEN_STOP_AFTER_SEMA;
@@ -216,7 +216,7 @@ proc cli_entry_run_parsed(argc: i32, argv: *const string) -> i32 {
             vitte_cli_destroy(&mut cli);
             return cli_entry_unavailable("vitte compile: one or more options are not available in the native driver");
         }
-        let input: ?string = vitte_cli_input_at(&cli, 0);
+        let input = vitte_cli_input_at(&cli, 0);
         if input == null {
             cli_entry_puts("vitte compile: expected a source file");
             cli_entry_puts("Usage: vitte compile <source.vit> [--emit-c] [-o output.c]");
@@ -251,7 +251,7 @@ proc cli_entry_run_parsed(argc: i32, argv: *const string) -> i32 {
     }
 
     if command == CliCommand.Check {
-        let input: ?string = vitte_cli_input_at(&cli, 0);
+        let input = vitte_cli_input_at(&cli, 0);
         if input == null {
             cli_entry_puts("vitte check: expected a source file");
             cli_entry_puts("Usage: vitte check <source.vit>");
@@ -267,7 +267,7 @@ proc cli_entry_run_parsed(argc: i32, argv: *const string) -> i32 {
     }
 
     if command == CliCommand.Lex or command == CliCommand.Parse {
-        let input: ?string = vitte_cli_input_at(&cli, 0);
+        let input = vitte_cli_input_at(&cli, 0);
         if input == null {
             cli_entry_puts(if command == CliCommand.Lex {
                 "vitte lex: expected a source file"
@@ -287,7 +287,7 @@ proc cli_entry_run_parsed(argc: i32, argv: *const string) -> i32 {
     }
 
     if command == CliCommand.Completion {
-        let input: ?string = vitte_cli_input_at(&cli, 0);
+        let input = vitte_cli_input_at(&cli, 0);
         if input == null {
             cli_entry_puts("vitte completion: expected bash, zsh or fish");
             vitte_cli_destroy(&mut cli);
@@ -343,14 +343,14 @@ proc cli_entry_run_parsed(argc: i32, argv: *const string) -> i32 {
     }
 
     if command == CliCommand.Install {
-        let install_options: u64 = VITTE_CLI_SEEN_PACKAGE_VERSION | VITTE_CLI_SEEN_GLOBAL |
+        let install_options = VITTE_CLI_SEEN_PACKAGE_VERSION | VITTE_CLI_SEEN_GLOBAL |
             VITTE_CLI_SEEN_QUIET | VITTE_CLI_SEEN_VERBOSE;
         if (vitte_cli_seen_options(&cli) & ~install_options) != 0 {
             vitte_cli_destroy(&mut cli);
             return cli_entry_unavailable("vitte install: one or more options are not available in the native installer");
         }
         let input_count = vitte_cli_input_count(&cli);
-        let input: ?string = vitte_cli_input_at(&cli, 0);
+        let input = vitte_cli_input_at(&cli, 0);
         if input_count > 1 or (input == null and cli.config.package == null) {
             cli_entry_write_error("vitte install: expected one package name\n");
             vitte_cli_destroy(&mut cli);
@@ -372,14 +372,14 @@ proc cli_entry_run_parsed(argc: i32, argv: *const string) -> i32 {
     }
 
     if command == CliCommand.Build or command == CliCommand.Run {
-        let allowed_options: u64 = VITTE_CLI_SEEN_COLOR | VITTE_CLI_SEEN_OUTPUT |
+        let allowed_options = VITTE_CLI_SEEN_COLOR | VITTE_CLI_SEEN_OUTPUT |
             VITTE_CLI_SEEN_QUIET | VITTE_CLI_SEEN_VERBOSE |
             VITTE_CLI_SEEN_DIAGNOSTICS;
         if (vitte_cli_seen_options(&cli) & ~allowed_options) != 0 {
             vitte_cli_destroy(&mut cli);
             return cli_entry_unavailable("vitte: one or more options are not available in the native driver");
         }
-        let input: ?string = vitte_cli_input_at(&cli, 0);
+        let input = vitte_cli_input_at(&cli, 0);
         if input == null {
             cli_entry_puts("vitte: expected a source file");
             vitte_cli_destroy(&mut cli);
@@ -405,7 +405,7 @@ proc cli_entry_run_parsed(argc: i32, argv: *const string) -> i32 {
             }
             set run_index += 1;
         }
-        let run_pointer: *mut *mut u8 = if run_argument_count == 0 {
+        let run_pointer = if run_argument_count == 0 {
             null
         } else {
             run_arguments.as_ptr() as *mut *mut u8

@@ -1,0 +1,2282 @@
+/// Comprehensive rejection tests for the Vitte JSON implementation.
+///
+/// This suite verifies that malformed JSON is rejected deterministically.
+///
+/// Covered categories:
+///
+/// - empty input
+/// - whitespace-only input
+/// - invalid top-level tokens
+/// - malformed literals
+/// - malformed numbers
+/// - invalid strings
+/// - invalid escapes
+/// - malformed Unicode escapes
+/// - invalid surrogate sequences
+/// - malformed arrays
+/// - malformed objects
+/// - missing separators
+/// - trailing separators
+/// - invalid keys
+/// - extra top-level values
+/// - trailing garbage
+/// - invalid nesting
+/// - depth limits
+/// - lexer/parser boundary cases
+/// - deterministic failures
+///
+/// Every input in this file is intentionally invalid JSON.
+
+space json::tests::invalid;
+
+use json::lexer::lexer::{
+    JsonLexerResult,
+    lex
+};
+
+use json::parser::parser::{
+    JsonParseResult,
+    parse
+};
+
+use json::runtime::numeric::{
+    valid
+};
+
+/// -------------------------------------------------------------------------
+/// Generic helpers
+/// -------------------------------------------------------------------------
+
+proc rejects(source: string) -> bool {
+    let result: JsonParseResult =
+        parse(source);
+
+    return not result.ok;
+}
+
+proc lex_rejects(source: string) -> bool {
+    let result: JsonLexerResult =
+        lex(source);
+
+    return not result.ok;
+}
+
+/// -------------------------------------------------------------------------
+/// Empty input
+/// -------------------------------------------------------------------------
+
+test "invalid empty input" {
+    assert rejects("");
+}
+
+test "invalid single space input" {
+    assert rejects(" ");
+}
+
+test "invalid multiple spaces input" {
+    assert rejects("     ");
+}
+
+test "invalid tab input" {
+    assert rejects("\t");
+}
+
+test "invalid newline input" {
+    assert rejects("\n");
+}
+
+test "invalid carriage return input" {
+    assert rejects("\r");
+}
+
+test "invalid crlf input" {
+    assert rejects("\r\n");
+}
+
+test "invalid mixed whitespace input" {
+    assert rejects(" \t\r\n ");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid top-level characters
+/// -------------------------------------------------------------------------
+
+test "invalid top level alphabetic character" {
+    assert rejects("x");
+}
+
+test "invalid top level at sign" {
+    assert rejects("@");
+}
+
+test "invalid top level hash" {
+    assert rejects("#");
+}
+
+test "invalid top level semicolon" {
+    assert rejects(";");
+}
+
+test "invalid top level colon" {
+    assert rejects(":");
+}
+
+test "invalid top level comma" {
+    assert rejects(",");
+}
+
+test "invalid top level equals" {
+    assert rejects("=");
+}
+
+test "invalid top level plus" {
+    assert rejects("+");
+}
+
+test "invalid top level slash" {
+    assert rejects("/");
+}
+
+test "invalid top level backslash" {
+    assert rejects("\\");
+}
+
+test "invalid unmatched right bracket" {
+    assert rejects("]");
+}
+
+test "invalid unmatched right brace" {
+    assert rejects("}");
+}
+
+/// -------------------------------------------------------------------------
+/// Comments are not JSON
+/// -------------------------------------------------------------------------
+
+test "invalid line comment" {
+    assert rejects("// comment");
+}
+
+test "invalid hash comment" {
+    assert rejects("# comment");
+}
+
+test "invalid block comment" {
+    assert rejects("/* comment */");
+}
+
+test "invalid comment before null" {
+    assert rejects("// comment\nnull");
+}
+
+test "invalid comment after null" {
+    assert rejects("null // comment");
+}
+
+test "invalid block comment before value" {
+    assert rejects("/* x */ true");
+}
+
+test "invalid block comment inside array" {
+    assert rejects("[1, /* x */ 2]");
+}
+
+test "invalid block comment inside object" {
+    assert rejects("{\"a\": /* x */ 1}");
+}
+
+/// -------------------------------------------------------------------------
+/// Malformed null literal
+/// -------------------------------------------------------------------------
+
+test "invalid null prefix n" {
+    assert rejects("n");
+}
+
+test "invalid null prefix nu" {
+    assert rejects("nu");
+}
+
+test "invalid null prefix nul" {
+    assert rejects("nul");
+}
+
+test "invalid null uppercase" {
+    assert rejects("NULL");
+}
+
+test "invalid null title case" {
+    assert rejects("Null");
+}
+
+test "invalid null mixed case" {
+    assert rejects("nUll");
+}
+
+test "invalid null suffix" {
+    assert rejects("nullx");
+}
+
+test "invalid null numeric suffix" {
+    assert rejects("null1");
+}
+
+test "invalid null repeated" {
+    assert rejects("nullnull");
+}
+
+/// -------------------------------------------------------------------------
+/// Malformed true literal
+/// -------------------------------------------------------------------------
+
+test "invalid true prefix t" {
+    assert rejects("t");
+}
+
+test "invalid true prefix tr" {
+    assert rejects("tr");
+}
+
+test "invalid true prefix tru" {
+    assert rejects("tru");
+}
+
+test "invalid true uppercase" {
+    assert rejects("TRUE");
+}
+
+test "invalid true title case" {
+    assert rejects("True");
+}
+
+test "invalid true mixed case" {
+    assert rejects("tRue");
+}
+
+test "invalid true suffix" {
+    assert rejects("truex");
+}
+
+test "invalid true numeric suffix" {
+    assert rejects("true1");
+}
+
+test "invalid true repeated" {
+    assert rejects("truetrue");
+}
+
+/// -------------------------------------------------------------------------
+/// Malformed false literal
+/// -------------------------------------------------------------------------
+
+test "invalid false prefix f" {
+    assert rejects("f");
+}
+
+test "invalid false prefix fa" {
+    assert rejects("fa");
+}
+
+test "invalid false prefix fal" {
+    assert rejects("fal");
+}
+
+test "invalid false prefix fals" {
+    assert rejects("fals");
+}
+
+test "invalid false uppercase" {
+    assert rejects("FALSE");
+}
+
+test "invalid false title case" {
+    assert rejects("False");
+}
+
+test "invalid false mixed case" {
+    assert rejects("fAlse");
+}
+
+test "invalid false suffix" {
+    assert rejects("falsex");
+}
+
+test "invalid false numeric suffix" {
+    assert rejects("false1");
+}
+
+test "invalid false repeated" {
+    assert rejects("falsefalse");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid numeric prefixes
+/// -------------------------------------------------------------------------
+
+test "invalid number plus one" {
+    assert rejects("+1");
+}
+
+test "invalid number plus zero" {
+    assert rejects("+0");
+}
+
+test "invalid number plus negative" {
+    assert rejects("+-1");
+}
+
+test "invalid number double minus" {
+    assert rejects("--1");
+}
+
+test "invalid number minus plus" {
+    assert rejects("-+1");
+}
+
+test "invalid number minus only" {
+    assert rejects("-");
+}
+
+test "invalid number plus only" {
+    assert rejects("+");
+}
+
+/// -------------------------------------------------------------------------
+/// Leading zero violations
+/// -------------------------------------------------------------------------
+
+test "invalid number double zero" {
+    assert rejects("00");
+}
+
+test "invalid number leading zero one" {
+    assert rejects("01");
+}
+
+test "invalid number leading zero nine" {
+    assert rejects("09");
+}
+
+test "invalid number many leading zeroes" {
+    assert rejects("000001");
+}
+
+test "invalid negative number double zero" {
+    assert rejects("-00");
+}
+
+test "invalid negative number leading zero" {
+    assert rejects("-01");
+}
+
+test "invalid negative number many leading zeroes" {
+    assert rejects("-000001");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid decimal forms
+/// -------------------------------------------------------------------------
+
+test "invalid decimal leading point" {
+    assert rejects(".1");
+}
+
+test "invalid decimal negative leading point" {
+    assert rejects("-.1");
+}
+
+test "invalid decimal trailing point" {
+    assert rejects("1.");
+}
+
+test "invalid decimal negative trailing point" {
+    assert rejects("-1.");
+}
+
+test "invalid decimal point only" {
+    assert rejects(".");
+}
+
+test "invalid decimal multiple points" {
+    assert rejects("1.2.3");
+}
+
+test "invalid decimal double point" {
+    assert rejects("1..2");
+}
+
+test "invalid decimal zero double point" {
+    assert rejects("0..1");
+}
+
+test "invalid decimal fraction plus sign" {
+    assert rejects("1.+2");
+}
+
+test "invalid decimal fraction minus sign" {
+    assert rejects("1.-2");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid exponent forms
+/// -------------------------------------------------------------------------
+
+test "invalid exponent lowercase missing digits" {
+    assert rejects("1e");
+}
+
+test "invalid exponent uppercase missing digits" {
+    assert rejects("1E");
+}
+
+test "invalid exponent plus missing digits" {
+    assert rejects("1e+");
+}
+
+test "invalid exponent minus missing digits" {
+    assert rejects("1e-");
+}
+
+test "invalid exponent uppercase plus missing digits" {
+    assert rejects("1E+");
+}
+
+test "invalid exponent uppercase minus missing digits" {
+    assert rejects("1E-");
+}
+
+test "invalid exponent repeated lowercase" {
+    assert rejects("1e1e1");
+}
+
+test "invalid exponent repeated uppercase" {
+    assert rejects("1E1E1");
+}
+
+test "invalid exponent mixed markers" {
+    assert rejects("1e1E1");
+}
+
+test "invalid exponent decimal" {
+    assert rejects("1e1.5");
+}
+
+test "invalid exponent decimal leading point" {
+    assert rejects("1e.5");
+}
+
+test "invalid exponent double sign" {
+    assert rejects("1e++1");
+}
+
+test "invalid exponent plus minus" {
+    assert rejects("1e+-1");
+}
+
+test "invalid exponent minus plus" {
+    assert rejects("1e-+1");
+}
+
+test "invalid exponent double minus" {
+    assert rejects("1e--1");
+}
+
+test "invalid fraction exponent missing fraction digits" {
+    assert rejects("1.e2");
+}
+
+/// -------------------------------------------------------------------------
+/// Non-JSON numeric notation
+/// -------------------------------------------------------------------------
+
+test "invalid hexadecimal number" {
+    assert rejects("0x10");
+}
+
+test "invalid uppercase hexadecimal number" {
+    assert rejects("0X10");
+}
+
+test "invalid binary number" {
+    assert rejects("0b10");
+}
+
+test "invalid uppercase binary number" {
+    assert rejects("0B10");
+}
+
+test "invalid octal number" {
+    assert rejects("0o10");
+}
+
+test "invalid uppercase octal number" {
+    assert rejects("0O10");
+}
+
+test "invalid numeric underscore" {
+    assert rejects("1_000");
+}
+
+test "invalid numeric comma separator" {
+    assert rejects("1,000");
+}
+
+test "invalid numeric suffix f" {
+    assert rejects("1f");
+}
+
+test "invalid numeric suffix d" {
+    assert rejects("1d");
+}
+
+test "invalid numeric suffix i64" {
+    assert rejects("1i64");
+}
+
+test "invalid numeric suffix u64" {
+    assert rejects("1u64");
+}
+
+test "invalid nan" {
+    assert rejects("NaN");
+}
+
+test "invalid lowercase nan" {
+    assert rejects("nan");
+}
+
+test "invalid infinity" {
+    assert rejects("Infinity");
+}
+
+test "invalid negative infinity" {
+    assert rejects("-Infinity");
+}
+
+test "invalid inf" {
+    assert rejects("inf");
+}
+
+/// -------------------------------------------------------------------------
+/// Numeric scanner agrees on malformed forms
+/// -------------------------------------------------------------------------
+
+test "numeric runtime rejects malformed number forms" {
+    assert not valid("");
+    assert not valid("+1");
+    assert not valid("-");
+    assert not valid("01");
+    assert not valid("-01");
+    assert not valid(".1");
+    assert not valid("1.");
+    assert not valid("1e");
+    assert not valid("1e+");
+    assert not valid("1e-");
+    assert not valid("1e1e1");
+    assert not valid("0x10");
+    assert not valid("1_000");
+    assert not valid("NaN");
+    assert not valid("Infinity");
+}
+
+/// -------------------------------------------------------------------------
+/// Unterminated strings
+/// -------------------------------------------------------------------------
+
+test "invalid unterminated empty string" {
+    assert rejects("\"");
+}
+
+test "invalid unterminated simple string" {
+    assert rejects("\"hello");
+}
+
+test "invalid unterminated string with spaces" {
+    assert rejects("\"hello world");
+}
+
+test "invalid unterminated string after escape text" {
+    assert rejects("\"hello\\nworld");
+}
+
+test "invalid unterminated string in array" {
+    assert rejects("[\"hello]");
+}
+
+test "invalid unterminated string in object key" {
+    assert rejects("{\"hello:1}");
+}
+
+test "invalid unterminated string in object value" {
+    assert rejects("{\"key\":\"value}");
+}
+
+/// -------------------------------------------------------------------------
+/// Single quotes are not JSON strings
+/// -------------------------------------------------------------------------
+
+test "invalid single quoted string" {
+    assert rejects("'hello'");
+}
+
+test "invalid single quoted empty string" {
+    assert rejects("''");
+}
+
+test "invalid single quoted object key" {
+    assert rejects("{'key':1}");
+}
+
+test "invalid single quoted object value" {
+    assert rejects("{\"key\":'value'}");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid raw control characters in strings
+/// -------------------------------------------------------------------------
+
+test "invalid raw newline in string" {
+    assert rejects("\"line1\nline2\"");
+}
+
+test "invalid raw carriage return in string" {
+    assert rejects("\"line1\rline2\"");
+}
+
+test "invalid raw tab in string" {
+    assert rejects("\"a	b\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid escape sequences
+/// -------------------------------------------------------------------------
+
+test "invalid escape a" {
+    assert rejects("\"\\a\"");
+}
+
+test "invalid escape v" {
+    assert rejects("\"\\v\"");
+}
+
+test "invalid escape zero" {
+    assert rejects("\"\\0\"");
+}
+
+test "invalid escape x" {
+    assert rejects("\"\\x\"");
+}
+
+test "invalid escape question mark" {
+    assert rejects("\"\\?\"");
+}
+
+test "invalid escape single quote" {
+    assert rejects("\"\\'\"");
+}
+
+test "invalid escape uppercase n" {
+    assert rejects("\"\\N\"");
+}
+
+test "invalid escape uppercase t" {
+    assert rejects("\"\\T\"");
+}
+
+test "invalid escape digit" {
+    assert rejects("\"\\1\"");
+}
+
+test "invalid escape space" {
+    assert rejects("\"\\ \"");
+}
+
+/// -------------------------------------------------------------------------
+/// Incomplete Unicode escapes
+/// -------------------------------------------------------------------------
+
+test "invalid unicode escape missing all digits" {
+    assert rejects("\"\\u\"");
+}
+
+test "invalid unicode escape one digit" {
+    assert rejects("\"\\u0\"");
+}
+
+test "invalid unicode escape two digits" {
+    assert rejects("\"\\u00\"");
+}
+
+test "invalid unicode escape three digits" {
+    assert rejects("\"\\u000\"");
+}
+
+test "invalid unicode escape interrupted by quote" {
+    assert rejects("\"\\u00\"");
+}
+
+test "invalid unicode escape interrupted by slash" {
+    assert rejects("\"\\u00\\n\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid Unicode hex digits
+/// -------------------------------------------------------------------------
+
+test "invalid unicode hex g" {
+    assert rejects("\"\\u000g\"");
+}
+
+test "invalid unicode hex uppercase g" {
+    assert rejects("\"\\u000G\"");
+}
+
+test "invalid unicode hex z" {
+    assert rejects("\"\\u00zz\"");
+}
+
+test "invalid unicode punctuation" {
+    assert rejects("\"\\u00-1\"");
+}
+
+test "invalid unicode spaces" {
+    assert rejects("\"\\u00 1\"");
+}
+
+test "invalid unicode plus" {
+    assert rejects("\"\\u+001\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid Unicode surrogate sequences
+/// -------------------------------------------------------------------------
+
+test "invalid lone high surrogate d800" {
+    assert rejects("\"\\uD800\"");
+}
+
+test "invalid lone high surrogate dbff" {
+    assert rejects("\"\\uDBFF\"");
+}
+
+test "invalid lone low surrogate dc00" {
+    assert rejects("\"\\uDC00\"");
+}
+
+test "invalid lone low surrogate dfff" {
+    assert rejects("\"\\uDFFF\"");
+}
+
+test "invalid high surrogate followed by ascii escape" {
+    assert rejects("\"\\uD800\\u0041\"");
+}
+
+test "invalid high surrogate followed by another high surrogate" {
+    assert rejects("\"\\uD800\\uD800\"");
+}
+
+test "invalid high surrogate followed by maximum high surrogate" {
+    assert rejects("\"\\uD800\\uDBFF\"");
+}
+
+test "invalid high surrogate followed by incomplete low surrogate" {
+    assert rejects("\"\\uD800\\uDC0\"");
+}
+
+test "invalid high surrogate followed by malformed low surrogate" {
+    assert rejects("\"\\uD800\\uDC0G\"");
+}
+
+test "invalid low surrogate before high surrogate" {
+    assert rejects("\"\\uDC00\\uD800\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid escape termination
+/// -------------------------------------------------------------------------
+
+test "invalid string ending with escape marker" {
+    assert rejects("\"abc\\");
+}
+
+test "invalid object key ending with escape marker" {
+    assert rejects("{\"abc\\");
+}
+
+test "invalid object value ending with escape marker" {
+    assert rejects("{\"key\":\"abc\\");
+}
+
+/// -------------------------------------------------------------------------
+/// Empty and incomplete arrays
+/// -------------------------------------------------------------------------
+
+test "invalid array missing close" {
+    assert rejects("[");
+}
+
+test "invalid array whitespace missing close" {
+    assert rejects("[ ");
+}
+
+test "invalid array value missing close" {
+    assert rejects("[1");
+}
+
+test "invalid array string missing close" {
+    assert rejects("[\"a\"");
+}
+
+test "invalid array object missing close" {
+    assert rejects("[{}");
+}
+
+/// -------------------------------------------------------------------------
+/// Array missing values
+/// -------------------------------------------------------------------------
+
+test "invalid array leading comma" {
+    assert rejects("[,]");
+}
+
+test "invalid array leading comma with value" {
+    assert rejects("[,1]");
+}
+
+test "invalid array double comma" {
+    assert rejects("[1,,2]");
+}
+
+test "invalid array triple comma" {
+    assert rejects("[1,,,2]");
+}
+
+test "invalid array missing value after comma" {
+    assert rejects("[1,]");
+}
+
+test "invalid array multiple missing values" {
+    assert rejects("[1,,]");
+}
+
+test "invalid array only comma" {
+    assert rejects("[,]");
+}
+
+test "invalid array two commas" {
+    assert rejects("[,,]");
+}
+
+/// -------------------------------------------------------------------------
+/// Array trailing commas
+/// -------------------------------------------------------------------------
+
+test "invalid array trailing comma integer" {
+    assert rejects("[1,]");
+}
+
+test "invalid array trailing comma string" {
+    assert rejects("[\"a\",]");
+}
+
+test "invalid array trailing comma true" {
+    assert rejects("[true,]");
+}
+
+test "invalid array trailing comma false" {
+    assert rejects("[false,]");
+}
+
+test "invalid array trailing comma null" {
+    assert rejects("[null,]");
+}
+
+test "invalid array trailing comma array" {
+    assert rejects("[[],]");
+}
+
+test "invalid array trailing comma object" {
+    assert rejects("[{},]");
+}
+
+/// -------------------------------------------------------------------------
+/// Array missing commas
+/// -------------------------------------------------------------------------
+
+test "invalid array integers without comma" {
+    assert rejects("[1 2]");
+}
+
+test "invalid array strings without comma" {
+    assert rejects("[\"a\" \"b\"]");
+}
+
+test "invalid array booleans without comma" {
+    assert rejects("[true false]");
+}
+
+test "invalid array nulls without comma" {
+    assert rejects("[null null]");
+}
+
+test "invalid array containers without comma" {
+    assert rejects("[[] {}]");
+}
+
+test "invalid array mixed values without comma" {
+    assert rejects("[1 \"two\"]");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid tokens inside arrays
+/// -------------------------------------------------------------------------
+
+test "invalid array colon token" {
+    assert rejects("[:]");
+}
+
+test "invalid array semicolon token" {
+    assert rejects("[;]");
+}
+
+test "invalid array equals token" {
+    assert rejects("[=]");
+}
+
+test "invalid array identifier" {
+    assert rejects("[value]");
+}
+
+test "invalid array plus number" {
+    assert rejects("[+1]");
+}
+
+test "invalid array malformed number" {
+    assert rejects("[01]");
+}
+
+test "invalid array malformed literal" {
+    assert rejects("[tru]");
+}
+
+/// -------------------------------------------------------------------------
+/// Empty and incomplete objects
+/// -------------------------------------------------------------------------
+
+test "invalid object missing close" {
+    assert rejects("{");
+}
+
+test "invalid object whitespace missing close" {
+    assert rejects("{ ");
+}
+
+test "invalid object key missing close" {
+    assert rejects("{\"a\"");
+}
+
+test "invalid object colon missing close" {
+    assert rejects("{\"a\":");
+}
+
+test "invalid object value missing close" {
+    assert rejects("{\"a\":1");
+}
+
+/// -------------------------------------------------------------------------
+/// Object keys must be strings
+/// -------------------------------------------------------------------------
+
+test "invalid object integer key" {
+    assert rejects("{1:2}");
+}
+
+test "invalid object negative integer key" {
+    assert rejects("{-1:2}");
+}
+
+test "invalid object true key" {
+    assert rejects("{true:1}");
+}
+
+test "invalid object false key" {
+    assert rejects("{false:1}");
+}
+
+test "invalid object null key" {
+    assert rejects("{null:1}");
+}
+
+test "invalid object array key" {
+    assert rejects("{[]:1}");
+}
+
+test "invalid object object key" {
+    assert rejects("{{}:1}");
+}
+
+test "invalid object identifier key" {
+    assert rejects("{key:1}");
+}
+
+/// -------------------------------------------------------------------------
+/// Object missing colon
+/// -------------------------------------------------------------------------
+
+test "invalid object key without colon" {
+    assert rejects("{\"key\"}");
+}
+
+test "invalid object key value without colon" {
+    assert rejects("{\"key\" 1}");
+}
+
+test "invalid object key equals value" {
+    assert rejects("{\"key\"=1}");
+}
+
+test "invalid object key arrow value" {
+    assert rejects("{\"key\"=>1}");
+}
+
+test "invalid object key semicolon value" {
+    assert rejects("{\"key\";1}");
+}
+
+/// -------------------------------------------------------------------------
+/// Object missing values
+/// -------------------------------------------------------------------------
+
+test "invalid object colon without value" {
+    assert rejects("{\"key\":}");
+}
+
+test "invalid object colon comma" {
+    assert rejects("{\"key\":,}");
+}
+
+test "invalid object value missing before next member" {
+    assert rejects("{\"a\":,\"b\":2}");
+}
+
+test "invalid object nested value missing" {
+    assert rejects("{\"a\":{\"b\":}}");
+}
+
+/// -------------------------------------------------------------------------
+/// Object leading commas
+/// -------------------------------------------------------------------------
+
+test "invalid object leading comma" {
+    assert rejects("{,}");
+}
+
+test "invalid object leading comma member" {
+    assert rejects("{,\"a\":1}");
+}
+
+/// -------------------------------------------------------------------------
+/// Object trailing commas
+/// -------------------------------------------------------------------------
+
+test "invalid object trailing comma integer" {
+    assert rejects("{\"a\":1,}");
+}
+
+test "invalid object trailing comma string" {
+    assert rejects("{\"a\":\"x\",}");
+}
+
+test "invalid object trailing comma boolean" {
+    assert rejects("{\"a\":true,}");
+}
+
+test "invalid object trailing comma null" {
+    assert rejects("{\"a\":null,}");
+}
+
+test "invalid object trailing comma array" {
+    assert rejects("{\"a\":[],}");
+}
+
+test "invalid object trailing comma object" {
+    assert rejects("{\"a\":{},}");
+}
+
+/// -------------------------------------------------------------------------
+/// Object missing commas
+/// -------------------------------------------------------------------------
+
+test "invalid object members without comma" {
+    assert rejects(
+        "{\"a\":1 \"b\":2}");
+}
+
+test "invalid object string members without comma" {
+    assert rejects(
+        "{\"a\":\"x\" \"b\":\"y\"}");
+}
+
+test "invalid object nested members without comma" {
+    assert rejects(
+        "{\"a\":{} \"b\":[]}");
+}
+
+/// -------------------------------------------------------------------------
+/// Object duplicate separators
+/// -------------------------------------------------------------------------
+
+test "invalid object double comma" {
+    assert rejects(
+        "{\"a\":1,,\"b\":2}");
+}
+
+test "invalid object double colon" {
+    assert rejects(
+        "{\"a\"::1}");
+}
+
+test "invalid object comma after colon" {
+    assert rejects(
+        "{\"a\":,1}");
+}
+
+/// -------------------------------------------------------------------------
+/// Empty object keys are valid JSON
+/// -------------------------------------------------------------------------
+
+test "empty object key is not an invalid case" {
+    let result: JsonParseResult =
+        parse("{\"\":1}");
+
+    assert result.ok;
+}
+
+/// -------------------------------------------------------------------------
+/// Duplicate keys are syntactically valid JSON
+/// -------------------------------------------------------------------------
+
+test "duplicate keys remain parser policy not syntax error" {
+    let source: string =
+        "{\"a\":1,\"a\":2}";
+
+    let result: JsonParseResult =
+        parse(source);
+
+    /// JSON syntax itself permits repeated member names.
+    /// Implementations may apply an additional duplicate-key policy.
+    ///
+    /// This test intentionally does not require either semantic policy.
+    /// It only verifies deterministic behavior.
+
+    let second: JsonParseResult =
+        parse(source);
+
+    assert result.ok ==
+        second.ok;
+
+    assert result.report.error ==
+        second.report.error;
+}
+
+/// -------------------------------------------------------------------------
+/// Extra top-level values
+/// -------------------------------------------------------------------------
+
+test "invalid two null values" {
+    assert rejects("null null");
+}
+
+test "invalid two booleans" {
+    assert rejects("true false");
+}
+
+test "invalid two integers" {
+    assert rejects("1 2");
+}
+
+test "invalid integer then string" {
+    assert rejects("1 \"two\"");
+}
+
+test "invalid string then integer" {
+    assert rejects("\"one\" 2");
+}
+
+test "invalid array then object" {
+    assert rejects("[] {}");
+}
+
+test "invalid object then array" {
+    assert rejects("{} []");
+}
+
+test "invalid null then array" {
+    assert rejects("null []");
+}
+
+test "invalid object then null" {
+    assert rejects("{} null");
+}
+
+/// -------------------------------------------------------------------------
+/// Trailing garbage
+/// -------------------------------------------------------------------------
+
+test "invalid null trailing identifier" {
+    assert rejects("nullx");
+}
+
+test "invalid true trailing identifier" {
+    assert rejects("truex");
+}
+
+test "invalid false trailing identifier" {
+    assert rejects("falsex");
+}
+
+test "invalid integer trailing identifier" {
+    assert rejects("42x");
+}
+
+test "invalid string trailing identifier" {
+    assert rejects("\"x\"y");
+}
+
+test "invalid array trailing identifier" {
+    assert rejects("[]x");
+}
+
+test "invalid object trailing identifier" {
+    assert rejects("{}x");
+}
+
+test "invalid null trailing comma" {
+    assert rejects("null,");
+}
+
+test "invalid integer trailing comma" {
+    assert rejects("42,");
+}
+
+test "invalid array trailing comma outside value" {
+    assert rejects("[],");
+}
+
+test "invalid object trailing comma outside value" {
+    assert rejects("{},");
+}
+
+test "invalid value trailing colon" {
+    assert rejects("null:");
+}
+
+test "invalid value trailing semicolon" {
+    assert rejects("null;");
+}
+
+/// -------------------------------------------------------------------------
+/// Mismatched delimiters
+/// -------------------------------------------------------------------------
+
+test "invalid array closed by brace" {
+    assert rejects("[}");
+}
+
+test "invalid object closed by bracket" {
+    assert rejects("{]");
+}
+
+test "invalid nested array closed by brace" {
+    assert rejects("[[}]");
+}
+
+test "invalid nested object closed by bracket" {
+    assert rejects("{{}]");
+}
+
+test "invalid object array mismatch" {
+    assert rejects("{\"a\":[1,2}");
+}
+
+test "invalid array object mismatch" {
+    assert rejects("[{\"a\":1]]");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid nested arrays
+/// -------------------------------------------------------------------------
+
+test "invalid nested array trailing comma" {
+    assert rejects("[[1,]]");
+}
+
+test "invalid nested array missing comma" {
+    assert rejects("[[1 2]]");
+}
+
+test "invalid nested array missing close" {
+    assert rejects("[[1,2]");
+}
+
+test "invalid nested array malformed number" {
+    assert rejects("[[01]]");
+}
+
+test "invalid nested array malformed literal" {
+    assert rejects("[[tru]]");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid nested objects
+/// -------------------------------------------------------------------------
+
+test "invalid nested object trailing comma" {
+    assert rejects(
+        "{\"a\":{\"b\":1,}}");
+}
+
+test "invalid nested object missing colon" {
+    assert rejects(
+        "{\"a\":{\"b\" 1}}");
+}
+
+test "invalid nested object missing comma" {
+    assert rejects(
+        "{\"a\":{\"b\":1 \"c\":2}}");
+}
+
+test "invalid nested object missing close" {
+    assert rejects(
+        "{\"a\":{\"b\":1}");
+}
+
+test "invalid nested object malformed value" {
+    assert rejects(
+        "{\"a\":{\"b\":tru}}");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid mixed nesting
+/// -------------------------------------------------------------------------
+
+test "invalid object array trailing comma" {
+    assert rejects(
+        "{\"a\":[1,2,]}");
+}
+
+test "invalid array object trailing comma" {
+    assert rejects(
+        "[{\"a\":1,}]");
+}
+
+test "invalid object array missing comma" {
+    assert rejects(
+        "{\"a\":[1 2]}");
+}
+
+test "invalid array object missing colon" {
+    assert rejects(
+        "[{\"a\" 1}]");
+}
+
+test "invalid deeply nested missing close" {
+    assert rejects(
+        "{\"a\":[{\"b\":[1,2,3]}]");
+}
+
+test "invalid deeply nested extra close" {
+    assert rejects(
+        "{\"a\":[{\"b\":[1,2,3]}]]}");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid structural whitespace placement does not repair syntax
+/// -------------------------------------------------------------------------
+
+test "whitespace cannot repair missing array comma" {
+    assert rejects(
+        "[1     2]");
+}
+
+test "newline cannot repair missing array comma" {
+    assert rejects(
+        "[1\n2]");
+}
+
+test "whitespace cannot repair missing object colon" {
+    assert rejects(
+        "{\"a\"     1}");
+}
+
+test "newline cannot repair missing object colon" {
+    assert rejects(
+        "{\"a\"\n1}");
+}
+
+test "whitespace cannot repair missing object comma" {
+    assert rejects(
+        "{\"a\":1     \"b\":2}");
+}
+
+test "newline cannot repair missing object comma" {
+    assert rejects(
+        "{\"a\":1\n\"b\":2}");
+}
+
+/// -------------------------------------------------------------------------
+/// Lexer rejection
+/// -------------------------------------------------------------------------
+
+test "lexer rejects unknown identifier" {
+    assert lex_rejects("hello");
+}
+
+test "lexer rejects malformed null literal" {
+    assert lex_rejects("nul");
+}
+
+test "lexer rejects malformed true literal" {
+    assert lex_rejects("tru");
+}
+
+test "lexer rejects malformed false literal" {
+    assert lex_rejects("fals");
+}
+
+test "lexer rejects leading plus number" {
+    assert lex_rejects("+1");
+}
+
+test "lexer rejects leading zero number" {
+    assert lex_rejects("01");
+}
+
+test "lexer rejects trailing decimal point" {
+    assert lex_rejects("1.");
+}
+
+test "lexer rejects malformed exponent" {
+    assert lex_rejects("1e");
+}
+
+test "lexer rejects invalid string escape" {
+    assert lex_rejects("\"\\x\"");
+}
+
+test "lexer rejects incomplete unicode escape" {
+    assert lex_rejects("\"\\u000\"");
+}
+
+test "lexer rejects lone high surrogate" {
+    assert lex_rejects("\"\\uD800\"");
+}
+
+test "lexer rejects lone low surrogate" {
+    assert lex_rejects("\"\\uDC00\"");
+}
+
+test "lexer rejects unterminated string" {
+    assert lex_rejects("\"hello");
+}
+
+/// -------------------------------------------------------------------------
+/// Parser-only structural rejection
+/// -------------------------------------------------------------------------
+
+test "parser rejects empty token stream source" {
+    let result: JsonParseResult =
+        parse("");
+
+    assert not result.ok;
+}
+
+test "parser rejects empty array missing end delimiter" {
+    let result: JsonParseResult =
+        parse("[");
+
+    assert not result.ok;
+}
+
+test "parser rejects empty object missing end delimiter" {
+    let result: JsonParseResult =
+        parse("{");
+
+    assert not result.ok;
+}
+
+test "parser rejects unexpected comma at root" {
+    let result: JsonParseResult =
+        parse(",");
+
+    assert not result.ok;
+}
+
+test "parser rejects unexpected colon at root" {
+    let result: JsonParseResult =
+        parse(":");
+
+    assert not result.ok;
+}
+
+/// -------------------------------------------------------------------------
+/// Failure location sanity
+/// -------------------------------------------------------------------------
+
+test "invalid result has deterministic first failure" {
+    let first: JsonParseResult =
+        parse("[1,,2]");
+
+    let second: JsonParseResult =
+        parse("[1,,2]");
+
+    assert not first.ok;
+    assert not second.ok;
+
+    assert first.report.error ==
+        second.report.error;
+}
+
+test "invalid lexer result has deterministic first failure" {
+    let first: JsonLexerResult =
+        lex("\"\\x\"");
+
+    let second: JsonLexerResult =
+        lex("\"\\x\"");
+
+    assert not first.ok;
+    assert not second.ok;
+
+    assert first.error.error ==
+        second.error.error;
+}
+
+/// -------------------------------------------------------------------------
+/// Repeated malformed parsing
+/// -------------------------------------------------------------------------
+
+test "invalid parse is repeatable" {
+    let source: string =
+        "{\"a\":[1,2,]}";
+
+    let first: JsonParseResult =
+        parse(source);
+
+    let second: JsonParseResult =
+        parse(source);
+
+    let third: JsonParseResult =
+        parse(source);
+
+    assert not first.ok;
+    assert not second.ok;
+    assert not third.ok;
+
+    assert first.report.error ==
+        second.report.error;
+
+    assert second.report.error ==
+        third.report.error;
+}
+
+test "invalid parse does not contaminate later valid parse" {
+    let invalid_result: JsonParseResult =
+        parse("[1,,2]");
+
+    assert not invalid_result.ok;
+
+    let valid_result: JsonParseResult =
+        parse("[1,2]");
+
+    assert valid_result.ok;
+}
+
+test "valid parse does not hide later invalid parse" {
+    let valid_result: JsonParseResult =
+        parse("{\"a\":1}");
+
+    assert valid_result.ok;
+
+    let invalid_result: JsonParseResult =
+        parse("{\"a\":}");
+
+    assert not invalid_result.ok;
+}
+
+/// -------------------------------------------------------------------------
+/// Multiple malformed constructs
+/// -------------------------------------------------------------------------
+
+test "invalid document with several errors still fails" {
+    assert rejects(
+        "{\"a\":[1,,2],\"b\":01,}");
+}
+
+test "invalid nested document with several errors still fails" {
+    assert rejects(
+        "{\"a\":{\"b\":[true false],\"c\":1.}}");
+}
+
+test "invalid malformed strings and numbers still fail" {
+    assert rejects(
+        "[\"\\x\",01,1e]");
+}
+
+/// -------------------------------------------------------------------------
+/// JSON5 extensions are rejected
+/// -------------------------------------------------------------------------
+
+test "invalid json5 unquoted key" {
+    assert rejects(
+        "{key:1}");
+}
+
+test "invalid json5 single quote" {
+    assert rejects(
+        "{'key':'value'}");
+}
+
+test "invalid json5 trailing array comma" {
+    assert rejects(
+        "[1,2,3,]");
+}
+
+test "invalid json5 trailing object comma" {
+    assert rejects(
+        "{\"a\":1,}");
+}
+
+test "invalid json5 hexadecimal" {
+    assert rejects(
+        "{\"value\":0x10}");
+}
+
+test "invalid json5 leading plus" {
+    assert rejects(
+        "{\"value\":+1}");
+}
+
+test "invalid json5 infinity" {
+    assert rejects(
+        "{\"value\":Infinity}");
+}
+
+test "invalid json5 nan" {
+    assert rejects(
+        "{\"value\":NaN}");
+}
+
+test "invalid json5 line comment" {
+    assert rejects(
+        "{\"a\":1 // comment\n}");
+}
+
+test "invalid json5 block comment" {
+    assert rejects(
+        "{\"a\":/* comment */1}");
+}
+
+/// -------------------------------------------------------------------------
+/// JavaScript expressions are rejected
+/// -------------------------------------------------------------------------
+
+test "invalid javascript undefined" {
+    assert rejects("undefined");
+}
+
+test "invalid javascript new expression" {
+    assert rejects("new Object()");
+}
+
+test "invalid javascript function" {
+    assert rejects("function(){}");
+}
+
+test "invalid javascript arrow function" {
+    assert rejects("()=>1");
+}
+
+test "invalid javascript expression" {
+    assert rejects("1+2");
+}
+
+test "invalid javascript multiplication" {
+    assert rejects("2*3");
+}
+
+test "invalid javascript parenthesized value" {
+    assert rejects("(1)");
+}
+
+test "invalid javascript array hole" {
+    assert rejects("[1,,3]");
+}
+
+/// -------------------------------------------------------------------------
+/// Vitte syntax is not JSON
+/// -------------------------------------------------------------------------
+
+test "invalid vitte boolean operator" {
+    assert rejects("true && false");
+}
+
+test "invalid vitte integer suffix" {
+    assert rejects("42i64");
+}
+
+test "invalid vitte hexadecimal literal" {
+    assert rejects("0xff");
+}
+
+test "invalid vitte list statement syntax" {
+    assert rejects("let value = 1;");
+}
+
+test "invalid vitte block" {
+    assert rejects("{ let x = 1; }");
+}
+
+/// -------------------------------------------------------------------------
+/// Root separators are rejected
+/// -------------------------------------------------------------------------
+
+test "invalid root leading comma before null" {
+    assert rejects(",null");
+}
+
+test "invalid root trailing comma after null" {
+    assert rejects("null,");
+}
+
+test "invalid root leading colon" {
+    assert rejects(":null");
+}
+
+test "invalid root trailing colon" {
+    assert rejects("null:");
+}
+
+test "invalid root semicolon" {
+    assert rejects("null;");
+}
+
+/// -------------------------------------------------------------------------
+/// Array colon misuse
+/// -------------------------------------------------------------------------
+
+test "invalid array colon between values" {
+    assert rejects("[1:2]");
+}
+
+test "invalid array colon before value" {
+    assert rejects("[:1]");
+}
+
+test "invalid array colon after value" {
+    assert rejects("[1:]");
+}
+
+test "invalid array repeated colon" {
+    assert rejects("[1::2]");
+}
+
+/// -------------------------------------------------------------------------
+/// Object colon misuse
+/// -------------------------------------------------------------------------
+
+test "invalid object colon before key" {
+    assert rejects("{:\"a\"}");
+}
+
+test "invalid object repeated colon after key" {
+    assert rejects("{\"a\"::1}");
+}
+
+test "invalid object colon after value" {
+    assert rejects("{\"a\":1:2}");
+}
+
+/// -------------------------------------------------------------------------
+/// Extra closing delimiters
+/// -------------------------------------------------------------------------
+
+test "invalid extra right bracket after array" {
+    assert rejects("[]]");
+}
+
+test "invalid extra right brace after object" {
+    assert rejects("{}}");
+}
+
+test "invalid extra right bracket after null" {
+    assert rejects("null]");
+}
+
+test "invalid extra right brace after true" {
+    assert rejects("true}");
+}
+
+test "invalid multiple extra delimiters" {
+    assert rejects("[]}}]]");
+}
+
+/// -------------------------------------------------------------------------
+/// Extra opening delimiters
+/// -------------------------------------------------------------------------
+
+test "invalid unmatched opening array before value" {
+    assert rejects("[null");
+}
+
+test "invalid unmatched opening object before value" {
+    assert rejects("{\"a\":null");
+}
+
+test "invalid multiple unmatched arrays" {
+    assert rejects("[[[null]]");
+}
+
+test "invalid multiple unmatched objects" {
+    assert rejects("{\"a\":{\"b\":{}}");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid escaped object keys
+/// -------------------------------------------------------------------------
+
+test "invalid object key escape" {
+    assert rejects(
+        "{\"a\\x\":1}");
+}
+
+test "invalid object key incomplete unicode" {
+    assert rejects(
+        "{\"a\\u00\":1}");
+}
+
+test "invalid object key lone high surrogate" {
+    assert rejects(
+        "{\"\\uD800\":1}");
+}
+
+test "invalid object key lone low surrogate" {
+    assert rejects(
+        "{\"\\uDC00\":1}");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid escaped array strings
+/// -------------------------------------------------------------------------
+
+test "invalid array string escape" {
+    assert rejects(
+        "[\"a\\x\"]");
+}
+
+test "invalid array string incomplete unicode" {
+    assert rejects(
+        "[\"a\\u00\"]");
+}
+
+test "invalid array string lone high surrogate" {
+    assert rejects(
+        "[\"\\uD800\"]");
+}
+
+test "invalid array string lone low surrogate" {
+    assert rejects(
+        "[\"\\uDC00\"]");
+}
+
+/// -------------------------------------------------------------------------
+/// Number errors inside containers
+/// -------------------------------------------------------------------------
+
+test "invalid leading zero inside array" {
+    assert rejects("[01]");
+}
+
+test "invalid leading zero inside object" {
+    assert rejects("{\"n\":01}");
+}
+
+test "invalid decimal inside array" {
+    assert rejects("[1.]");
+}
+
+test "invalid decimal inside object" {
+    assert rejects("{\"n\":1.}");
+}
+
+test "invalid exponent inside array" {
+    assert rejects("[1e]");
+}
+
+test "invalid exponent inside object" {
+    assert rejects("{\"n\":1e}");
+
+}
+
+test "invalid plus number inside array" {
+    assert rejects("[+1]");
+}
+
+test "invalid plus number inside object" {
+    assert rejects("{\"n\":+1}");
+}
+
+/// -------------------------------------------------------------------------
+/// Literal errors inside containers
+/// -------------------------------------------------------------------------
+
+test "invalid null literal inside array" {
+    assert rejects("[nul]");
+}
+
+test "invalid true literal inside array" {
+    assert rejects("[tru]");
+}
+
+test "invalid false literal inside array" {
+    assert rejects("[fals]");
+}
+
+test "invalid null literal inside object" {
+    assert rejects("{\"x\":nul}");
+}
+
+test "invalid true literal inside object" {
+    assert rejects("{\"x\":tru}");
+}
+
+test "invalid false literal inside object" {
+    assert rejects("{\"x\":fals}");
+}
+
+/// -------------------------------------------------------------------------
+/// Case sensitivity
+/// -------------------------------------------------------------------------
+
+test "invalid uppercase literals in array" {
+    assert rejects(
+        "[NULL,TRUE,FALSE]");
+}
+
+test "invalid uppercase literals in object" {
+    assert rejects(
+        "{\"a\":NULL,\"b\":TRUE,\"c\":FALSE}");
+}
+
+test "invalid mixed case literals" {
+    assert rejects(
+        "[Null,True,False]");
+}
+
+/// -------------------------------------------------------------------------
+/// Valid whitespace cannot hide trailing garbage
+/// -------------------------------------------------------------------------
+
+test "invalid trailing garbage after spaces" {
+    assert rejects(
+        "null   x");
+}
+
+test "invalid trailing garbage after newline" {
+    assert rejects(
+        "null\nx");
+}
+
+test "invalid trailing garbage after crlf" {
+    assert rejects(
+        "null\r\nx");
+}
+
+test "invalid trailing comma after whitespace" {
+    assert rejects(
+        "null   ,");
+}
+
+/// -------------------------------------------------------------------------
+/// Parser must consume complete input
+/// -------------------------------------------------------------------------
+
+test "parser rejects valid prefix followed by malformed number" {
+    assert rejects(
+        "null 01");
+}
+
+test "parser rejects valid prefix followed by malformed string" {
+    assert rejects(
+        "null \"unterminated");
+}
+
+test "parser rejects valid prefix followed by malformed literal" {
+    assert rejects(
+        "null tru");
+}
+
+test "parser rejects valid prefix followed by structural token" {
+    assert rejects(
+        "null [");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid arrays with valid prefixes
+/// -------------------------------------------------------------------------
+
+test "invalid array after first valid element" {
+    assert rejects(
+        "[null tru]");
+}
+
+test "invalid array after several valid elements" {
+    assert rejects(
+        "[null,true,false,01]");
+}
+
+test "invalid array after nested valid element" {
+    assert rejects(
+        "[{\"a\":1},[1,2],]");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid objects with valid prefixes
+/// -------------------------------------------------------------------------
+
+test "invalid object after first valid member" {
+    assert rejects(
+        "{\"a\":1,\"b\":}");
+}
+
+test "invalid object after several valid members" {
+    assert rejects(
+        "{\"a\":1,\"b\":true,\"c\":01}");
+}
+
+test "invalid object after nested valid member" {
+    assert rejects(
+        "{\"a\":{\"b\":1},\"c\":[1,2],}");
+}
+
+/// -------------------------------------------------------------------------
+/// Deep malformed structures
+/// -------------------------------------------------------------------------
+
+test "invalid deep array missing final bracket" {
+    assert rejects(
+        "[[[[[[[[0]]]]]]]");
+}
+
+test "invalid deep object missing final brace" {
+    assert rejects(
+        "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":0}}}}");
+}
+
+test "invalid deep mixed missing final delimiter" {
+    assert rejects(
+        "{\"a\":[{\"b\":[{\"c\":[1,2,3]}]}]");
+}
+
+test "invalid deep mixed trailing comma" {
+    assert rejects(
+        "{\"a\":[{\"b\":[{\"c\":[1,2,3,]}]}]}");
+}
+
+/// -------------------------------------------------------------------------
+/// Error state consistency
+/// -------------------------------------------------------------------------
+
+test "invalid parse result remains failed" {
+    let result: JsonParseResult =
+        parse("[1,,2]");
+
+    assert not result.ok;
+}
+
+test "invalid lex result remains failed" {
+    let result: JsonLexerResult =
+        lex("\"\\x\"");
+
+    assert not result.ok;
+}
+
+test "different malformed documents all reject" {
+    assert rejects("[1,]");
+    assert rejects("{\"a\":}");
+    assert rejects("\"\\x\"");
+    assert rejects("01");
+    assert rejects("tru");
+    assert rejects("null null");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid number matrix
+/// -------------------------------------------------------------------------
+
+test "invalid number matrix" {
+    assert rejects("+0");
+    assert rejects("+1");
+    assert rejects("-");
+    assert rejects("--1");
+    assert rejects("-+1");
+
+    assert rejects("00");
+    assert rejects("01");
+    assert rejects("-00");
+    assert rejects("-01");
+
+    assert rejects(".");
+    assert rejects(".0");
+    assert rejects("0.");
+    assert rejects("1.");
+
+    assert rejects("1..0");
+    assert rejects("1.0.0");
+
+    assert rejects("1e");
+    assert rejects("1E");
+    assert rejects("1e+");
+    assert rejects("1e-");
+
+    assert rejects("1e1e1");
+    assert rejects("1E1E1");
+
+    assert rejects("0x10");
+    assert rejects("0b10");
+    assert rejects("0o10");
+
+    assert rejects("1_000");
+
+    assert rejects("NaN");
+    assert rejects("Infinity");
+    assert rejects("-Infinity");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid string matrix
+/// -------------------------------------------------------------------------
+
+test "invalid string matrix" {
+    assert rejects("\"");
+
+    assert rejects("\"\\a\"");
+    assert rejects("\"\\v\"");
+    assert rejects("\"\\0\"");
+    assert rejects("\"\\x\"");
+    assert rejects("\"\\1\"");
+
+    assert rejects("\"\\u\"");
+    assert rejects("\"\\u0\"");
+    assert rejects("\"\\u00\"");
+    assert rejects("\"\\u000\"");
+
+    assert rejects("\"\\u000G\"");
+    assert rejects("\"\\u00ZZ\"");
+
+    assert rejects("\"\\uD800\"");
+    assert rejects("\"\\uDC00\"");
+    assert rejects("\"\\uD800\\u0041\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid array matrix
+/// -------------------------------------------------------------------------
+
+test "invalid array matrix" {
+    assert rejects("[");
+    assert rejects("[,]");
+    assert rejects("[,1]");
+    assert rejects("[1,]");
+    assert rejects("[1,,2]");
+    assert rejects("[1 2]");
+    assert rejects("[1:2]");
+    assert rejects("[01]");
+    assert rejects("[tru]");
+    assert rejects("[\"\\x\"]");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid object matrix
+/// -------------------------------------------------------------------------
+
+test "invalid object matrix" {
+    assert rejects("{");
+    assert rejects("{,}");
+    assert rejects("{,\"a\":1}");
+
+    assert rejects("{a:1}");
+    assert rejects("{1:1}");
+
+    assert rejects("{\"a\"}");
+    assert rejects("{\"a\" 1}");
+    assert rejects("{\"a\":}");
+
+    assert rejects("{\"a\":1,}");
+    assert rejects("{\"a\":1 \"b\":2}");
+    assert rejects("{\"a\"::1}");
+
+    assert rejects("{\"a\":01}");
+    assert rejects("{\"a\":tru}");
+    assert rejects("{\"a\":\"\\x\"}");
+}
+
+/// -------------------------------------------------------------------------
+/// Final comprehensive rejection smoke test
+/// -------------------------------------------------------------------------
+
+test "invalid json comprehensive smoke" {
+    assert rejects("");
+    assert rejects(" ");
+    assert rejects("x");
+
+    assert rejects("nul");
+    assert rejects("tru");
+    assert rejects("fals");
+
+    assert rejects("+1");
+    assert rejects("01");
+    assert rejects("1.");
+    assert rejects("1e");
+    assert rejects("0x10");
+
+    assert rejects("\"unterminated");
+    assert rejects("\"\\x\"");
+    assert rejects("\"\\u000\"");
+    assert rejects("\"\\uD800\"");
+    assert rejects("\"\\uDC00\"");
+
+    assert rejects("[");
+    assert rejects("[1,]");
+    assert rejects("[1,,2]");
+    assert rejects("[1 2]");
+
+    assert rejects("{");
+    assert rejects("{key:1}");
+    assert rejects("{\"key\"}");
+    assert rejects("{\"key\":}");
+    assert rejects("{\"key\":1,}");
+    assert rejects(
+        "{\"a\":1 \"b\":2}");
+
+    assert rejects("null null");
+    assert rejects("[] {}");
+    assert rejects("{} []");
+
+    assert rejects(
+        "{\"a\":[1,2,]}");
+
+    assert rejects(
+        "[{\"a\":1,}]");
+
+    assert rejects(
+        "{\"a\":{\"b\":}}");
+
+    assert rejects(
+        "{\"a\":[{\"b\":[1,2,3]}]");
+
+    let valid_after_failures: JsonParseResult =
+        parse(
+            "{\"valid\":[null,true,false,0,\"Vitte\",[],{}]}");
+
+    assert valid_after_failures.ok;
+}

@@ -392,7 +392,7 @@ proc ir_instruction_text(context: &IRContext, instruction: &IRInstruction) -> ?s
         if callee_value == null { return null; }
         let mut callee: ?string = null;
         if callee_value?.kind == IRValueKind.Function {
-            let function: ?&IRFunction = ir_function(context, callee_value?.function);
+            let function = ir_function(context, callee_value?.function);
             if function != null { set callee = ir_emit_function_name(context, function?); }
         } else { set callee = ir_value_text(context, callee_id); }
         if callee == null { return null; }
@@ -602,10 +602,6 @@ proc ir_instruction_text(context: &IRContext, instruction: &IRInstruction) -> ?s
 }
 
 proc ir_emit_function_name(context: &IRContext, function: &IRFunction) -> ?string {
-    let source_name = ir_string(context, function.name);
-    if source_name != null and source_name? == "main" {
-        return ir_symbol(context, function.name, "vitte_fn_");
-    }
     if function.linkage == IRLinkage.External {
         return ir_string(context, function.name);
     }

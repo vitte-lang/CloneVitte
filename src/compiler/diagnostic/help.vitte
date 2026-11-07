@@ -688,10 +688,10 @@ proc help_byte_is_space(value: char) -> bool {
 proc help_trim(text: string) -> string {
     let mut begin: usize = 0;
     let mut end: usize = text.len();
-    while begin < end and help_byte_is_space(text[begin] as char) {
+    while begin < end and help_byte_is_space(text[begin]) {
         set begin += 1;
     }
-    while end > begin and help_byte_is_space(text[end - 1] as char) {
+    while end > begin and help_byte_is_space(text[end - 1]) {
         set end -= 1;
     }
     if begin == end {
