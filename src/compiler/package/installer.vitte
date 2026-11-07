@@ -508,36 +508,9 @@ export proc vitte_package_install(name: string, requested_version: ?string, glob
         package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
         return 1;
     }
-    let mut extracted_listing: FilesystemDirectoryList = FilesystemDirectoryList {
-        entries: null,
-        count: 0,
-        capacity: 0
-    };
-    let listing_result = vitte_filesystem_list_directory(stage_path, 0, &mut extracted_listing);
-    let mut extracted_package_path = "";
-    let mut matching_package_directory_count: usize = 0;
-    if listing_result.error == FilesystemError.None {
-        let mut entry_index: usize = 0;
-        while entry_index < extracted_listing.count {
-            let extracted_entry = extracted_listing.entries[entry_index];
-            if extracted_entry.kind == FilesystemKind.Directory {
-                let candidate_package_path = vitte_filesystem_join(
-                    stage_path,
-                    extracted_entry.name
-                );
-                if package_metadata_matches(candidate_package_path, release) {
-                    set matching_package_directory_count += 1;
-                    if matching_package_directory_count == 1 {
-                        set extracted_package_path = candidate_package_path;
-                    }
-                }
-            }
-            set entry_index += 1;
-        }
-    }
-    vitte_filesystem_directory_list_destroy(&mut extracted_listing);
-    if listing_result.error != FilesystemError.None or
-       matching_package_directory_count != 1 or extracted_package_path == "" {
+    let archive_root_name = "vitte-" + release.name + "-" + release.version;
+    let extracted_package_path = vitte_filesystem_join(stage_path, archive_root_name);
+    if not package_metadata_matches(extracted_package_path, release) {
         package_report("vitte install: archive layout or package metadata is invalid");
         package_discard_bool(package_remove_tree(stage_path));
         package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
