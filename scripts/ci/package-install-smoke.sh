@@ -45,8 +45,15 @@ cd "$WORKDIR"
 [ -s .vitte/modules/json/parser/parser.vit ]
 [ -s vitte.packages.toml ]
 [ -s vitte.lock ]
-grep -Eq '^dependency\.json = "[0-9]+\.[0-9]+\.[0-9]+"$' vitte.packages.toml
-grep -Eq '^package\.json\.checksum = "sha256:[0-9a-f]{64}"$' vitte.lock
+awk -F '"' '
+  $1 == "dependency.json = " && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ { found = 1 }
+  END { exit !found }
+' vitte.packages.toml
+awk -F '"' '
+  $1 == "package.json.checksum = " && length($2) == 71 &&
+  substr($2, 1, 7) == "sha256:" && $2 ~ /^sha256:[0-9a-f]+$/ { found = 1 }
+  END { exit !found }
+' vitte.lock
 
 VITTE_MODULE_PATH="$WORKDIR/.vitte/modules" "$VITTE_BOOTSTRAP_BIN" check package-smoke.vit
 VITTE_MODULE_PATH="$WORKDIR/.vitte/modules" "$VITTE_BOOTSTRAP_BIN" compile package-smoke.vit -o package-smoke
