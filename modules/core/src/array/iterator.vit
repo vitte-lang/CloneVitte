@@ -1,4 +1,4 @@
-space core::array::iterator
+space core::array::iterator;
 
 /// Parcourt chaque élément d'un tableau.
 proc array_for_each<T>(

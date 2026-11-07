@@ -5,6 +5,9 @@
 /// du type ciblé.
 space core::ops::assign;
 
+use core::ops::shl::{shl_i8, shl_i16, shl_i32, shl_i64, shl_u8, shl_u16, shl_u32, shl_u64};
+use core::ops::shr::{shr_i8, shr_i16, shr_i32, shr_i64, shr_u8, shr_u16, shr_u32, shr_u64};
+
 export proc add_assign_i8(left: &mut i8, right: i8) {
     set *left = *left + right;
 }
@@ -210,11 +213,11 @@ export proc xor_assign_i8(left: &mut i8, right: i8) {
 }
 
 export proc shl_assign_i8(left: &mut i8, right: usize) {
-    set *left = *left << right;
+    set *left = shl_i8(*left, right);
 }
 
 export proc shr_assign_i8(left: &mut i8, right: usize) {
-    set *left = *left >> right;
+    set *left = shr_i8(*left, right);
 }
 
 export proc and_assign_i16(left: &mut i16, right: i16) {
@@ -230,11 +233,11 @@ export proc xor_assign_i16(left: &mut i16, right: i16) {
 }
 
 export proc shl_assign_i16(left: &mut i16, right: usize) {
-    set *left = *left << right;
+    set *left = shl_i16(*left, right);
 }
 
 export proc shr_assign_i16(left: &mut i16, right: usize) {
-    set *left = *left >> right;
+    set *left = shr_i16(*left, right);
 }
 
 export proc and_assign_i32(left: &mut i32, right: i32) {
@@ -250,11 +253,11 @@ export proc xor_assign_i32(left: &mut i32, right: i32) {
 }
 
 export proc shl_assign_i32(left: &mut i32, right: usize) {
-    set *left = *left << right;
+    set *left = shl_i32(*left, right);
 }
 
 export proc shr_assign_i32(left: &mut i32, right: usize) {
-    set *left = *left >> right;
+    set *left = shr_i32(*left, right);
 }
 
 export proc and_assign_i64(left: &mut i64, right: i64) {
@@ -270,11 +273,11 @@ export proc xor_assign_i64(left: &mut i64, right: i64) {
 }
 
 export proc shl_assign_i64(left: &mut i64, right: usize) {
-    set *left = *left << right;
+    set *left = shl_i64(*left, right);
 }
 
 export proc shr_assign_i64(left: &mut i64, right: usize) {
-    set *left = *left >> right;
+    set *left = shr_i64(*left, right);
 }
 
 export proc and_assign_u8(left: &mut u8, right: u8) {
@@ -290,11 +293,11 @@ export proc xor_assign_u8(left: &mut u8, right: u8) {
 }
 
 export proc shl_assign_u8(left: &mut u8, right: usize) {
-    set *left = *left << right;
+    set *left = shl_u8(*left, right);
 }
 
 export proc shr_assign_u8(left: &mut u8, right: usize) {
-    set *left = *left >> right;
+    set *left = shr_u8(*left, right);
 }
 
 export proc and_assign_u16(left: &mut u16, right: u16) {
@@ -310,11 +313,11 @@ export proc xor_assign_u16(left: &mut u16, right: u16) {
 }
 
 export proc shl_assign_u16(left: &mut u16, right: usize) {
-    set *left = *left << right;
+    set *left = shl_u16(*left, right);
 }
 
 export proc shr_assign_u16(left: &mut u16, right: usize) {
-    set *left = *left >> right;
+    set *left = shr_u16(*left, right);
 }
 
 export proc and_assign_u32(left: &mut u32, right: u32) {
@@ -330,11 +333,11 @@ export proc xor_assign_u32(left: &mut u32, right: u32) {
 }
 
 export proc shl_assign_u32(left: &mut u32, right: usize) {
-    set *left = *left << right;
+    set *left = shl_u32(*left, right);
 }
 
 export proc shr_assign_u32(left: &mut u32, right: usize) {
-    set *left = *left >> right;
+    set *left = shr_u32(*left, right);
 }
 
 export proc and_assign_u64(left: &mut u64, right: u64) {
@@ -350,10 +353,10 @@ export proc xor_assign_u64(left: &mut u64, right: u64) {
 }
 
 export proc shl_assign_u64(left: &mut u64, right: usize) {
-    set *left = *left << right;
+    set *left = shl_u64(*left, right);
 }
 
 export proc shr_assign_u64(left: &mut u64, right: usize) {
-    set *left = *left >> right;
+    set *left = shr_u64(*left, right);
 }
 

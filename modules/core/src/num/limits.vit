@@ -18,4 +18,4 @@ export const U64_MAX: u64 = 18446744073709551615;
 // The bootstrap type checker currently models `isize` as a signed 64-bit
 // integer; keep this explicit until target-aware associated constants exist.
 export const ISIZE_MAX: isize = 9223372036854775807;
-export const USIZE_MAX: usize = usize.MAX;
+export const USIZE_MAX: usize = (0 as usize) - 1;

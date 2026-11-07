@@ -6,21 +6,21 @@ use core::convert::format::{
     format_u8, format_u16, format_u32, format_u64
 };
 
-export proc debug_bool(value: bool, buffer: *u8, capacity: usize) -> FormatResult {
+export proc debug_bool(value: bool, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_bool(value, buffer, capacity);
 }
 
-export proc debug_i64(value: i64, buffer: *u8, capacity: usize) -> FormatResult {
+export proc debug_i64(value: i64, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_i64(value, buffer, capacity);
 }
 
-export proc debug_u64(value: u64, buffer: *u8, capacity: usize) -> FormatResult {
+export proc debug_u64(value: u64, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_u64(value, buffer, capacity);
 }
 
-export proc debug_i8(value: i8, buffer: *u8, capacity: usize) -> FormatResult { return format_i8(value, buffer, capacity); }
-export proc debug_i16(value: i16, buffer: *u8, capacity: usize) -> FormatResult { return format_i16(value, buffer, capacity); }
-export proc debug_i32(value: i32, buffer: *u8, capacity: usize) -> FormatResult { return format_i32(value, buffer, capacity); }
-export proc debug_u8(value: u8, buffer: *u8, capacity: usize) -> FormatResult { return format_u8(value, buffer, capacity); }
-export proc debug_u16(value: u16, buffer: *u8, capacity: usize) -> FormatResult { return format_u16(value, buffer, capacity); }
-export proc debug_u32(value: u32, buffer: *u8, capacity: usize) -> FormatResult { return format_u32(value, buffer, capacity); }
+export proc debug_i8(value: i8, buffer: *mut u8, capacity: usize) -> FormatResult { return format_i8(value, buffer, capacity); }
+export proc debug_i16(value: i16, buffer: *mut u8, capacity: usize) -> FormatResult { return format_i16(value, buffer, capacity); }
+export proc debug_i32(value: i32, buffer: *mut u8, capacity: usize) -> FormatResult { return format_i32(value, buffer, capacity); }
+export proc debug_u8(value: u8, buffer: *mut u8, capacity: usize) -> FormatResult { return format_u8(value, buffer, capacity); }
+export proc debug_u16(value: u16, buffer: *mut u8, capacity: usize) -> FormatResult { return format_u16(value, buffer, capacity); }
+export proc debug_u32(value: u32, buffer: *mut u8, capacity: usize) -> FormatResult { return format_u32(value, buffer, capacity); }

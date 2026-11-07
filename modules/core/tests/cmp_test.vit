@@ -1,0 +1,16 @@
+use core::cmp::ordering::{Ordering, compare_i32};
+use core::cmp::partial_order::{partial_cmp_f64};
+use core::cmp::equal::{relative_equal_f32, relative_equal_f64};
+use core::types::ordering::{PartialOrdering};
+
+test "comparison primitives handle order bounds and unordered floats" {
+    assert(compare_i32(-1, 4) == Ordering.Less);
+    assert(compare_i32(4, 4) == Ordering.Equal);
+    assert(compare_i32(9, 4) == Ordering.Greater);
+    assert(partial_cmp_f64(1.0, 2.0) == PartialOrdering.Less);
+    assert(partial_cmp_f64(0.0 / 0.0, 2.0) == PartialOrdering.Unordered);
+    assert(relative_equal_f32(100.0, 101.0, 0.02));
+    assert(not relative_equal_f32(100.0, 101.0, 0.001));
+    assert(relative_equal_f64(-100.0, -101.0, 0.02));
+    assert(not relative_equal_f64(100.0, 101.0, -0.02));
+}

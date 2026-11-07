@@ -3,10 +3,10 @@ use core::hash::siphash::{siphash24};
 
 test "FNV handles empty and single-byte inputs" {
     let empty: [u8] = [];
-    assert fnv1a64_bytes(&empty) == FNV64_OFFSET_BASIS;
+    assert(fnv1a64_bytes(&empty) == FNV64_OFFSET_BASIS);
 
     let ascii_a: [u8] = [97 as u8];
-    assert fnv1a64(FNV64_OFFSET_BASIS, &ascii_a) == 0xaf63dc4c8601ec8c;
+    assert(fnv1a64(FNV64_OFFSET_BASIS, &ascii_a) == 0xaf63dc4c8601ec8c);
 }
 
 test "SipHash matches published empty and full-block vectors" {
@@ -27,9 +27,9 @@ test "SipHash matches published empty and full-block vectors" {
     let key0: u64 = 0x0706050403020100;
     let key1: u64 = 0x0f0e0d0c0b0a0908;
 
-    assert siphash24(&empty, key0, key1) == 0x726fdb47dd0e0e31;
-    assert siphash24(&one_byte, key0, key1) == 0x74f839c593dc67fd;
-    assert siphash24(&seven_bytes, key0, key1) == 0xab0200f58b01d137;
-    assert siphash24(&message, key0, key1) == 0x93f5f5799a932462;
-    assert siphash24(&nine_bytes, key0, key1) == 0x9e0082df0ba9e4b0;
+    assert(siphash24(&empty, key0, key1) == 0x726fdb47dd0e0e31);
+    assert(siphash24(&one_byte, key0, key1) == 0x74f839c593dc67fd);
+    assert(siphash24(&seven_bytes, key0, key1) == 0xab0200f58b01d137);
+    assert(siphash24(&message, key0, key1) == 0x93f5f5799a932462);
+    assert(siphash24(&nine_bytes, key0, key1) == 0x9e0082df0ba9e4b0);
 }

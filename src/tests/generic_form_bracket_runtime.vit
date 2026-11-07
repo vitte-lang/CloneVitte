@@ -1,0 +1,8 @@
+form Box<T> {
+    value: T,
+}
+
+proc main() -> i64 {
+    let boxed: Box[i64] = Box[i64] { value: 42 };
+    return boxed.value - 42;
+}

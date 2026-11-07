@@ -1,4 +1,4 @@
-space core::array::repeat
+space core::array::repeat;
 
 /// Remplit un tableau avec une valeur répétée.
 proc array_repeat_fill<T>(

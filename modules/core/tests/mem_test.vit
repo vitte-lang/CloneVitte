@@ -1,0 +1,11 @@
+use core::mem::layout::{layout, layout_is_valid, layout_array, layout_extend_with_offset};
+
+test "memory layout alignment and replacement helpers preserve bounds" {
+    let element = layout(3, 4);
+    assert(layout_is_valid(&element));
+    assert(layout_array(element, 3).size == 12);
+    let extension = layout_extend_with_offset(layout(4, 4), layout(8, 8));
+    assert(extension.valid);
+    assert(extension.offset == 8);
+    assert(extension.layout.align == 8);
+}

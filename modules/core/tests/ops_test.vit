@@ -1,0 +1,38 @@
+use core::ops::bitand::{bitand_i32, bitand_u8};
+use core::ops::assign::{shl_assign_u8, shr_assign_i64};
+use core::ops::shl::{shl_i8, shl_u8, checked_shl_u8};
+use core::ops::shr::{shr_i8, shr_i64, shr_u8, checked_shr_i64};
+
+test "primitive bitwise helpers match the language operators" {
+    assert(bitand_i32(0b1101, 0b1011) == 0b1001);
+    assert(bitand_u8(0b11110000, 0b00111100) == 0b00110000);
+}
+
+test "shifts preserve narrow widths and sign extend signed values" {
+    assert(shl_i8(-2, 1) == -4);
+    assert(shl_u8(0x81, 1) == 2);
+    assert(shl_u8(1, 8) == 0);
+    let mut shifted_byte: u8 = 9;
+    assert(not checked_shl_u8(1, 8, &mut shifted_byte));
+    assert(shifted_byte == 9);
+    assert(checked_shl_u8(1, 2, &mut shifted_byte));
+    assert(shifted_byte == 4);
+
+    assert(shr_i8(-8, 1) == -4);
+    assert(shr_i64(-8, 2) == -2);
+    assert(shr_u8(0x80, 7) == 1);
+    assert(shr_i64(-8, 64) == -1);
+    let mut shifted_signed: i64 = 5;
+    assert(not checked_shr_i64(-8, 64, &mut shifted_signed));
+    assert(shifted_signed == 5);
+    assert(checked_shr_i64(-8, 2, &mut shifted_signed));
+    assert(shifted_signed == -2);
+
+    let mut byte: u8 = 3;
+    set shl_assign_u8(&mut byte, 2);
+    assert(byte == 12);
+
+    let mut signed_value: i64 = -16;
+    set shr_assign_i64(&mut signed_value, 2);
+    assert(signed_value == -4);
+}

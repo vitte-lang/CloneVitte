@@ -1,50 +1,79 @@
 use core::num::checked::{checked_i64_add, checked_i64_div, checked_i64_mul, checked_i64_neg, checked_u64_add, checked_u64_mul, checked_u64_pow};
-use core::num::limits::{I64_MAX, I64_MIN, U64_MAX};
+use core::num::limits::{I64_MAX, I64_MIN, U64_MAX, USIZE_MAX};
 use core::num::saturating::{saturating_i64_abs, saturating_i64_add, saturating_u64_add, saturating_u64_sub};
 use core::num::wrapping::{wrapping_i64_mul, wrapping_u64_add, wrapping_u64_mul, wrapping_u64_sub};
+use core::num::integer::{integer_gcd_u64, integer_lcm_u64, integer_sqrt_u64, integer_abs_diff_u64, integer_is_power_of_two_u64, integer_next_power_of_two_u64};
 
 test "checked arithmetic detects unsigned overflow and underflow" {
     let zero_add = checked_u64_add(0, 0);
-    assert zero_add.success;
-    assert zero_add.value == 0;
+    assert(zero_add.success);
+    assert(zero_add.value == 0);
 
     let add_overflow = checked_u64_add(U64_MAX, 1);
-    assert not add_overflow.success;
+    assert(not add_overflow.success);
     let subtract_underflow = core::num::checked::checked_u64_sub(0, 1);
-    assert not subtract_underflow.success;
+    assert(not subtract_underflow.success);
     let multiply_overflow = checked_u64_mul(U64_MAX, 2);
-    assert not multiply_overflow.success;
+    assert(not multiply_overflow.success);
 }
 
 test "checked arithmetic detects signed exceptional cases" {
     let add_overflow = checked_i64_add(I64_MAX, 1);
-    assert not add_overflow.success;
+    assert(not add_overflow.success);
     let multiply_overflow = checked_i64_mul(I64_MIN, -1);
-    assert not multiply_overflow.success;
+    assert(not multiply_overflow.success);
     let divide_by_zero = checked_i64_div(12, 0);
-    assert not divide_by_zero.success;
+    assert(not divide_by_zero.success);
     let divide_overflow = checked_i64_div(I64_MIN, -1);
-    assert not divide_overflow.success;
+    assert(not divide_overflow.success);
     let negate_minimum = checked_i64_neg(I64_MIN);
-    assert not negate_minimum.success;
+    assert(not negate_minimum.success);
 }
 
 test "checked power defines zero exponent and overflow" {
     let zero_to_zero = checked_u64_pow(0, 0);
-    assert zero_to_zero.success;
-    assert zero_to_zero.value == 1;
+    assert(zero_to_zero.success);
+    assert(zero_to_zero.value == 1);
     let overflow = checked_u64_pow(2, 64);
-    assert not overflow.success;
+    assert(not overflow.success);
 }
 
 test "wrapping and saturating arithmetic preserve their contracts" {
-    assert wrapping_u64_add(U64_MAX, 1) == 0;
-    assert wrapping_u64_sub(0, 1) == U64_MAX;
-    assert wrapping_u64_mul(U64_MAX, 2) == U64_MAX - 1;
-    assert wrapping_i64_mul(I64_MIN, -1) == I64_MIN;
+    assert(wrapping_u64_add(U64_MAX, 1) == 0);
+    assert(wrapping_u64_sub(0, 1) == U64_MAX);
+    assert(wrapping_u64_mul(U64_MAX, 2) == U64_MAX - 1);
+    assert(wrapping_i64_mul(I64_MIN, -1) == I64_MIN);
 
-    assert saturating_u64_add(U64_MAX, 1) == U64_MAX;
-    assert saturating_u64_sub(0, 1) == 0;
-    assert saturating_i64_add(I64_MAX, 1) == I64_MAX;
-    assert saturating_i64_abs(I64_MIN) == I64_MAX;
+    assert(saturating_u64_add(U64_MAX, 1) == U64_MAX);
+    assert(saturating_u64_sub(0, 1) == 0);
+    assert(saturating_i64_add(I64_MAX, 1) == I64_MAX);
+    assert(saturating_i64_abs(I64_MIN) == I64_MAX);
+}
+
+test "integer helpers cover roots powers and checked least common multiples" {
+    assert(USIZE_MAX > 0);
+    assert(integer_gcd_u64(54, 24) == 6);
+    assert(integer_abs_diff_u64(4, 9) == 5);
+    assert(integer_sqrt_u64(0) == 0);
+    assert(integer_sqrt_u64(15) == 3);
+    assert(integer_sqrt_u64(U64_MAX) == 4294967295);
+    assert(integer_is_power_of_two_u64(1024));
+    assert(not integer_is_power_of_two_u64(1023));
+
+    let mut result: u64 = 99;
+    assert(integer_lcm_u64(6, 8, &mut result));
+    assert(result == 24);
+    assert(integer_lcm_u64(0, U64_MAX, &mut result));
+    assert(result == 0);
+    set result = 99;
+    assert(not integer_lcm_u64(U64_MAX, 2, &mut result));
+    assert(result == 99);
+
+    assert(integer_next_power_of_two_u64(9, &mut result));
+    assert(result == 16);
+    assert(integer_next_power_of_two_u64(0, &mut result));
+    assert(result == 1);
+    set result = 99;
+    assert(not integer_next_power_of_two_u64(U64_MAX, &mut result));
+    assert(result == 99);
 }

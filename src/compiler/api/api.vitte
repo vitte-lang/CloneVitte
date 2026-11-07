@@ -545,12 +545,45 @@ proc api_module_normalize_path(path: str) -> ?string {
 proc api_module_try_root(root: str, relative: str) -> ?string {
     let root_bytes = root.as_bytes();
     let mut base = relative;
+    let mut root_end: usize = root_bytes.len();
+    while root_end > 0 and
+          (root_bytes[root_end - 1] == 47 or root_bytes[root_end - 1] == 92) {
+        set root_end -= 1;
+    }
+
+    /* A configured package src directory is addressed with its package name
+     * in imports (for example `core::num::checked` with
+     * `modules/core/src` on the search path). Strip that package component
+     * only for the filesystem lookup; callers retain the full import name
+     * when assigning the imported declarations their Vitte namespace. */
+    let mut source_component_start = root_end;
+    while source_component_start > 0 and
+          root_bytes[source_component_start - 1] != 47 and
+          root_bytes[source_component_start - 1] != 92 {
+        set source_component_start -= 1;
+    }
+    if root.slice(source_component_start, root_end) == "src" and
+       source_component_start > 0 {
+        let mut package_end: usize = source_component_start - 1;
+        let mut package_start = package_end;
+        while package_start > 0 and root_bytes[package_start - 1] != 47 and
+              root_bytes[package_start - 1] != 92 {
+            set package_start -= 1;
+        }
+        let package_name: str = root.slice(package_start, package_end);
+        let package_prefix: str = package_name + "/";
+        if package_name.len() != 0 and relative.len() > package_prefix.len() and
+           relative.slice(0, package_prefix.len()) == package_prefix {
+            set base = relative.slice(package_prefix.len(), relative.len());
+        }
+    }
+
     if root.len() != 0 and root != "." {
         if root_bytes[root_bytes.len() - 1] == 47 or
            root_bytes[root_bytes.len() - 1] == 92 {
-            set base = root + relative;
+            set base = root + base;
         } else {
-            set base = root + "/" + relative;
+            set base = root + "/" + base;
         }
     }
 

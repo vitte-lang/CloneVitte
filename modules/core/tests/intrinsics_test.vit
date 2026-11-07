@@ -1,0 +1,35 @@
+use core::intrinsics::bitwise::{rotate_left_u32, rotate_right_u32, count_ones_u32, leading_zeros_u32, trailing_zeros_u32};
+use core::intrinsics::floating::{intrinsic_is_finite_f64, intrinsic_is_nan_f64};
+use core::intrinsics::arithmetic::{add_overflow_u64, sub_overflow_u64, mul_overflow_u64, add_overflow_i64, sub_overflow_i64, mul_overflow_i64};
+use core::num::limits::{I64_MAX, I64_MIN, U64_MAX};
+
+test "portable bit and float primitives match fixed-width results" {
+    assert(rotate_left_u32(1, 4) == 16);
+    assert(rotate_right_u32(16, 4) == 1);
+    assert(count_ones_u32(0xf0f0) == 8);
+    assert(leading_zeros_u32(1) == 31);
+    assert(trailing_zeros_u32(8) == 3);
+    assert(intrinsic_is_finite_f64(1.25));
+    assert(intrinsic_is_nan_f64(0.0 / 0.0));
+}
+
+test "overflow predicates cover unsigned and signed boundaries" {
+    assert(not add_overflow_u64(0, 0));
+    assert(not add_overflow_u64(U64_MAX - 1, 1));
+    assert(add_overflow_u64(U64_MAX, 1));
+    assert(not sub_overflow_u64(4, 4));
+    assert(sub_overflow_u64(0, 1));
+    assert(not mul_overflow_u64(U64_MAX, 0));
+    assert(mul_overflow_u64(U64_MAX, 2));
+
+    assert(add_overflow_i64(I64_MAX, 1));
+    assert(add_overflow_i64(I64_MIN, -1));
+    assert(not add_overflow_i64(I64_MIN, 1));
+    assert(sub_overflow_i64(I64_MIN, 1));
+    assert(sub_overflow_i64(I64_MAX, -1));
+    assert(not sub_overflow_i64(7, 3));
+    assert(mul_overflow_i64(I64_MIN, -1));
+    assert(mul_overflow_i64(3037000500, 3037000500));
+    assert(not mul_overflow_i64(3037000499, 3037000499));
+    assert(not mul_overflow_i64(I64_MIN, 1));
+}

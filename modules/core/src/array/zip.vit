@@ -1,4 +1,4 @@
-space core::array::zip
+space core::array::zip;
 
 /// Retourne la plus petite longueur de deux tableaux.
 proc array_zip_min_length<T, U>(

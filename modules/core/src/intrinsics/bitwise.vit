@@ -4,25 +4,25 @@ space core::intrinsics::bitwise;
 export proc rotate_left_u8(value: u8, count: u32) -> u8 {
     let shift: u32 = count & 7;
     if shift == 0 { return value; }
-    return (value << shift) | (value >> (8 - shift));
+    return ((value << shift) | (value >> (8 - shift))) as u8;
 }
 
 export proc rotate_right_u8(value: u8, count: u32) -> u8 {
     let shift: u32 = count & 7;
     if shift == 0 { return value; }
-    return (value >> shift) | (value << (8 - shift));
+    return ((value >> shift) | (value << (8 - shift))) as u8;
 }
 
 export proc rotate_left_u16(value: u16, count: u32) -> u16 {
     let shift: u32 = count & 15;
     if shift == 0 { return value; }
-    return (value << shift) | (value >> (16 - shift));
+    return ((value << shift) | (value >> (16 - shift))) as u16;
 }
 
 export proc rotate_right_u16(value: u16, count: u32) -> u16 {
     let shift: u32 = count & 15;
     if shift == 0 { return value; }
-    return (value >> shift) | (value << (16 - shift));
+    return ((value >> shift) | (value << (16 - shift))) as u16;
 }
 
 export proc rotate_left_u32(value: u32, count: u32) -> u32 {

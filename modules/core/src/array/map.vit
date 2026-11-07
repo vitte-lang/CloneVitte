@@ -1,4 +1,4 @@
-space core::array::map
+space core::array::map;
 
 /// Transforme les éléments d'un tableau source.
 /// Retourne le nombre d'éléments transformés.

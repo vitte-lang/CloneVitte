@@ -6,25 +6,25 @@ use core::convert::format::{
     format_u8, format_u16, format_u32, format_u64, format_u64_base, format_i64_base
 };
 
-export proc fmt_i64(value: i64, buffer: *u8, capacity: usize) -> FormatResult {
+export proc fmt_i64(value: i64, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_i64(value, buffer, capacity);
 }
 
-export proc fmt_u64(value: u64, buffer: *u8, capacity: usize) -> FormatResult {
+export proc fmt_u64(value: u64, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_u64(value, buffer, capacity);
 }
 
-export proc fmt_u64_radix(value: u64, radix: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult {
+export proc fmt_u64_radix(value: u64, radix: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_u64_base(value, radix, uppercase, buffer, capacity);
 }
 
-export proc fmt_i64_radix(value: i64, radix: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult {
+export proc fmt_i64_radix(value: i64, radix: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_i64_base(value, radix, uppercase, buffer, capacity);
 }
 
-export proc fmt_i8(value: i8, buffer: *u8, capacity: usize) -> FormatResult { return format_i8(value, buffer, capacity); }
-export proc fmt_i16(value: i16, buffer: *u8, capacity: usize) -> FormatResult { return format_i16(value, buffer, capacity); }
-export proc fmt_i32(value: i32, buffer: *u8, capacity: usize) -> FormatResult { return format_i32(value, buffer, capacity); }
-export proc fmt_u8(value: u8, buffer: *u8, capacity: usize) -> FormatResult { return format_u8(value, buffer, capacity); }
-export proc fmt_u16(value: u16, buffer: *u8, capacity: usize) -> FormatResult { return format_u16(value, buffer, capacity); }
-export proc fmt_u32(value: u32, buffer: *u8, capacity: usize) -> FormatResult { return format_u32(value, buffer, capacity); }
+export proc fmt_i8(value: i8, buffer: *mut u8, capacity: usize) -> FormatResult { return format_i8(value, buffer, capacity); }
+export proc fmt_i16(value: i16, buffer: *mut u8, capacity: usize) -> FormatResult { return format_i16(value, buffer, capacity); }
+export proc fmt_i32(value: i32, buffer: *mut u8, capacity: usize) -> FormatResult { return format_i32(value, buffer, capacity); }
+export proc fmt_u8(value: u8, buffer: *mut u8, capacity: usize) -> FormatResult { return format_u8(value, buffer, capacity); }
+export proc fmt_u16(value: u16, buffer: *mut u8, capacity: usize) -> FormatResult { return format_u16(value, buffer, capacity); }
+export proc fmt_u32(value: u32, buffer: *mut u8, capacity: usize) -> FormatResult { return format_u32(value, buffer, capacity); }

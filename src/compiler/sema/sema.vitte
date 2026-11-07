@@ -4638,7 +4638,10 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
         case ASTNodeKind.CallExpr => {
             let callee_node = sema_child((*context).parser, node, 0);
             let callee_token = sema_token_name_node((*context).parser, callee_node);
-            let builtin: *const BuiltinDescriptor = if callee_token == null { null } else { vitte_builtin_find((*callee_token).lexeme) };
+            let is_sequence_len_method = callee_node != null and
+                (*callee_node).kind == ASTNodeKind.MemberExpr and
+                sema_name_is(callee_token, "len");
+            let builtin: *const BuiltinDescriptor = if callee_token == null or is_sequence_len_method { null } else { vitte_builtin_find((*callee_token).lexeme) };
             let argument_count: usize = if (*node).child_count == 0 { 0 as usize } else { (*node).child_count - 1 };
             set (*context).stats.calls_checked = sema_sat_add((*context).stats.calls_checked, 1);
             let mut is_pick_path = false;
@@ -4707,7 +4710,11 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                     set argument_index += 1;
                 }
                 set result = (*context).type_void;
-            } else if sema_name_is(callee_token, "len") {
+            } else if sema_name_is(callee_token, "len") and
+                      callee_node != null and
+                      ((*callee_node).kind == ASTNodeKind.Identifier or
+                       ((*callee_node).kind == ASTNodeKind.Path and
+                        (*callee_node).child_count == 1)) {
                 if argument_count != 1 and
                    sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.InvalidArgumentCount, node, 0, 0) {
                     sema_set_argument_count_help(context, 1, argument_count);
@@ -4717,9 +4724,18 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                     let argument_node = sema_child((*context).parser, node, argument_index + 1);
                     let argument_type = sema_analyze_expression(context, argument_node, scope_id);
                     if argument_index == 0 {
-                        let argument_record: *const SemaType = if argument_type != 0 and argument_type <= (*context).type_count as SemaTypeId { &(*context).types[(argument_type - 1) as usize] } else { null };
-                        if argument_type != (*context).type_string and
-                           (argument_record == null or ((*argument_record).kind != SemaTypeKind.Array and (*argument_record).kind != SemaTypeKind.Slice)) and
+                        let mut argument_value_type = argument_type;
+                        let mut argument_record: *const SemaType = if argument_value_type != 0 and argument_value_type <= (*context).type_count as SemaTypeId { &(*context).types[(argument_value_type - 1) as usize] } else { null };
+                        while argument_record != null and
+                              ((*argument_record).kind == SemaTypeKind.Pointer or
+                               (*argument_record).kind == SemaTypeKind.Reference) {
+                            set argument_value_type = (*argument_record).element_type;
+                            set argument_record = if argument_value_type != 0 and argument_value_type <= (*context).type_count as SemaTypeId { &(*context).types[(argument_value_type - 1) as usize] } else { null };
+                        }
+                        if argument_value_type != (*context).type_string and
+                           (argument_record == null or
+                            ((*argument_record).kind != SemaTypeKind.Array and
+                             (*argument_record).kind != SemaTypeKind.Slice)) and
                            argument_type != (*context).type_error {
                             if sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.InvalidArgumentType, argument_node, (*context).type_string, argument_type) {
                                 let diag_ptr = (&mut (*context).diagnostics[(*context).diagnostic_count - 1]) as *mut SemaDiagnostic;
@@ -4874,7 +4890,9 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
             if not sema_type_integer(context as *const Sema, index_type) and index_type != (*context).type_error {
                 let _ = sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.InvalidIndexType, index_node, (*context).type_u64, index_type);
             }
-            let object_record: *const SemaType = if object_type != 0 and object_type <= (*context).type_count as SemaTypeId { &(*context).types[(object_type - 1) as usize] } else { null };
+            let object_value_type = sema_value_type(context as *const Sema, object_type);
+            let object_record: *const SemaType = if object_value_type != 0 and object_value_type <= (*context).type_count as SemaTypeId { &(*context).types[(object_value_type - 1) as usize] } else { null };
+            let original_object_record: *const SemaType = if object_type != 0 and object_type <= (*context).type_count as SemaTypeId { &(*context).types[(object_type - 1) as usize] } else { null };
             if object_type == (*context).type_string { set result = (*context).type_char; }
             else if object_record != null and ((*object_record).kind == SemaTypeKind.Array or (*object_record).kind == SemaTypeKind.Slice or (*object_record).kind == SemaTypeKind.Pointer or (*object_record).kind == SemaTypeKind.Reference) { set result = (*object_record).element_type; }
             else if object_type != (*context).type_error { let _ = sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.NotIndexable, node, 0, object_type); }
@@ -4885,9 +4903,9 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                     set (*index_info).node_flags = (*index_info).node_flags | SEMA_NODE_FLAG_LVALUE | SEMA_NODE_FLAG_ADDRESSABLE;
                     set (*index_info).symbol_id = (*object_info).symbol_id;
                     if ((*object_info).node_flags & SEMA_NODE_FLAG_MUTABLE) != 0 or
-                       (object_record != null and
-                        ((*object_record).kind == SemaTypeKind.Pointer or (*object_record).kind == SemaTypeKind.Reference) and
-                        (*object_record).is_mutable) {
+                       (original_object_record != null and
+                        ((*original_object_record).kind == SemaTypeKind.Pointer or (*original_object_record).kind == SemaTypeKind.Reference) and
+                        (*original_object_record).is_mutable) {
                         set (*index_info).node_flags = (*index_info).node_flags | SEMA_NODE_FLAG_MUTABLE;
                     }
                 }
@@ -4930,7 +4948,29 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                 let object_type_record: *const SemaType = if object_type != 0 and object_type <= (*context).type_count as SemaTypeId {
                     &(*context).types[(object_type - 1) as usize]
                 } else { null };
-                if object_type_record != null and
+                if (object_type == (*context).type_string or
+                    (object_type_record != null and
+                     ((*object_type_record).kind == SemaTypeKind.Array or
+                      (*object_type_record).kind == SemaTypeKind.Slice))) and
+                   sema_name_is(member_token, "len") {
+                    let method_type = sema_add_type(
+                        context,
+                        SemaTypeKind.Function,
+                        0,
+                        0,
+                        0,
+                        false,
+                        (*context).type_u64,
+                        null,
+                        0
+                    );
+                    set result = method_type;
+                    let member_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
+                    if member_info != null {
+                        set (*member_info).type_id = method_type;
+                        set (*member_info).node_flags = (*member_info).node_flags | SEMA_NODE_FLAG_RESOLVED;
+                    }
+                } elif object_type_record != null and
                    (*object_type_record).kind == SemaTypeKind.Slice and
                    sema_name_is(member_token, "length") {
                     set result = (*context).type_u64;
@@ -5702,7 +5742,28 @@ proc sema_analyze_node(context: *mut Sema, node_id: ASTNodeId, scope_id: ScopeId
             let iterable_type = sema_analyze_expression(context, iterable_node, scope_id);
             let iterable_record: *const SemaType = if iterable_type != 0 and iterable_type <= (*context).type_count as SemaTypeId { &(*context).types[(iterable_type - 1) as usize] } else { null };
             let mut element_type: SemaTypeId = (*context).type_error;
-            if iterable_record != null and ((*iterable_record).kind == SemaTypeKind.Array or (*iterable_record).kind == SemaTypeKind.Slice or (*iterable_record).kind == SemaTypeKind.Range or (*iterable_record).kind == SemaTypeKind.Pointer) {
+            if iterable_node != null and
+               (*iterable_node).kind == ASTNodeKind.BinaryExpr and
+               ((*iterable_node).operator_kind == TokenKind.DotDot or
+                (*iterable_node).operator_kind == TokenKind.DotDotEqual) {
+                /* Range expressions carry the start type as their element
+                 * type. Derive it from the bound itself as well so loop
+                 * bindings do not become `error` if the synthetic range
+                 * type loses that payload during semantic analysis. */
+                let range_start = sema_child((*context).parser, iterable_node, 0);
+                let range_start_type = sema_analyze_expression(
+                    context,
+                    range_start,
+                    scope_id
+                );
+                if sema_type_integer(context as *const Sema, range_start_type) {
+                    set element_type = range_start_type;
+                }
+            }
+            if element_type != (*context).type_error {
+                // The range start already provided its concrete element type.
+            } elif iterable_record != null and
+               ((*iterable_record).kind == SemaTypeKind.Array or (*iterable_record).kind == SemaTypeKind.Slice or (*iterable_record).kind == SemaTypeKind.Range or (*iterable_record).kind == SemaTypeKind.Pointer) {
                 set element_type = (*iterable_record).element_type;
             } else if iterable_type == (*context).type_string {
                 set element_type = (*context).type_char;

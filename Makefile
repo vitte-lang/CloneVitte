@@ -806,7 +806,7 @@ test-source-map: $(TARGET_BIN)
 
 .PHONY: test-corpus
 test-corpus: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
-	$(PYTHON) \
+	VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" $(PYTHON) \
 		$(TEST_DIR)/run_corpus.py \
 		--compiler $(BOOTSTRAP_TARGET_BIN) \
 		--exclude src/tests/expression_literals_parse.vit \
@@ -1126,7 +1126,9 @@ RUNTIME_CANDIDATES := \
 	$(TEST_DIR)/assert_runtime.vit \
 	$(TEST_DIR)/async_runtime.vit \
 	$(TEST_DIR)/contracts_ok.vit \
+	$(TEST_DIR)/core_native_smoke_runtime.vit \
 	$(TEST_DIR)/defer_runtime.vit \
+	$(TEST_DIR)/generic_form_bracket_runtime.vit \
 	$(TEST_DIR)/generic_trait_method_dispatch_runtime.vit \
 	$(TEST_DIR)/generic_pick_runtime.vit \
 	$(TEST_DIR)/intrinsic_runtime.vit \
@@ -1163,7 +1165,25 @@ test-runtime: $(TARGET_BIN)
 	done; \
 	for file in $(RUNTIME_TESTS); do \
 		printf '[RUNTIME] %s\n' "$$file"; \
-		$(TARGET_BIN) run "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)$(PATH_LIST_SEPARATOR)$(VITTE_ROOT)" \
+			$(TARGET_BIN) run "$$file"; \
+	done
+
+# This target exercises the executable C17 bootstrap subset of core; broader
+# source and native-frontend limits are recorded in modules/core/README.md.
+CORE_TESTS := $(sort $(wildcard modules/core/tests/*.vit))
+
+.PHONY: test-core
+test-core: $(BOOTSTRAP_TARGET_BIN)
+	@set -e; \
+	for file in $(CORE_TESTS); do \
+		if test ! -s "$$file"; then \
+			printf '[CORE-FAIL] empty test file: %s\n' "$$file"; \
+			exit 1; \
+		fi; \
+		printf '[CORE] %s\n' "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
+			$(BOOTSTRAP_TARGET_BIN) run "$$file" --quiet --no-color; \
 	done
 
 # Qualified imports must preserve same-named declarations through semantic
@@ -1229,6 +1249,7 @@ compiler-binary-ownership: $(TARGET_BIN)
 
 .PHONY: compiler-power-gate
 compiler-power-gate: \
+	test-core \
 	test-cli-driver \
 	test-diagnostic \
 	test-diagnostic-golden \
@@ -1454,6 +1475,7 @@ bootstrap-selfhost: compiler-selfhost-gate
 
 .PHONY: test
 test: \
+	test-core \
 	test-cli-driver \
 	test-source \
 	test-diagnostic \
@@ -1748,6 +1770,7 @@ help:
 		'  make docs-site-check         Check generated site audits and metadata' \
 		'  make check                   Syntax-check every C source' \
 		'  make test                    Run complete test suite' \
+		'  make test-core               Run the Vitte core library tests' \
 		'  make test-corpus             Run corpus tests' \
 		'  make test-grammar            Run grammar tests' \
 		'  make test-sema               Run semantic tests' \

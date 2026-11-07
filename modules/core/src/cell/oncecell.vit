@@ -1,4 +1,4 @@
-space core::cell::oncecell
+space core::cell::oncecell;
 
 /// États possibles d'une cellule.
 pick OnceCellState {

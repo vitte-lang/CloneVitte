@@ -1,146 +1,120 @@
-space core::array::fixed
+/// Algorithmes sûrs pour les tableaux empruntés sous forme de tranches.
+///
+/// Les fonctions acceptent une tranche afin de fonctionner aussi bien sur un
+/// tableau inline que sur une vue empruntée. Les opérations entre deux
+/// tranches s'arrêtent à la longueur disponible la plus courte, sauf pour
+/// l'égalité qui exige des longueurs identiques.
+space core::array::fixed;
 
-/// Initialise un tableau de taille fixe avec une valeur.
-proc fixed_fill[T, const N: usize](
-    array: &mut [T; N],
-    value: T
-) {
-    for i in 0..N {
-        set array[i] = value;
+export proc fixed_fill<T>(array: &mut [T], value: T) {
+    for index in 0 as usize..(array.len() as usize) {
+        set array[index] = value;
     }
 }
 
-/// Copie un tableau fixe dans un autre.
-proc fixed_copy[T, const N: usize](
-    source: &[T; N],
-    destination: &mut [T; N]
-) {
-    for i in 0..N {
-        set destination[i] = source[i];
+export proc fixed_copy<T>(source: &[T], destination: &mut [T]) -> usize {
+    let mut length: usize = (source.len() as usize);
+    if (destination.len() as usize) < length {
+        set length = (destination.len() as usize);
     }
+
+    for index in 0 as usize..length {
+        set destination[index] = source[index];
+    }
+
+    return length;
 }
 
-/// Compare deux tableaux fixes.
-proc fixed_equal[T, const N: usize](
-    left: &[T; N],
-    right: &[T; N]
-) -> bool {
-    for i in 0..N {
-        if left[i] != right[i] {
-            return false;
-        }
+export proc fixed_equal<T>(left: &[T], right: &[T]) -> bool {
+    if (left.len() as usize) != (right.len() as usize) { return false; }
+
+    for index in 0 as usize..(left.len() as usize) {
+        if left[index] != right[index] { return false; }
     }
 
     return true;
 }
 
-/// Recherche une valeur dans un tableau fixe.
-proc fixed_contains[T, const N: usize](
-    array: &[T; N],
-    value: T
-) -> bool {
-    for i in 0..N {
-        if array[i] == value {
-            return true;
-        }
+export proc fixed_contains<T>(array: &[T], value: T) -> bool {
+    for index in 0 as usize..(array.len() as usize) {
+        if array[index] == value { return true; }
     }
 
     return false;
 }
 
-/// Retourne la première position d'une valeur.
-/// Retourne -1 si la valeur est absente.
-proc fixed_index_of[T, const N: usize](
-    array: &[T; N],
-    value: T
-) -> isize {
-    for i in 0..N {
-        if array[i] == value {
-            return i as isize;
-        }
+export proc fixed_index_of<T>(array: &[T], value: T) -> isize {
+    for index in 0 as usize..(array.len() as usize) {
+        if array[index] == value { return index as isize; }
     }
 
     return -1;
 }
 
-/// Inverse les éléments d'un tableau fixe.
-proc fixed_reverse[T, const N: usize](
-    array: &mut [T; N]
-) {
-    for i in 0..(N / 2) {
-        let opposite = N - 1 - i;
-        let temporary = array[i];
-
-        set array[i] = array[opposite];
+export proc fixed_reverse<T>(array: &mut [T]) {
+    let mut index: usize = 0;
+    while index < (array.len() as usize) / 2 {
+        let opposite: usize = (array.len() as usize) - 1 - index;
+        let temporary: T = array[index];
+        set array[index] = array[opposite];
         set array[opposite] = temporary;
+        set index = index + 1;
     }
 }
 
-/// Vérifie si un tableau fixe est trié en ordre croissant.
-proc fixed_is_sorted[T, const N: usize](
-    array: &[T; N]
-) -> bool {
-    if N < 2 {
-        return true;
+export proc fixed_rotate_left<T>(array: &mut [T]) {
+    if (array.len() as usize) < 2 { return; }
+    let first: T = array[0];
+    let mut index: usize = 0;
+    while index + 1 < (array.len() as usize) {
+        set array[index] = array[index + 1];
+        set index = index + 1;
     }
-
-    for i in 1..N {
-        if array[i] < array[i - 1] {
-            return false;
-        }
-    }
-
-    return true;
+    set array[(array.len() as usize) - 1] = first;
 }
 
-/// Effectue une rotation d'une position vers la gauche.
-proc fixed_rotate_left[T, const N: usize](
-    array: &mut [T; N]
-) {
-    if N < 2 {
-        return;
+export proc fixed_rotate_right<T>(array: &mut [T]) {
+    if (array.len() as usize) < 2 { return; }
+    let last: T = array[(array.len() as usize) - 1];
+    let mut index: usize = (array.len() as usize) - 1;
+    while index > 0 {
+        set array[index] = array[index - 1];
+        set index = index - 1;
     }
-
-    let first = array[0];
-
-    for i in 0..(N - 1) {
-        set array[i] = array[i + 1];
-    }
-
-    set array[N - 1] = first;
-}
-
-/// Effectue une rotation d'une position vers la droite.
-proc fixed_rotate_right[T, const N: usize](
-    array: &mut [T; N]
-) {
-    if N < 2 {
-        return;
-    }
-
-    let last = array[N - 1];
-
-    for i in 1..N {
-        let position = N - i;
-
-        set array[position] = array[position - 1];
-    }
-
     set array[0] = last;
 }
 
-/// Compte les occurrences d'une valeur.
-proc fixed_count[T, const N: usize](
-    array: &[T; N],
-    value: T
-) -> usize {
+export proc fixed_count<T>(array: &[T], value: T) -> usize {
     let mut count: usize = 0;
-
-    for i in 0..N {
-        if array[i] == value {
-            set count = count + 1;
-        }
+    for index in 0 as usize..(array.len() as usize) {
+        if array[index] == value { set count = count + 1; }
     }
-
     return count;
+}
+
+export proc fixed_is_sorted_i64(array: &[i64]) -> bool {
+    if (array.len() as usize) < 2 { return true; }
+    for index in 1 as usize..(array.len() as usize) {
+        let previous: usize = index - 1;
+        if array[index] < array[previous] { return false; }
+    }
+    return true;
+}
+
+export proc fixed_is_sorted_u64(array: &[u64]) -> bool {
+    if (array.len() as usize) < 2 { return true; }
+    for index in 1 as usize..(array.len() as usize) {
+        let previous: usize = index - 1;
+        if array[index] < array[previous] { return false; }
+    }
+    return true;
+}
+
+export proc fixed_is_sorted_f64(array: &[f64]) -> bool {
+    if (array.len() as usize) < 2 { return true; }
+    for index in 1 as usize..(array.len() as usize) {
+        let previous: usize = index - 1;
+        if array[index] < array[previous] { return false; }
+    }
+    return true;
 }

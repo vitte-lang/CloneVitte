@@ -1,5 +1,21 @@
 # 0.1.0
 
+- Ajout des comparaisons de tolérance testées, des algorithmes sur tranches
+  empruntées et des tests runtime pour les limites arithmétiques, les décalages,
+  la recherche de chaînes et les cellules inline.
+- Les recherches de chaînes, LCM, puissances de deux et décalages vérifiés
+  utilisent un booléen et une sortie mutable, sans allocation ni pointeur
+  optionnel vers une valeur temporaire.
+- Les parseurs bootstrap et natif acceptent les formes génériques `Box[T] { ... }`;
+  un fixture runtime couvre cette syntaxe sur les deux chemins.
+- Correction des pointeurs de sortie des formateurs en `*mut u8`; ajout d'un
+  gate `make test-core` exécutant 18 suites sur le bootstrap C17.
+- Correction des rotations 8 et 16 bits par réduction explicite à la largeur
+  déclarée; le statut des sources non encore compilables est chiffré dans
+  `README.md`.
+- Ajout du smoke Core natif au runtime et au corpus, avec propagation du chemin
+  des modules; la matrice self-host exécute maintenant ce smoke sur les trois
+  systèmes supportés par ses runners.
 - Harmonisation des résultats fallibles autour de `success`, `value` et
   `error`; `types::Result.ok` devient `types::Result.success`.
 - Renommage canonique des sorties arithmétiques en `CheckedI64Result` et

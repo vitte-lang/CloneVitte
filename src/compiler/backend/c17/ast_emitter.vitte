@@ -1478,9 +1478,38 @@ proc ast_infer_generic_proc_type(
         return result;
     }
 
-    if pattern_node.kind == ASTNodeKind.PointerType or
-       pattern_node.kind == ASTNodeKind.ReferenceType or
-       pattern_node.kind == ASTNodeKind.OptionalType {
+    if pattern_node.kind == ASTNodeKind.PointerType {
+        if actual?.kind != ASTNodeKind.PointerType { return null; }
+        return ast_infer_generic_proc_type(
+            emitter,
+            procedure,
+            ast_child(emitter, pattern, 0),
+            ast_child(emitter, actual, 0),
+            null,
+            generic_index,
+            namespace,
+            depth + 1
+        );
+    }
+    if pattern_node.kind == ASTNodeKind.ReferenceType {
+        let actual_payload: ?&ASTNode = if actual?.kind == ASTNodeKind.ReferenceType {
+            ast_child(emitter, actual, 0)
+        } else {
+            actual
+        };
+        return ast_infer_generic_proc_type(
+            emitter,
+            procedure,
+            ast_child(emitter, pattern, 0),
+            actual_payload,
+            null,
+            generic_index,
+            namespace,
+            depth + 1
+        );
+    }
+    if pattern_node.kind == ASTNodeKind.OptionalType {
+        if actual?.kind != ASTNodeKind.OptionalType { return null; }
         return ast_infer_generic_proc_type(
             emitter,
             procedure,
@@ -6285,7 +6314,8 @@ proc ast_collect_generic_proc_instances_in_tree(
     }
     let saved_call_owner = emitter.generic_call_owner_id;
     let owns_call_scope = current.kind == ASTNodeKind.ProcDecl or
-        current.kind == ASTNodeKind.ExternProcDecl;
+        current.kind == ASTNodeKind.ExternProcDecl or
+        current.kind == ASTNodeKind.TestDecl;
     if owns_call_scope { set emitter.generic_call_owner_id = current.id; }
     let mut index: usize = 0;
     while index < current.child_count and not emitter.failed {
@@ -9007,6 +9037,12 @@ proc ast_collect_nested_generic_proc_instances(
             let saved_substitutions = ast_prepare_generic_proc_instance(
                 emitter,
                 instance_index
+            );
+            ast_collect_generic_instances_in_tree(
+                emitter,
+                body,
+                emitter.procedures[procedure_index].namespace,
+                0
             );
             let saved_owner = emitter.generic_call_owner_id;
             set emitter.generic_call_owner_id = procedure?.id;

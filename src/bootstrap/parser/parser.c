@@ -1408,6 +1408,11 @@ vitte_parser_has_generic_form_suffix(
     const vitte_parser_t *parser);
 
 static bool
+vitte_parser_has_generic_bracket_suffix(
+    const vitte_parser_t *parser,
+    vitte_token_kind_t required_follow);
+
+static bool
 vitte_parser_has_generic_variant_pattern_suffix(
     const vitte_parser_t *parser);
 
@@ -2971,6 +2976,67 @@ vitte_parser_parse_postfix(
     }
 
     for (;;) {
+        /* Generic form constructors use the same square-bracket syntax as
+         * generic type names, for example `Cell<i64> { ... }` written as
+         * `Cell[i64] { ... }` in Vitte source.  Treat the brackets as type
+         * arguments only when a form body or variant follows. */
+        if (vitte_parser_check(parser, VITTE_TOKEN_LEFT_BRACKET) &&
+            (vitte_parser_has_generic_bracket_suffix(
+                 parser, VITTE_TOKEN_LEFT_BRACE) ||
+             vitte_parser_has_generic_bracket_suffix(
+                 parser, VITTE_TOKEN_COLON_COLON))) {
+            const vitte_ast_node_t *base_node =
+                vitte_parser_get_node(parser, expression);
+            vitte_ast_node_id_t generic;
+            size_t pending_generic_closers = 0u;
+
+            generic = vitte_parser_add_node(
+                parser,
+                VITTE_AST_NODE_TYPE_EXPR,
+                base_node != NULL
+                    ? base_node->span
+                    : vitte_parser_span_invalid());
+            if (generic == VITTE_AST_INVALID_ID ||
+                !vitte_parser_node_append_child(
+                    parser, generic, expression) ||
+                !vitte_parser_match(parser, VITTE_TOKEN_LEFT_BRACKET)) {
+                return VITTE_AST_INVALID_ID;
+            }
+            if (!vitte_parser_check(parser, VITTE_TOKEN_RIGHT_BRACKET)) {
+                for (;;) {
+                    vitte_ast_node_id_t argument =
+                        vitte_parser_parse_type_expression_with_pending(
+                            parser,
+                            &pending_generic_closers);
+                    if (argument == VITTE_AST_INVALID_ID ||
+                        !vitte_parser_node_append_child(
+                            parser, generic, argument)) {
+                        return VITTE_AST_INVALID_ID;
+                    }
+                    if (!vitte_parser_match(parser, VITTE_TOKEN_COMMA) ||
+                        vitte_parser_check(
+                            parser, VITTE_TOKEN_RIGHT_BRACKET)) {
+                        break;
+                    }
+                }
+            }
+            if (!vitte_parser_expect(parser, VITTE_TOKEN_RIGHT_BRACKET)) {
+                return VITTE_AST_INVALID_ID;
+            }
+            {
+                vitte_ast_node_t *generic_node =
+                    vitte_parser_get_node_mut(parser, generic);
+                if (generic_node != NULL) {
+                    generic_node->span = vitte_parser_span_join(
+                        generic_node->span,
+                        vitte_parser_span_from_token(
+                            vitte_parser_previous(parser)));
+                }
+            }
+            expression = generic;
+            continue;
+        }
+
         /* A generic form constructor such as `Box<i64> { ... }` is an
          * expression-level type path.  Reuse the TYPE_EXPR representation so
          * semantic analysis can retain and validate its arguments. */
@@ -3970,6 +4036,61 @@ vitte_parser_has_generic_form_suffix(
                parser, 0u, VITTE_TOKEN_LEFT_BRACE) ||
            vitte_parser_has_generic_suffix(
                parser, 0u, VITTE_TOKEN_COLON_COLON);
+}
+
+static bool
+vitte_parser_has_generic_bracket_suffix(
+    const vitte_parser_t *parser,
+    vitte_token_kind_t required_follow)
+{
+    size_t index;
+    size_t depth;
+
+    if (!vitte_parser_check(parser, VITTE_TOKEN_LEFT_BRACKET)) {
+        return false;
+    }
+
+    index = parser->position;
+    depth = 0u;
+    while (index < parser->token_count) {
+        const vitte_token_t *token = &parser->tokens[index];
+
+        if (token->kind == VITTE_TOKEN_LEFT_BRACKET) {
+            ++depth;
+        } else if (token->kind == VITTE_TOKEN_RIGHT_BRACKET) {
+            if (depth == 0u) {
+                return false;
+            }
+            --depth;
+            if (depth == 0u) {
+                const size_t after_closer = index + 1u;
+
+                if (after_closer >= parser->token_count ||
+                    parser->tokens[after_closer].kind != required_follow) {
+                    return false;
+                }
+                if (required_follow == VITTE_TOKEN_LEFT_BRACE) {
+                    const size_t first_field = after_closer + 1u;
+
+                    if (first_field >= parser->token_count) {
+                        return false;
+                    }
+                    if (parser->tokens[first_field].kind ==
+                        VITTE_TOKEN_RIGHT_BRACE) {
+                        return true;
+                    }
+                    return first_field + 1u < parser->token_count &&
+                           vitte_parser_token_is_identifier(
+                               &parser->tokens[first_field]) &&
+                           parser->tokens[first_field + 1u].kind ==
+                               VITTE_TOKEN_COLON;
+                }
+                return true;
+            }
+        }
+        ++index;
+    }
+    return false;
 }
 
 static bool

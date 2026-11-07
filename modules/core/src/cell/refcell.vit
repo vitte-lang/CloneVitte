@@ -1,4 +1,4 @@
-space core::cell::refcell
+space core::cell::refcell;
 
 /// États possibles du système d'emprunts.
 pick RefCellBorrowState {

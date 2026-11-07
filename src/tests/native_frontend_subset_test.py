@@ -30,6 +30,13 @@ proc main() -> i64 {
     return result.value - 42;
 }
 """,
+    "generic form constructor square-bracket type arguments": """\
+form Box<T> { value: T }
+proc main() -> i64 {
+    let boxed: Box[i64] = Box[i64] { value: 42 };
+    return boxed.value - 42;
+}
+""",
     "generic procedure C17 specializations cover bool and multiple parameters": """\
 proc identity<T>(value: T) -> T { return value; }
 proc first<T, U>(left: T, right: U) -> T { return left; }
@@ -605,6 +612,13 @@ def main() -> int:
             if name in c17_fallback_cases:
                 assert_ast_fallback_path(binary, source_path, name, "accept")
             if name == "scalar operators and compound assignment":
+                executed = invoke(binary, "run", source_path)
+                if executed.returncode != 0:
+                    raise AssertionError(
+                        f"{name}: run returned {executed.returncode}; "
+                        f"stdout={executed.stdout!r}; stderr={executed.stderr!r}"
+                    )
+            if name == "generic form constructor square-bracket type arguments":
                 executed = invoke(binary, "run", source_path)
                 if executed.returncode != 0:
                     raise AssertionError(
