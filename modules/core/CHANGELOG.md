@@ -16,6 +16,8 @@
 - Ajout du smoke Core natif au runtime et au corpus, avec propagation du chemin
   des modules; la matrice self-host exécute maintenant ce smoke sur les trois
   systèmes supportés par ses runners.
+- Validation Actions observée : runtime, Core, parité, corpus, self-host 0 à 3
+  et installation de paquets passent sous Linux, macOS et Windows.
 - Harmonisation des résultats fallibles autour de `success`, `value` et
   `error`; `types::Result.ok` devient `types::Result.success`.
 - Renommage canonique des sorties arithmétiques en `CheckedI64Result` et
