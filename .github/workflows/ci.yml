@@ -84,6 +84,10 @@ jobs:
     name: BSD, Solaris and illumos VM portability
     uses: ./.github/workflows/posix-vm-gates.yml
 
+  architecture-smoke:
+    name: 32-bit and embedded architecture smoke
+    uses: ./.github/workflows/architecture-smoke.yml
+
   native-package-install:
     name: Native package install (${{ matrix.os }})
     needs:
@@ -225,6 +229,7 @@ jobs:
       - compiler-selfhost
       - native-package-install
       - posix-portability-vm
+      - architecture-smoke
     runs-on: ubuntu-24.04
     steps:
       - name: Require all compiler and platform gates
@@ -233,6 +238,7 @@ jobs:
           COMPILER_SELFHOST_RESULT: ${{ needs['compiler-selfhost'].result }}
           NATIVE_PACKAGE_RESULT: ${{ needs['native-package-install'].result }}
           POSIX_PORTABILITY_RESULT: ${{ needs['posix-portability-vm'].result }}
+          ARCHITECTURE_RESULT: ${{ needs['architecture-smoke'].result }}
         run: |
           if [[ "$COMPILER_RUNTIME_RESULT" != success ]]; then
             echo "::error::Compiler/runtime gate result: $COMPILER_RUNTIME_RESULT"
@@ -248,6 +254,10 @@ jobs:
           fi
           if [[ "$POSIX_PORTABILITY_RESULT" != success ]]; then
             echo "::error::BSD/Solaris/illumos VM portability result: $POSIX_PORTABILITY_RESULT"
+            exit 1
+          fi
+          if [[ "$ARCHITECTURE_RESULT" != success ]]; then
+            echo "::error::32-bit and embedded architecture smoke result: $ARCHITECTURE_RESULT"
             exit 1
           fi
           echo "All compiler release gates passed."

@@ -1,0 +1,183 @@
+name: 32-bit and embedded architecture smoke
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-cross:
+    name: Linux architecture smoke (${{ matrix.architecture }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: i386-i686
+            mode: run
+            packages: gcc-multilib qemu-user file
+            compiler: gcc
+            cflags: -m32
+            runner: qemu-i386
+            sysroot: /
+            elf: ELF 32-bit
+          - architecture: armv6-linux-rpi1
+            mode: run
+            packages: gcc-arm-linux-gnueabi qemu-user file
+            compiler: arm-linux-gnueabi-gcc
+            cflags: -march=armv6 -marm -mfloat-abi=soft
+            runner: qemu-arm
+            sysroot: /usr/arm-linux-gnueabi
+            elf: ELF 32-bit
+          - architecture: armv7-linux
+            mode: run
+            packages: gcc-arm-linux-gnueabihf qemu-user file
+            compiler: arm-linux-gnueabihf-gcc
+            cflags: -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=hard
+            runner: qemu-arm
+            sysroot: /usr/arm-linux-gnueabihf
+            elf: ELF 32-bit
+          - architecture: mips32-linux
+            mode: run
+            packages: gcc-mipsel-linux-gnu qemu-user file
+            compiler: mipsel-linux-gnu-gcc
+            cflags: -march=mips32r2 -mabi=32
+            runner: qemu-mipsel
+            sysroot: /usr/mipsel-linux-gnu
+            elf: ELF 32-bit
+          - architecture: powerpc32-linux
+            mode: run
+            packages: gcc-powerpc-linux-gnu qemu-user file
+            compiler: powerpc-linux-gnu-gcc
+            cflags: -m32 -mcpu=powerpc
+            runner: qemu-ppc
+            sysroot: /usr/powerpc-linux-gnu
+            elf: ELF 32-bit
+          - architecture: riscv32-baremetal
+            mode: rv32-object
+            packages: gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf file
+            compiler: riscv64-unknown-elf-gcc
+            cflags: --specs=picolibc.specs -march=rv32imac -mabi=ilp32
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install cross compilers and emulators
+        env:
+          EXTRA_PACKAGES: ${{ matrix.packages }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential $EXTRA_PACKAGES
+
+      - name: Build and verify target compiler
+        env:
+          ARCH_CC: ${{ matrix.compiler }}
+          ARCH_CFLAGS: ${{ matrix.cflags }}
+          ARCH_RUNNER: ${{ matrix.runner }}
+          ARCH_SYSROOT: ${{ matrix.sysroot }}
+          ARCH_EXPECT_FILE: ${{ matrix.elf }}
+          ARCH_JOBS: '2'
+        run: sh scripts/ci/architecture-smoke.sh "${{ matrix.mode }}" "${{ matrix.architecture }}"
+
+  android-armv7:
+    name: Android ARMv7 cross-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Android NDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ndk;27.2.12479018
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential file
+
+      - name: Build Android ARMv7 compiler
+        env:
+          ANDROID_NDK_VERSION: 27.2.12479018
+          ARCH_CFLAGS: -fPIC
+          ARCH_EXPECT_FILE: ELF 32-bit
+          ARCH_EXE_SUFFIX: ''
+        shell: bash
+        run: |
+          export ARCH_CC="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang"
+          sh scripts/ci/architecture-smoke.sh build android-armv7
+
+  windows-i386:
+    name: Windows i386/i686 compiler and CLI
+    runs-on: windows-2025
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up MinGW host and i386 cross compiler
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            coreutils
+            diffutils
+            file
+            git
+            make
+            mingw-w64-i686-gcc
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-python
+            perl
+
+      - name: Build and run the Windows i386 compiler
+        env:
+          ARCH_CC: /mingw32/bin/i686-w64-mingw32-gcc
+          ARCH_EXE_SUFFIX: .exe
+          ARCH_EXPECT_FILE: PE32 executable
+          ARCH_JOBS: '2'
+        run: |
+          export PATH="/mingw32/bin:$PATH"
+          sh scripts/ci/architecture-smoke.sh run windows-i386
+
+  freebsd-cross:
+    name: FreeBSD ${{ matrix.architecture }} C17 cross-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: i386-i686
+            vm_arch: x86_64
+            target_flags: -m32
+          - architecture: armv7
+            vm_arch: aarch64
+            target_flags: --target=armv7-unknown-freebsd15.1
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Cross-compile compiler objects in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          arch: ${{ matrix.vm_arch }}
+          release: '15.1'
+          copyback: false
+          prepare: pkg install -y gmake
+          run: >-
+            GMAKE=gmake ARCH_CC=clang
+            ARCH_CFLAGS='${{ matrix.target_flags }}'
+            ARCH_EXPECT_ELF='ELF 32-bit'
+            sh scripts/ci/architecture-smoke.sh objects
+            freebsd-${{ matrix.architecture }}

@@ -221,6 +221,36 @@ requis. Dans chaque invité, le gate construit le compilateur en release, vérif
 `--version`, `help` et `check`, exécute les tests runtime et installe le paquet
 JSON avec `vitte install`. Le job POSIX est requis par `Release readiness`.
 
+#### Smoke tests d’architectures 32 bits et embarquées
+
+Le workflow réutilisable
+[`architecture-smoke.yml`](.github/workflows/architecture-smoke.yml) est lui
+aussi requis par `Release readiness`. Il construit le frontend natif avec un
+compilateur hôte, puis vérifie les exécutables croisés lorsqu’un runner peut les
+exécuter. Pour FreeBSD, dont les VMs hébergées ne proposent pas d’invité i386 ou
+ARMv7, il compile les objets C17 de tout le compilateur dans une VM x86_64 ou
+AArch64. Pour Android ARMv7, il lie le compilateur avec le NDK ; l’exécutable
+Android n’est pas lancé dans ce gate.
+
+| Cible demandée | Niveau indiqué | Vérification CI |
+| --- | --- | --- |
+| i386/i686 Linux | Très bonne | Build complet du compilateur, CLI et programme C généré, exécutés sous QEMU i386. |
+| i386/i686 FreeBSD | Très bonne | Compilation des objets du compilateur en ABI 32 bits dans une VM FreeBSD x86_64 ; pas d’exécution du binaire i386. |
+| i386/i686 Windows | Très bonne | Build et exécution du compilateur, de la CLI et du programme C généré avec MinGW 32 bits sur Windows x64. |
+| ARMv6 Linux / Raspberry Pi 1 | Bonne | Build complet et smoke CLI sous QEMU ARMv6, puis exécution du programme C généré avec ABI soft-float. Cela vérifie l’ABI Linux ARMv6, pas un appareil Pi 1 physique. |
+| ARMv7 Linux | Bonne | Build complet, CLI et programme C généré exécutés sous QEMU ARMv7 hard-float. |
+| ARMv7 FreeBSD | Bonne | Compilation des objets du compilateur avec la cible FreeBSD ARMv7 depuis une VM FreeBSD AArch64 ; pas d’exécution ARMv7. |
+| ARMv7 Android | Bonne | Lien complet avec le NDK Android ARMv7 et vérification ELF ; l’exécutable n’est pas lancé sur un appareil ou émulateur Android. |
+| RISC-V RV32 Linux embarqué / bare-metal | Expérimentale | Compilation du C d’un petit programme Vitte vers un objet ELF32 RISC-V avec GCC bare-metal (`rv32imac`, ABI `ilp32`) ; pas de lien ni d’exécution du compilateur RV32. |
+| MIPS32 Linux | Bonne | Build complet, CLI et programme C généré exécutés sous QEMU MIPS32 little-endian. |
+| PowerPC 32 Linux | Possible | Build complet, CLI et programme C généré exécutés sous QEMU PowerPC big-endian ; cela ne vérifie pas Mac OS X PowerPC. |
+
+Ces niveaux décrivent le niveau de support attendu ; les résultats CI ne
+certifient que les opérations et environnements indiqués dans la dernière
+colonne. Le premier run de ce nouveau gate doit réussir avant que ces tests
+soient comptés dans un statut 100 % actuel. Le tableau des résultats ci-dessous
+reste l’observation historique du commit et du run qu’il cite.
+
 #### Résultats observés au 7 novembre 2026
 
 Le [run CI 42319371806](https://github.com/vitte-lang/vitte/actions/runs/42319371806), sur le commit [`836e788`](https://github.com/vitte-lang/vitte/commit/836e788bfe9b6c8a7413877d17dd1ad0f9abfe3f), a terminé avec succès :
