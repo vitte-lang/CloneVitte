@@ -210,9 +210,10 @@ résultat du gate bootstrap.
 Le run Actions [42419827950](https://github.com/vitte-lang/vitte/actions/runs/42419827950)
 a validé `test-runtime`, `test-core`, la parité, le corpus et les stages 0 à 3
 sous Linux, macOS et Windows. Les jobs d'installation de paquets sont aussi
-passés sur ces trois systèmes. Le run global poursuit encore un cross-build
-FreeBSD ARMv7 par VM; les gates Core et les installations sont terminées avec
-succès. Les résultats locaux observés sont ceux de macOS.
+passés sur ces trois systèmes. Le run global a ensuite été annulé pendant le
+cross-build FreeBSD ARMv7 par VM; cette annulation ne concerne pas les jobs
+Core ou d'installation, qui ont réussi. Les résultats locaux observés sont
+ceux de macOS.
 
 Ce résultat valide ce sous-ensemble sur le chemin bootstrap, pas toute la
 bibliothèque ni le frontend natif. Une vérification directe des 201 sources
