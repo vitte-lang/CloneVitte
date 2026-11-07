@@ -203,7 +203,7 @@ proc package_resolve_release(
     let read_result = vitte_filesystem_read_file(registry_path, PACKAGE_REGISTRY_LIMIT, &mut registry);
     if read_result.error != FilesystemError.None { return false; }
     let contents = string.from_bytes(registry.data, registry.length);
-    let mut best_version = PackageVersion { major: 0, minor: 0, patch: 0 };
+    let mut best_version: PackageVersion = PackageVersion { major: 0, minor: 0, patch: 0 };
     let mut found = false;
     let mut start: usize = 0;
     while start < contents.len() {
@@ -237,7 +237,7 @@ proc package_resolve_release(
             if package_hex_value(release_hash[hash_index] as u8) < 0 { set valid_hash = false; break; }
             set hash_index += 1;
         }
-        let mut parsed_version = PackageVersion { major: 0, minor: 0, patch: 0 };
+        let mut parsed_version: PackageVersion = PackageVersion { major: 0, minor: 0, patch: 0 };
         if not valid_hash or not package_parse_version(release_version, &mut parsed_version) { continue; }
         if not found or package_version_compare(parsed_version, best_version) > 0 {
             set *release = PackageRelease {
@@ -275,7 +275,7 @@ proc package_remove_tree(path: string) -> bool {
     if metadata.kind != FilesystemKind.Directory {
         return vitte_filesystem_remove_file(path).error == FilesystemError.None;
     }
-    let mut listing = FilesystemDirectoryList {
+    let mut listing: FilesystemDirectoryList = FilesystemDirectoryList {
         entries: null,
         count: 0,
         capacity: 0
@@ -298,7 +298,7 @@ proc package_remove_tree(path: string) -> bool {
 proc package_read_text(path: string, maximum: usize, output: *mut string) -> bool {
     if output == null { return false; }
     let mut file: FilesystemBuffer;
-    let result = vitte_filesystem_read_file(path, maximum, &mut file);
+    let result: FilesystemResult = vitte_filesystem_read_file(path, maximum, &mut file);
     if result.error != FilesystemError.None { return false; }
     set *output = string.from_bytes(file.data, file.length);
     vitte_filesystem_buffer_destroy(&mut file);
@@ -408,7 +408,7 @@ export proc vitte_package_install(name: string, requested_version: ?string, glob
         return 2;
     }
     if requested_version != null {
-        let mut parsed = PackageVersion { major: 0, minor: 0, patch: 0 };
+        let mut parsed: PackageVersion = PackageVersion { major: 0, minor: 0, patch: 0 };
         if not package_parse_version(requested_version?, &mut parsed) {
             package_report("vitte install: version must be a stable x.y.z version");
             return 2;
@@ -446,7 +446,7 @@ export proc vitte_package_install(name: string, requested_version: ?string, glob
         package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
         return 1;
     }
-    let mut release = PackageRelease { name: "", version: "", download_url: "", sha256: "" };
+    let mut release: PackageRelease = PackageRelease { name: "", version: "", download_url: "", sha256: "" };
     if not package_resolve_release(registry_path, name, requested_version, version_string(), &mut release) {
         package_report("vitte install: no stable compatible release found for this package");
         package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
