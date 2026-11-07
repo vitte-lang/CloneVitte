@@ -80,7 +80,7 @@ proc cli_entry_json_string(text: string) -> string {
     let mut output = "\"";
     let mut index: usize = 0;
     while index < text.len() {
-        let character = text[index];
+        let character: char = text[index] as char;
         if character == '"' { set output += "\\\""; }
         else if character == '\\' { set output += "\\\\"; }
         else if character == '\n' { set output += "\\n"; }

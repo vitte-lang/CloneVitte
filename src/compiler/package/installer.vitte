@@ -99,7 +99,7 @@ proc package_safe_name(name: string) -> bool {
     if name.len() == 0 or name.len() >= 128 { return false; }
     let mut index: usize = 0;
     while index < name.len() {
-        let character = name[index];
+        let character: char = name[index] as char;
         if not ((character >= 'a' and character <= 'z') or
                 (character >= 'A' and character <= 'Z') or
                 (character >= '0' and character <= '9') or
