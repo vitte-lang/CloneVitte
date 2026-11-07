@@ -313,7 +313,7 @@ export proc vitte_filesystem_normalize(path: string) -> string {
     let mut absolute = length != 0 and filesystem_path_separator(bytes[0]);
     let mut index: usize = 0;
     if length >= 3 {
-        let drive = bytes[0];
+        let drive: u8 = bytes[0];
         let drive_letter = (drive >= 65 and drive <= 90) or (drive >= 97 and drive <= 122);
         if drive_letter and bytes[1] == 58 and filesystem_path_separator(bytes[2]) {
             set output[0] = bytes[0];
