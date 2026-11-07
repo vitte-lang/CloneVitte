@@ -208,21 +208,32 @@ les autres compilateurs, sources C, marques de validation et journaux.
 La CI appelle le workflow self-host réutilisable sur Linux, macOS et Windows.
 Les vérifications d’installation des paquets attendent la réussite de ce gate,
 et le job agrégé `Release readiness` échoue si les tests compilateur, self-host
-ou paquets échouent ou sont ignorés. Les preuves self-host sont publiées comme
-artefacts Actions par système.
+paquets ou portabilité POSIX échouent ou sont ignorés. Les preuves self-host
+sont publiées comme artefacts Actions par système.
 
-#### Résultats observés au 6 novembre 2026
+#### Machines virtuelles BSD, Solaris et illumos
 
-Le [run CI 42292113000](https://github.com/vitte-lang/vitte/actions/runs/42292113000), sur le commit [`874e2e6`](https://github.com/vitte-lang/vitte/commit/874e2e6d3163ccec042d9c5bacc6bba457c5bf07), a terminé avec succès :
+Le workflow réutilisable
+[`posix-vm-gates.yml`](.github/workflows/posix-vm-gates.yml) lance six VMs
+QEMU via VMActions depuis des runners GitHub Actions Ubuntu hébergés : FreeBSD,
+OpenBSD, NetBSD, Solaris, OmniOS et OpenIndiana. Aucun runner personnel n’est
+requis. Dans chaque invité, le gate construit le compilateur en release, vérifie
+`--version`, `help` et `check`, exécute les tests runtime et installe le paquet
+JSON avec `vitte install`. Le job POSIX est requis par `Release readiness`.
+
+#### Résultats observés au 7 novembre 2026
+
+Le [run CI 42319371806](https://github.com/vitte-lang/vitte/actions/runs/42319371806), sur le commit [`836e788`](https://github.com/vitte-lang/vitte/commit/836e788bfe9b6c8a7413877d17dd1ad0f9abfe3f), a terminé avec succès :
 
 | Gate | Résultat observé |
 | --- | --- |
 | Tests compilateur et runtime | Réussi : `make test` (16 tests de charge inclus), `make test-runtime`, critères de release, invalidation incrémentale et inventaire des paquets. |
 | Self-host, parité native, corpus et stages 0–3 | Réussi sous Linux, macOS et Windows (3/3). |
 | Construction et installation des paquets natifs | Réussi sous Linux (`.deb`), macOS (`.pkg`/`.dmg`) et Windows (NSIS), avec vérification des manifestes, installation réelle et smoke `vitte install` (3/3). |
+| Portabilité POSIX en VMs | Réussie sous FreeBSD, OpenBSD, NetBSD, Solaris, OmniOS et OpenIndiana (6/6). |
 | Extension et DAP natif | Réussi. |
-| Matrice multiplateforme demandée | **100 % : 6/6 jobs** (3 self-host et 3 installations de paquets). |
-| Gate agrégé `Release readiness` | **Réussi ; statut global du gate : 100 %.** |
+| Jobs de ce run | **100 % : 15/15 réussis**, sans job ignoré. |
+| Gate agrégé `Release readiness` de ce run | **Réussi.** |
 
 Le job compilateur a exécuté les 16 tests de charge en 389,6 s sur le runner
 Linux, avec une entrée de 2 Mio en profil debug et un délai maximal de 180 s
@@ -233,6 +244,13 @@ corpus a vérifié 93 cas positifs, 18 cas négatifs, zéro écart connu et zér
 échec (2 cas ignorés). Les stages self-host 0–3 ainsi que les commandes CLI
 `help`, `version`, `explain` et `install`, y compris le rollback d’installation,
 ont été vérifiés.
+
+Le statut **100 %** ci-dessus décrit précisément le run cité : 15 jobs réussis
+sur 15, couvrant compilateur/runtime, self-host (3 systèmes), installation de
+paquets (3 systèmes), portabilité VM (6 systèmes), extension/DAP et le gate
+agrégé `Release readiness`. Le statut s’applique au commit `836e788` et à ce
+run CI ; il ne constitue pas à lui seul une déclaration d’autonomie complète du
+compilateur, qui dépend encore de l’audit des symboles du binaire principal.
 
 La branche `main` exige le statut `Release readiness`, avec les vérifications à
 jour et sans contournement administrateur. Les règles de protection GitHub sont

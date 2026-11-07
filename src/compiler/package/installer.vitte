@@ -401,6 +401,18 @@ proc package_download(url: string, path: string) -> bool {
     return package_process("curl", arguments);
 }
 
+proc package_extract_with_pax(archive: string, stage: string) -> bool {
+    let command = "cd \"$1\" && gzip -dc \"$2\" > .vitte-package.tar && pax -r -f .vitte-package.tar";
+    let arguments: [*const u8] = [
+        "-c".as_ptr() as *const u8,
+        command.as_ptr() as *const u8,
+        "vitte-package-extract".as_ptr() as *const u8,
+        stage.as_ptr() as *const u8,
+        archive.as_ptr() as *const u8
+    ];
+    return package_process("/bin/sh", arguments);
+}
+
 /// Install a verified stable release into the current project or user module root.
 export proc vitte_package_install(name: string, requested_version: ?string, global_install: bool) -> i32 {
     if not package_safe_name(name) {
@@ -492,11 +504,26 @@ export proc vitte_package_install(name: string, requested_version: ?string, glob
         "-xzf".as_ptr() as *const u8,
         archive_path.as_ptr() as *const u8,
         "-C".as_ptr() as *const u8,
-        stage_path.as_ptr() as *const u8,
-        "--strip-components".as_ptr() as *const u8,
-        "1".as_ptr() as *const u8
+        stage_path.as_ptr() as *const u8
     ];
-    if not package_process("tar", extraction_arguments) or not package_metadata_matches(stage_path, release) {
+    let archive_root_name = "vitte-" + release.name + "-" + release.version;
+    let extracted_package_path = vitte_filesystem_join(stage_path, archive_root_name);
+    let mut archive_extracted = package_process("tar", extraction_arguments);
+    if archive_extracted and not package_metadata_matches(extracted_package_path, release) {
+        set archive_extracted = false;
+    }
+    if not archive_extracted {
+        package_discard_bool(package_remove_tree(stage_path));
+        if vitte_filesystem_create_directories(stage_path).error != FilesystemError.None or
+           not package_extract_with_pax(archive_path, stage_path) {
+            package_report("vitte install: archive layout or package metadata is invalid");
+            package_discard_bool(package_remove_tree(stage_path));
+            package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+            package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+            return 1;
+        }
+    }
+    if not package_metadata_matches(extracted_package_path, release) {
         package_report("vitte install: archive layout or package metadata is invalid");
         package_discard_bool(package_remove_tree(stage_path));
         package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
@@ -516,7 +543,7 @@ export proc vitte_package_install(name: string, requested_version: ?string, glob
         }
         set old_target_moved = true;
     }
-    if vitte_filesystem_rename(stage_path, target_path).error != FilesystemError.None {
+    if vitte_filesystem_rename(extracted_package_path, target_path).error != FilesystemError.None {
         if old_target_moved { package_discard_filesystem_result(vitte_filesystem_rename(backup_path, target_path)); }
         package_report("vitte install: cannot activate the downloaded package");
         package_discard_bool(package_remove_tree(stage_path));
@@ -524,6 +551,7 @@ export proc vitte_package_install(name: string, requested_version: ?string, glob
         package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
         return 1;
     }
+    package_discard_bool(package_remove_tree(stage_path));
     if not global_install and not package_write_project_records(current_directory, release) {
         package_discard_bool(package_remove_tree(target_path));
         if old_target_moved { package_discard_filesystem_result(vitte_filesystem_rename(backup_path, target_path)); }
