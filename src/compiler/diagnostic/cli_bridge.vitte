@@ -395,9 +395,10 @@ proc cli_transport_copy_text(
     if source_length == usize.MAX { return false; }
     let copied = allocate(source_length + 1);
     if copied == null { return false; }
+    let source_bytes = source as *const u8;
     let mut byte_index: usize = 0;
     while byte_index < source_length {
-        set copied[byte_index] = source[byte_index] as u8;
+        set copied[byte_index] = source_bytes[byte_index];
         set byte_index += 1;
     }
     set copied[source_length] = 0;
@@ -408,21 +409,23 @@ proc cli_transport_copy_text(
 
 proc cli_transport_cstr_equals(source: *const char, expected: string) -> bool {
     if source == null { return false; }
+    let source_bytes = source as *const u8;
     let expected_bytes = expected.as_bytes();
     let mut index: usize = 0;
     while index < expected_bytes.len() {
-        if source[index] as u8 != expected_bytes[index] { return false; }
+        if source_bytes[index] != expected_bytes[index] { return false; }
         set index += 1;
     }
-    return source[index] == 0;
+    return source_bytes[index] == 0;
 }
 
 proc cli_transport_cstr_starts_with(source: *const char, expected: string) -> bool {
     if source == null { return false; }
+    let source_bytes = source as *const u8;
     let expected_bytes = expected.as_bytes();
     let mut index: usize = 0;
     while index < expected_bytes.len() {
-        if source[index] as u8 != expected_bytes[index] { return false; }
+        if source_bytes[index] != expected_bytes[index] { return false; }
         set index += 1;
     }
     return true;
@@ -531,11 +534,12 @@ export proc vitte_cli_diagnostic_transport_set(
         severity == CliDiagnosticSeverity.Fatal as u32;
     if details != null {
         let details_length = cstring_length(details as *const u8);
+        let details_bytes = details as *const u8;
         let mut copy_length = details_length;
         if copy_length >= sizeof((*diag_entry).details_storage) { set copy_length = sizeof((*diag_entry).details_storage) - 1; }
         let mut detail_index: usize = 0;
         while detail_index < copy_length {
-            set (*diag_entry).details_storage[detail_index] = details[detail_index] as u8;
+            set (*diag_entry).details_storage[detail_index] = details_bytes[detail_index];
             set detail_index += 1;
         }
         set (*diag_entry).details_storage[copy_length] = 0;

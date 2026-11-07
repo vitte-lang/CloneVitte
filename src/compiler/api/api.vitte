@@ -1711,9 +1711,10 @@ proc api_append_json_cstring(buffer: &mut ApiBuffer, text: *const char) -> bool 
     if not buffer_append_byte(buffer, '"' as u8) { return false; }
     if text != null {
         let length = cstring_length(text as *const u8);
+        let text_bytes = text as *const u8;
         let mut index: usize = 0;
         while index < length {
-            let byte = text[index] as u8;
+            let byte: u8 = text_bytes[index];
             if byte == '"' as u8 {
                 if not buffer_append_byte(buffer, '\\' as u8) or
                    not buffer_append_byte(buffer, '"' as u8) { return false; }
@@ -1788,7 +1789,7 @@ proc api_render_pipeline_diagnostics_json(
         }
         let diagnostic_entry = &entries[index];
         let phase = api_pipeline_diagnostic_phase((*diagnostic_entry).origin);
-        let internal_code = string.from_bytes(
+        let internal_code: string = string.from_bytes(
             (*diagnostic_entry).code as *const u8,
             cstring_length((*diagnostic_entry).code as *const u8)
         );
