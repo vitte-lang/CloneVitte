@@ -5081,11 +5081,12 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                     ast_form_index(emitter, ast_path_text(emitter, form_path), namespace)
                 };
                 if form_index != usize.MAX {
-                    ast_node(emitter, emitter.forms[form_index].node_id)
-                } else {
-                    null
+                    set form_declaration = ast_node(
+                        emitter,
+                        emitter.forms[form_index].node_id
+                    );
                 }
-            };
+            }
             let mut index: usize = 1;
             while index < node.child_count and not emitter.failed {
                 let field = ast_child(emitter, node, index);
