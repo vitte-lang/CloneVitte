@@ -1,0 +1,29 @@
+use core::array::fixed::{fixed_is_sorted_i64};
+use core::num::integer::{integer_sqrt_u64, integer_next_power_of_two_u64};
+use core::ops::shr::{checked_shr_i64};
+use core::str::search::{str_find, str_contains};
+
+form Box<T> { value: T }
+
+proc main() -> i64 {
+    let values: [i64] = [1, 2, 3];
+    if not fixed_is_sorted_i64(&values) { return 1; }
+
+    let mut shifted: i64 = 17;
+    if not checked_shr_i64(-16, 2, &mut shifted) { return 2; }
+    if shifted != -4 { return 3; }
+
+    let mut next_power: u64 = 0;
+    if not integer_next_power_of_two_u64(9, &mut next_power) { return 4; }
+    if next_power != 16 { return 5; }
+    if integer_sqrt_u64(81) != 9 { return 6; }
+
+    let mut index: usize = 99;
+    if not str_find("vitte-core", "core", &mut index) { return 7; }
+    if index != 6 { return 8; }
+    if not str_contains("vitte-core", "vitte") { return 9; }
+
+    let boxed: Box[i64] = Box[i64] { value: 42 };
+    if boxed.value != 42 { return 10; }
+    return 0;
+}

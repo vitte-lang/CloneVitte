@@ -1,3 +1,5 @@
 /// Point de namespace des contrats génériques de `core`.
 /// Chaque trait reste importé depuis son module dédié.
+/// Les récepteurs et sorties sont des paramètres explicites tant que le
+/// langage ne fournit pas `Self`, les récepteurs de trait et les types associés.
 space core::traits;

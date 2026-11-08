@@ -6,8 +6,93 @@ changing an exported signature. Contracts and error semantics are described
 in [`README.md`](README.md). This is a source API index, not a stable ABI
 promise.
 
-Source files indexed: 175.
-Exported declarations indexed: 1585.
+Source files indexed: 181.
+Exported declarations indexed: 1652.
+
+## `core::array::compare`
+
+Source: [`src/array/compare.vit`](src/array/compare.vit) · exports: 5
+
+```vit
+export proc array_equal<T>(left: &[T], right: &[T]) -> bool;
+export proc array_compare<T>(left: &[T], right: &[T], compare: proc(&T, &T) -> i8) -> i32;
+export proc array_not_equal<T>(left: &[T], right: &[T]) -> bool;
+export proc array_starts_with<T>(array: &[T], prefix: &[T]) -> bool;
+export proc array_ends_with<T>(array: &[T], suffix: &[T]) -> bool;
+```
+
+## `core::array::fixed`
+
+Source: [`src/array/fixed.vit`](src/array/fixed.vit) · exports: 12
+
+```vit
+export proc fixed_fill<T>(array: &mut [T], value: T);
+export proc fixed_copy<T>(source: &[T], destination: &mut [T]) -> usize;
+export proc fixed_equal<T>(left: &[T], right: &[T]) -> bool;
+export proc fixed_contains<T>(array: &[T], value: T) -> bool;
+export proc fixed_index_of<T>(array: &[T], value: T) -> isize;
+export proc fixed_reverse<T>(array: &mut [T]);
+export proc fixed_rotate_left<T>(array: &mut [T]);
+export proc fixed_rotate_right<T>(array: &mut [T]);
+export proc fixed_count<T>(array: &[T], value: T) -> usize;
+export proc fixed_is_sorted_i64(array: &[i64]) -> bool;
+export proc fixed_is_sorted_u64(array: &[u64]) -> bool;
+export proc fixed_is_sorted_f64(array: &[f64]) -> bool;
+```
+
+## `core::array::init`
+
+Source: [`src/array/init.vit`](src/array/init.vit) · exports: 11
+
+```vit
+export proc array_init_fill<T>(
+    array: &mut [T],
+    value: T
+);
+export proc array_init_indexed(
+    array: &mut [usize]
+);
+export proc array_init_sequence(
+    array: &mut [i64],
+    start: i64,
+    step: i64
+) -> bool;
+export proc array_init_reverse_sequence(
+    array: &mut [i64],
+    start: i64,
+    step: i64
+) -> bool;
+export proc array_init_copy<T>(
+    source: &[T],
+    destination: &mut [T]
+) -> usize;
+export proc array_init_range<T>(
+    array: &mut [T],
+    start: usize,
+    end: usize,
+    value: T
+);
+export proc array_init_alternating<T>(
+    array: &mut [T],
+    first: T,
+    second: T
+);
+export proc array_init_geometric(
+    array: &mut [i64],
+    start: i64,
+    ratio: i64
+) -> bool;
+export proc array_init_bool(
+    array: &mut [bool],
+    value: bool
+);
+export proc array_init_false(
+    array: &mut [bool]
+);
+export proc array_init_true(
+    array: &mut [bool]
+);
+```
 
 ## `core::array`
 
@@ -15,6 +100,196 @@ Source: [`src/array/mod.vit`](src/array/mod.vit) · exports: 1
 
 ```vit
 export proc array_length<T>(value: &[T]) -> usize;
+```
+
+## `core::array::repeat`
+
+Source: [`src/array/repeat.vit`](src/array/repeat.vit) · exports: 15
+
+```vit
+export proc array_repeat_fill<T>(
+    array: &mut [T],
+    value: T
+);
+export proc array_repeat_n<T>(
+    array: &mut [T],
+    value: T,
+    count: usize
+) -> usize;
+export proc array_repeat_range<T>(
+    array: &mut [T],
+    start: usize,
+    end: usize,
+    value: T
+) -> usize;
+export proc array_repeat_pattern<T>(
+    destination: &mut [T],
+    pattern: &[T]
+) -> usize;
+export proc array_repeat_pattern_n<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    repetitions: usize
+) -> usize;
+export proc array_repeat_alternating<T>(
+    array: &mut [T],
+    first: T,
+    second: T
+);
+export proc array_repeat_three<T>(
+    array: &mut [T],
+    first: T,
+    second: T,
+    third: T
+);
+export proc array_repeat_step<T>(
+    array: &mut [T],
+    value: T,
+    step: usize
+) -> usize;
+export proc array_repeat_blocks<T>(
+    array: &mut [T],
+    value: T,
+    block_size: usize
+) -> usize;
+export proc array_repeat_sequence(
+    array: &mut [i64],
+    start: i64,
+    step: i64,
+    cycle_length: usize
+) -> bool;
+export proc array_repeat_each<T>(
+    source: &[T],
+    destination: &mut [T],
+    repetitions: usize
+) -> usize;
+export proc array_repeat_reverse_pattern<T>(
+    destination: &mut [T],
+    pattern: &[T]
+) -> usize;
+export proc array_repeat_ping_pong<T>(
+    destination: &mut [T],
+    pattern: &[T]
+) -> usize;
+export proc array_repeat_fill_count<T>(
+    array: &mut [T],
+    value: T
+) -> usize;
+export proc array_repeat_pattern_range<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    start: usize,
+    end: usize
+) -> usize;
+```
+
+## `core::array::zip`
+
+Source: [`src/array/zip.vit`](src/array/zip.vit) · exports: 6
+
+```vit
+export proc array_zip_min_length<T, U>(
+    left: &[T],
+    right: &[U]
+) -> usize;
+export proc array_zip3_min_length<T, U, V>(
+    first: &[T],
+    second: &[U],
+    third: &[V]
+) -> usize;
+export proc array_zip4_min_length<T, U, V, W>(
+    first: &[T],
+    second: &[U],
+    third: &[V],
+    fourth: &[W]
+) -> usize;
+export proc array_zip<T, U>(
+    left: &[T],
+    right: &[U],
+    left_output: &mut [T],
+    right_output: &mut [U]
+) -> usize;
+export proc array_zip3<T, U, V>(
+    first: &[T],
+    second: &[U],
+    third: &[V],
+    first_output: &mut [T],
+    second_output: &mut [U],
+    third_output: &mut [V]
+) -> usize;
+export proc array_zip4<T, U, V, W>(
+    first: &[T],
+    second: &[U],
+    third: &[V],
+    fourth: &[W],
+    first_output: &mut [T],
+    second_output: &mut [U],
+    third_output: &mut [V],
+    fourth_output: &mut [W]
+) -> usize;
+```
+
+## `core::cell::cell`
+
+Source: [`src/cell/cell.vit`](src/cell/cell.vit) · exports: 16
+
+```vit
+export form Cell<T> {
+    value: T,
+}
+export proc cell_new<T>(value: T) -> Cell[T];
+export proc cell_get<T>(cell: &Cell[T]) -> T;
+export proc cell_set<T>(
+    cell: &mut Cell[T],
+    value: T
+);
+export proc cell_replace<T>(
+    cell: &mut Cell[T],
+    value: T
+) -> T;
+export proc cell_swap<T>(
+    left: &mut Cell[T],
+    right: &mut Cell[T]
+);
+export proc cell_update<T>(
+    cell: &mut Cell[T],
+    transform: proc(T) -> T
+);
+export proc cell_equal<T>(
+    left: &Cell[T],
+    right: &Cell[T]
+) -> bool;
+export proc cell_contains<T>(
+    cell: &Cell[T],
+    value: T
+) -> bool;
+export proc cell_as_ref<T>(
+    cell: &Cell[T]
+) -> &T;
+export proc cell_as_mut<T>(
+    cell: &mut Cell[T]
+) -> &mut T;
+export proc cell_into_inner<T>(
+    cell: Cell[T]
+) -> T;
+export proc cell_copy_from<T>(
+    destination: &mut Cell[T],
+    source: &Cell[T]
+);
+export proc cell_reset<T>(
+    cell: &mut Cell[T],
+    value: T
+);
+export proc cell_set_if<T>(
+    cell: &mut Cell[T],
+    condition: bool,
+    value: T
+) -> bool;
+export proc cell_update_if<T>(
+    cell: &mut Cell[T],
+    predicate: proc(&T) -> bool,
+    transform: proc(T) -> T
+) -> bool;
 ```
 
 ## `core::cmp::clamp`
@@ -705,11 +980,11 @@ export proc format_failure(error: FormatError) -> FormatResult;
 export proc format_digit_lower(digit: u8) -> u8;
 export proc format_digit_upper(digit: u8) -> u8;
 export proc format_buffer_valid(
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> bool;
 export proc format_write_byte(
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize,
     index: usize,
     byte: u8
@@ -717,48 +992,48 @@ export proc format_write_byte(
 export proc format_u64_decimal_length(value: u64) -> usize;
 export proc format_u64(
     value: u64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_i64_decimal_length(value: i64) -> usize;
 export proc format_i64(
     value: i64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_u8(
     value: u8,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_u16(
     value: u16,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_u32(
     value: u32,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_i8(
     value: i8,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_i16(
     value: i16,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_i32(
     value: i32,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_bool(
     value: bool,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_u64_base_length(
@@ -769,103 +1044,103 @@ export proc format_u64_base(
     value: u64,
     base: u8,
     uppercase: bool,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_i64_base(
     value: i64,
     base: u8,
     uppercase: bool,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
-export proc format_i64_binary(value: i64, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_i64_octal(value: i64, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_i64_hex(value: i64, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_i32_base(value: i32, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_i16_base(value: i16, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_i8_base(value: i8, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_u32_base(value: u32, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_u16_base(value: u16, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_u8_base(value: u8, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult;
+export proc format_i64_binary(value: i64, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_i64_octal(value: i64, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_i64_hex(value: i64, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_i32_base(value: i32, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_i16_base(value: i16, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_i8_base(value: i8, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_u32_base(value: u32, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_u16_base(value: u16, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_u8_base(value: u8, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult;
 export proc format_hex_u64(
     value: u64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_hex_upper_u64(
     value: u64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_hex_u32(
     value: u32,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_hex_u16(
     value: u16,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_hex_u8(
     value: u8,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_binary_u64(
     value: u64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_binary_u32(
     value: u32,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_binary_u16(
     value: u16,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_binary_u8(
     value: u8,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_octal_u64(
     value: u64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_octal_u32(
     value: u32,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
-export proc format_octal_u16(value: u16, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_octal_u8(value: u8, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_hex_upper_u32(value: u32, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_hex_upper_u16(value: u16, buffer: *u8, capacity: usize) -> FormatResult;
-export proc format_hex_upper_u8(value: u8, buffer: *u8, capacity: usize) -> FormatResult;
+export proc format_octal_u16(value: u16, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_octal_u8(value: u8, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_hex_upper_u32(value: u32, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_hex_upper_u16(value: u16, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc format_hex_upper_u8(value: u8, buffer: *mut u8, capacity: usize) -> FormatResult;
 export proc format_hex_fixed_u64(
     value: u64,
     width: usize,
     uppercase: bool,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_ascii(
     character: u8,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
 export proc format_char(
     character: char,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult;
-export proc format_bytes(bytes: &[u8], buffer: *u8, capacity: usize) -> FormatResult;
+export proc format_bytes(bytes: &[u8], buffer: *mut u8, capacity: usize) -> FormatResult;
 export proc format_bool_length(value: bool) -> usize;
 export proc format_hex_u64_length(value: u64) -> usize;
 export proc format_binary_u64_length(value: u64) -> usize;
@@ -1285,15 +1560,15 @@ export proc format_arg_str(value: str) -> FormatArg;
 Source: [`src/fmt/debug.vit`](src/fmt/debug.vit) · exports: 9
 
 ```vit
-export proc debug_bool(value: bool, buffer: *u8, capacity: usize) -> FormatResult;
-export proc debug_i64(value: i64, buffer: *u8, capacity: usize) -> FormatResult;
-export proc debug_u64(value: u64, buffer: *u8, capacity: usize) -> FormatResult;
-export proc debug_i8(value: i8, buffer: *u8, capacity: usize) -> FormatResult;
-export proc debug_i16(value: i16, buffer: *u8, capacity: usize) -> FormatResult;
-export proc debug_i32(value: i32, buffer: *u8, capacity: usize) -> FormatResult;
-export proc debug_u8(value: u8, buffer: *u8, capacity: usize) -> FormatResult;
-export proc debug_u16(value: u16, buffer: *u8, capacity: usize) -> FormatResult;
-export proc debug_u32(value: u32, buffer: *u8, capacity: usize) -> FormatResult;
+export proc debug_bool(value: bool, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc debug_i64(value: i64, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc debug_u64(value: u64, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc debug_i8(value: i8, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc debug_i16(value: i16, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc debug_i32(value: i32, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc debug_u8(value: u8, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc debug_u16(value: u16, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc debug_u32(value: u32, buffer: *mut u8, capacity: usize) -> FormatResult;
 ```
 
 ## `core::fmt::display`
@@ -1301,16 +1576,16 @@ export proc debug_u32(value: u32, buffer: *u8, capacity: usize) -> FormatResult;
 Source: [`src/fmt/display.vit`](src/fmt/display.vit) · exports: 10
 
 ```vit
-export proc display_bool(value: bool, buffer: *u8, capacity: usize) -> FormatResult;
-export proc display_i64(value: i64, buffer: *u8, capacity: usize) -> FormatResult;
-export proc display_u64(value: u64, buffer: *u8, capacity: usize) -> FormatResult;
-export proc display_i8(value: i8, buffer: *u8, capacity: usize) -> FormatResult;
-export proc display_i16(value: i16, buffer: *u8, capacity: usize) -> FormatResult;
-export proc display_i32(value: i32, buffer: *u8, capacity: usize) -> FormatResult;
-export proc display_u8(value: u8, buffer: *u8, capacity: usize) -> FormatResult;
-export proc display_u16(value: u16, buffer: *u8, capacity: usize) -> FormatResult;
-export proc display_u32(value: u32, buffer: *u8, capacity: usize) -> FormatResult;
-export proc display_char(value: char, buffer: *u8, capacity: usize) -> FormatResult;
+export proc display_bool(value: bool, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc display_i64(value: i64, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc display_u64(value: u64, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc display_i8(value: i8, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc display_i16(value: i16, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc display_i32(value: i32, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc display_u8(value: u8, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc display_u16(value: u16, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc display_u32(value: u32, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc display_char(value: char, buffer: *mut u8, capacity: usize) -> FormatResult;
 ```
 
 ## `core::fmt::float`
@@ -1318,8 +1593,8 @@ export proc display_char(value: char, buffer: *u8, capacity: usize) -> FormatRes
 Source: [`src/fmt/float.vit`](src/fmt/float.vit) · exports: 2
 
 ```vit
-export proc fmt_f64_fixed(value: f64, precision: usize, buffer: *u8, capacity: usize) -> FormatResult;
-export proc fmt_f32_fixed(value: f32, precision: usize, buffer: *u8, capacity: usize) -> FormatResult;
+export proc fmt_f64_fixed(value: f64, precision: usize, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc fmt_f32_fixed(value: f32, precision: usize, buffer: *mut u8, capacity: usize) -> FormatResult;
 ```
 
 ## `core::fmt::formatter`
@@ -1351,16 +1626,16 @@ export proc formatter_write_arg(value: &mut Formatter, argument: &FormatArg) -> 
 Source: [`src/fmt/integer.vit`](src/fmt/integer.vit) · exports: 10
 
 ```vit
-export proc fmt_i64(value: i64, buffer: *u8, capacity: usize) -> FormatResult;
-export proc fmt_u64(value: u64, buffer: *u8, capacity: usize) -> FormatResult;
-export proc fmt_u64_radix(value: u64, radix: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult;
-export proc fmt_i64_radix(value: i64, radix: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult;
-export proc fmt_i8(value: i8, buffer: *u8, capacity: usize) -> FormatResult;
-export proc fmt_i16(value: i16, buffer: *u8, capacity: usize) -> FormatResult;
-export proc fmt_i32(value: i32, buffer: *u8, capacity: usize) -> FormatResult;
-export proc fmt_u8(value: u8, buffer: *u8, capacity: usize) -> FormatResult;
-export proc fmt_u16(value: u16, buffer: *u8, capacity: usize) -> FormatResult;
-export proc fmt_u32(value: u32, buffer: *u8, capacity: usize) -> FormatResult;
+export proc fmt_i64(value: i64, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc fmt_u64(value: u64, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc fmt_u64_radix(value: u64, radix: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc fmt_i64_radix(value: i64, radix: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc fmt_i8(value: i8, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc fmt_i16(value: i16, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc fmt_i32(value: i32, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc fmt_u8(value: u8, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc fmt_u16(value: u16, buffer: *mut u8, capacity: usize) -> FormatResult;
+export proc fmt_u32(value: u32, buffer: *mut u8, capacity: usize) -> FormatResult;
 ```
 
 ## `core::fmt::padding`
@@ -1625,7 +1900,7 @@ export proc type_layout_is_valid(value: &TypeLayout) -> bool;
 Source: [`src/intrinsics/unreachable.vit`](src/intrinsics/unreachable.vit) · exports: 2
 
 ```vit
-export intrinsic trap();
+export intrinsic trap() -> never;
 export proc unreachable() -> never;
 ```
 
@@ -1642,7 +1917,11 @@ export proc chain_copy<T>(left: &[T], right: &[T], destination: &mut [T]) -> usi
 Source: [`src/iter/enumerate.vit`](src/iter/enumerate.vit) · exports: 1
 
 ```vit
-export proc enumerate_copy<T>(source: &[T], destination: &mut [(usize, T)]) -> usize;
+export proc enumerate_copy<T>(
+    source: &[T],
+    values: &mut [T],
+    indices: &mut [usize]
+) -> usize;
 ```
 
 ## `core::iter::filter`
@@ -1664,7 +1943,7 @@ Source: [`src/iter/fold.vit`](src/iter/fold.vit) · exports: 3
 ```vit
 export form FoldStep<U> {
     accumulator: U,
-    continue: bool,
+    should_continue: bool,
 }
 export proc fold<T, U>(
     source: &[T],
@@ -1777,7 +2056,8 @@ Source: [`src/iter/zip.vit`](src/iter/zip.vit) · exports: 1
 export proc zip_copy<T, U>(
     left: &[T],
     right: &[U],
-    destination: &mut [(T, U)]
+    left_output: &mut [T],
+    right_output: &mut [U]
 ) -> usize;
 ```
 
@@ -2016,11 +2296,11 @@ Source: [`src/num/integer.vit`](src/num/integer.vit) · exports: 6
 
 ```vit
 export proc integer_gcd_u64(left: u64, right: u64) -> u64;
-export proc integer_lcm_u64(left: u64, right: u64) -> ?u64;
+export proc integer_lcm_u64(left: u64, right: u64, output: &mut u64) -> bool;
 export proc integer_sqrt_u64(value: u64) -> u64;
 export proc integer_abs_diff_u64(left: u64, right: u64) -> u64;
 export proc integer_is_power_of_two_u64(value: u64) -> bool;
-export proc integer_next_power_of_two_u64(value: u64) -> ?u64;
+export proc integer_next_power_of_two_u64(value: u64, output: &mut u64) -> bool;
 ```
 
 ## `core::num::limits`
@@ -2041,7 +2321,7 @@ export const U16_MAX: u16 = 65535;
 export const U32_MAX: u32 = 4294967295;
 export const U64_MAX: u64 = 18446744073709551615;
 export const ISIZE_MAX: isize = 9223372036854775807;
-export const USIZE_MAX: usize = usize.MAX;
+export const USIZE_MAX: usize = (0 as usize) - 1;
 ```
 
 ## `core::num::nonzero`
@@ -2433,14 +2713,14 @@ export proc shl_u8(left: u8, amount: usize) -> u8;
 export proc shl_u16(left: u16, amount: usize) -> u16;
 export proc shl_u32(left: u32, amount: usize) -> u32;
 export proc shl_u64(left: u64, amount: usize) -> u64;
-export proc checked_shl_i8(left: i8, amount: usize) -> ?i8;
-export proc checked_shl_i16(left: i16, amount: usize) -> ?i16;
-export proc checked_shl_i32(left: i32, amount: usize) -> ?i32;
-export proc checked_shl_i64(left: i64, amount: usize) -> ?i64;
-export proc checked_shl_u8(left: u8, amount: usize) -> ?u8;
-export proc checked_shl_u16(left: u16, amount: usize) -> ?u16;
-export proc checked_shl_u32(left: u32, amount: usize) -> ?u32;
-export proc checked_shl_u64(left: u64, amount: usize) -> ?u64;
+export proc checked_shl_i8(left: i8, amount: usize, output: &mut i8) -> bool;
+export proc checked_shl_i16(left: i16, amount: usize, output: &mut i16) -> bool;
+export proc checked_shl_i32(left: i32, amount: usize, output: &mut i32) -> bool;
+export proc checked_shl_i64(left: i64, amount: usize, output: &mut i64) -> bool;
+export proc checked_shl_u8(left: u8, amount: usize, output: &mut u8) -> bool;
+export proc checked_shl_u16(left: u16, amount: usize, output: &mut u16) -> bool;
+export proc checked_shl_u32(left: u32, amount: usize, output: &mut u32) -> bool;
+export proc checked_shl_u64(left: u64, amount: usize, output: &mut u64) -> bool;
 ```
 
 ## `core::ops::shr`
@@ -2456,14 +2736,14 @@ export proc shr_u8(left: u8, amount: usize) -> u8;
 export proc shr_u16(left: u16, amount: usize) -> u16;
 export proc shr_u32(left: u32, amount: usize) -> u32;
 export proc shr_u64(left: u64, amount: usize) -> u64;
-export proc checked_shr_i8(left: i8, amount: usize) -> ?i8;
-export proc checked_shr_i16(left: i16, amount: usize) -> ?i16;
-export proc checked_shr_i32(left: i32, amount: usize) -> ?i32;
-export proc checked_shr_i64(left: i64, amount: usize) -> ?i64;
-export proc checked_shr_u8(left: u8, amount: usize) -> ?u8;
-export proc checked_shr_u16(left: u16, amount: usize) -> ?u16;
-export proc checked_shr_u32(left: u32, amount: usize) -> ?u32;
-export proc checked_shr_u64(left: u64, amount: usize) -> ?u64;
+export proc checked_shr_i8(left: i8, amount: usize, output: &mut i8) -> bool;
+export proc checked_shr_i16(left: i16, amount: usize, output: &mut i16) -> bool;
+export proc checked_shr_i32(left: i32, amount: usize, output: &mut i32) -> bool;
+export proc checked_shr_i64(left: i64, amount: usize, output: &mut i64) -> bool;
+export proc checked_shr_u8(left: u8, amount: usize, output: &mut u8) -> bool;
+export proc checked_shr_u16(left: u16, amount: usize, output: &mut u16) -> bool;
+export proc checked_shr_u32(left: u32, amount: usize, output: &mut u32) -> bool;
+export proc checked_shr_u64(left: u64, amount: usize, output: &mut u64) -> bool;
 ```
 
 ## `core::ops::sub`
@@ -2578,10 +2858,11 @@ export proc i32_signum(value: i32) -> i8;
 
 ## `core::primitive::unit`
 
-Source: [`src/primitive/unit.vit`](src/primitive/unit.vit) · exports: 1
+Source: [`src/primitive/unit.vit`](src/primitive/unit.vit) · exports: 2
 
 ```vit
-export type Unit = unit;
+export form Unit {}
+export proc unit_value() -> Unit;
 ```
 
 ## `core::primitive::unsigned`
@@ -2761,10 +3042,10 @@ export proc slice_chunk_at(length: usize, chunk_size: usize, chunk_index: usize)
 Source: [`src/slice/iterator.vit`](src/slice/iterator.vit) · exports: 4
 
 ```vit
-export proc slice_cursor<T>(value: &[T]) -> SliceIterator[T];
-export proc slice_cursor_next<T>(value: &mut SliceIterator[T]) -> ?T;
-export proc slice_cursor_next_back<T>(value: &mut SliceIterator[T]) -> ?T;
-export proc slice_cursor_remaining<T>(value: &SliceIterator[T]) -> usize;
+export proc slice_cursor_init<T>(source: &[T], front: &mut usize, back: &mut usize);
+export proc slice_cursor_next<T>(source: &[T], front: &mut usize, back: &mut usize, output: &mut T) -> bool;
+export proc slice_cursor_next_back<T>(source: &[T], front: &mut usize, back: &mut usize, output: &mut T) -> bool;
+export proc slice_cursor_remaining(front: usize, back: usize) -> usize;
 ```
 
 ## `core::slice`
@@ -2908,8 +3189,8 @@ export proc str_parse_bool(value: str) -> ParseBoolResult;
 Source: [`src/str/search.vit`](src/str/search.vit) · exports: 3
 
 ```vit
-export proc str_find_char(value: str, target: char) -> ?usize;
-export proc str_find(value: str, needle: str) -> ?usize;
+export proc str_find_char(value: str, target: char, result_index: &mut usize) -> bool;
+export proc str_find(value: str, needle: str, result_index: &mut usize) -> bool;
 export proc str_contains(value: str, needle: str) -> bool;
 ```
 
@@ -3061,44 +3342,38 @@ export proc spinlock_value_mut<T>(lock: &mut SpinLock[T]) -> &mut T;
 Source: [`src/traits/arithmetic.vit`](src/traits/arithmetic.vit) · exports: 11
 
 ```vit
-export trait Add<Rhs> {
-    type Output;
-    proc add(&self, rhs: Rhs) -> Self::Output;
+export trait Add<Receiver, Rhs, Output> {
+    proc add(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Sub<Rhs> {
-    type Output;
-    proc sub(&self, rhs: Rhs) -> Self::Output;
+export trait Sub<Receiver, Rhs, Output> {
+    proc sub(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Mul<Rhs> {
-    type Output;
-    proc mul(&self, rhs: Rhs) -> Self::Output;
+export trait Mul<Receiver, Rhs, Output> {
+    proc mul(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Div<Rhs> {
-    type Output;
-    proc div(&self, rhs: Rhs) -> Self::Output;
+export trait Div<Receiver, Rhs, Output> {
+    proc div(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Rem<Rhs> {
-    type Output;
-    proc rem(&self, rhs: Rhs) -> Self::Output;
+export trait Rem<Receiver, Rhs, Output> {
+    proc rem(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Neg {
-    type Output;
-    proc neg(&self) -> Self::Output;
+export trait Neg<Receiver, Output> {
+    proc neg(receiver: &Receiver) -> Output;
 }
-export trait AddAssign<Rhs> {
-    proc add_assign(&mut self, rhs: Rhs);
+export trait AddAssign<Receiver, Rhs> {
+    proc add_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait SubAssign<Rhs> {
-    proc sub_assign(&mut self, rhs: Rhs);
+export trait SubAssign<Receiver, Rhs> {
+    proc sub_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait MulAssign<Rhs> {
-    proc mul_assign(&mut self, rhs: Rhs);
+export trait MulAssign<Receiver, Rhs> {
+    proc mul_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait DivAssign<Rhs> {
-    proc div_assign(&mut self, rhs: Rhs);
+export trait DivAssign<Receiver, Rhs> {
+    proc div_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait RemAssign<Rhs> {
-    proc rem_assign(&mut self, rhs: Rhs);
+export trait RemAssign<Receiver, Rhs> {
+    proc rem_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 ```
 
@@ -3107,44 +3382,38 @@ export trait RemAssign<Rhs> {
 Source: [`src/traits/bitwise.vit`](src/traits/bitwise.vit) · exports: 11
 
 ```vit
-export trait BitAnd<Rhs> {
-    type Output;
-    proc bitand(&self, rhs: Rhs) -> Self::Output;
+export trait BitAnd<Receiver, Rhs, Output> {
+    proc bitand(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait BitOr<Rhs> {
-    type Output;
-    proc bitor(&self, rhs: Rhs) -> Self::Output;
+export trait BitOr<Receiver, Rhs, Output> {
+    proc bitor(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait BitXor<Rhs> {
-    type Output;
-    proc bitxor(&self, rhs: Rhs) -> Self::Output;
+export trait BitXor<Receiver, Rhs, Output> {
+    proc bitxor(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Shl<Rhs> {
-    type Output;
-    proc shl(&self, rhs: Rhs) -> Self::Output;
+export trait Shl<Receiver, Rhs, Output> {
+    proc shl(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Shr<Rhs> {
-    type Output;
-    proc shr(&self, rhs: Rhs) -> Self::Output;
+export trait Shr<Receiver, Rhs, Output> {
+    proc shr(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Not {
-    type Output;
-    proc not(&self) -> Self::Output;
+export trait Not<Receiver, Output> {
+    proc bitnot(receiver: &Receiver) -> Output;
 }
-export trait BitAndAssign<Rhs> {
-    proc bitand_assign(&mut self, rhs: Rhs);
+export trait BitAndAssign<Receiver, Rhs> {
+    proc bitand_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait BitOrAssign<Rhs> {
-    proc bitor_assign(&mut self, rhs: Rhs);
+export trait BitOrAssign<Receiver, Rhs> {
+    proc bitor_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait BitXorAssign<Rhs> {
-    proc bitxor_assign(&mut self, rhs: Rhs);
+export trait BitXorAssign<Receiver, Rhs> {
+    proc bitxor_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait ShlAssign<Rhs> {
-    proc shl_assign(&mut self, rhs: Rhs);
+export trait ShlAssign<Receiver, Rhs> {
+    proc shl_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait ShrAssign<Rhs> {
-    proc shr_assign(&mut self, rhs: Rhs);
+export trait ShrAssign<Receiver, Rhs> {
+    proc shr_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 ```
 
@@ -3153,14 +3422,14 @@ export trait ShrAssign<Rhs> {
 Source: [`src/traits/callable.vit`](src/traits/callable.vit) · exports: 3
 
 ```vit
-export trait Callable<Arguments, Output> {
-    proc call(&self, arguments: Arguments) -> Output;
+export trait Callable<Receiver, Arguments, Output> {
+    proc call(receiver: &Receiver, arguments: Arguments) -> Output;
 }
-export trait CallableMut<Arguments, Output> {
-    proc call_mut(&mut self, arguments: Arguments) -> Output;
+export trait CallableMut<Receiver, Arguments, Output> {
+    proc call_mut(receiver: &mut Receiver, arguments: Arguments) -> Output;
 }
-export trait CallableOnce<Arguments, Output> {
-    proc call_once(self, arguments: Arguments) -> Output;
+export trait CallableOnce<Receiver, Arguments, Output> {
+    proc call_once(receiver: Receiver, arguments: Arguments) -> Output;
 }
 ```
 
@@ -3169,8 +3438,8 @@ export trait CallableOnce<Arguments, Output> {
 Source: [`src/traits/clone.vit`](src/traits/clone.vit) · exports: 1
 
 ```vit
-export trait Clone {
-    proc clone(&self) -> Self;
+export trait Clone<Receiver> {
+    proc clone(receiver: &Receiver) -> Receiver;
 }
 ```
 
@@ -3179,11 +3448,11 @@ export trait Clone {
 Source: [`src/traits/compare.vit`](src/traits/compare.vit) · exports: 2
 
 ```vit
-export trait PartialOrd<Rhs> {
-    proc partial_cmp(&self, other: &Rhs) -> PartialOrdering;
+export trait PartialOrd<Receiver, Rhs> {
+    proc partial_cmp(receiver: &Receiver, other: &Rhs) -> PartialOrdering;
 }
-export trait Ord<Rhs> {
-    proc cmp(&self, other: &Rhs) -> Ordering;
+export trait Ord<Receiver, Rhs> {
+    proc cmp(receiver: &Receiver, other: &Rhs) -> Ordering;
 }
 ```
 
@@ -3192,19 +3461,17 @@ export trait Ord<Rhs> {
 Source: [`src/traits/convert.vit`](src/traits/convert.vit) · exports: 4
 
 ```vit
-export trait From<T> {
-    proc from(value: T) -> Self;
+export trait From<T, Receiver> {
+    proc from(value: T) -> Receiver;
 }
-export trait Into<T> {
-    proc into(self) -> T;
+export trait Into<Receiver, T> {
+    proc into(receiver: Receiver) -> T;
 }
-export trait TryFrom<T> {
-    type Error;
-    proc try_from(value: T) -> Result[Self, Self::Error];
+export trait TryFrom<T, Receiver, Error> {
+    proc try_from(value: T) -> Result[Receiver, Error];
 }
-export trait TryInto<T> {
-    type Error;
-    proc try_into(self) -> Result[T, Self::Error];
+export trait TryInto<Receiver, T, Error> {
+    proc try_into(receiver: Receiver) -> Result[T, Error];
 }
 ```
 
@@ -3213,8 +3480,8 @@ export trait TryInto<T> {
 Source: [`src/traits/debug.vit`](src/traits/debug.vit) · exports: 1
 
 ```vit
-export trait Debug {
-    proc fmt(&self, formatter: &mut Formatter) -> bool;
+export trait Debug<Receiver> {
+    proc fmt(receiver: &Receiver, formatter: &mut Formatter) -> bool;
 }
 ```
 
@@ -3223,8 +3490,8 @@ export trait Debug {
 Source: [`src/traits/default.vit`](src/traits/default.vit) · exports: 1
 
 ```vit
-export trait Default {
-    proc default() -> Self;
+export trait Default<Receiver> {
+    proc default() -> Receiver;
 }
 ```
 
@@ -3233,13 +3500,11 @@ export trait Default {
 Source: [`src/traits/dereference.vit`](src/traits/dereference.vit) · exports: 2
 
 ```vit
-export trait Deref {
-    type Target;
-    proc deref(&self) -> &Self::Target;
+export trait Deref<Receiver, Target> {
+    proc deref(receiver: &Receiver) -> &Target;
 }
-export trait DerefMut {
-    type Target;
-    proc deref_mut(&mut self) -> &mut Self::Target;
+export trait DerefMut<Receiver, Target> {
+    proc deref_mut(receiver: &mut Receiver) -> &mut Target;
 }
 ```
 
@@ -3248,8 +3513,8 @@ export trait DerefMut {
 Source: [`src/traits/display.vit`](src/traits/display.vit) · exports: 1
 
 ```vit
-export trait Display {
-    proc fmt(&self, formatter: &mut Formatter) -> bool;
+export trait Display<Receiver> {
+    proc fmt(receiver: &Receiver, formatter: &mut Formatter) -> bool;
 }
 ```
 
@@ -3258,10 +3523,10 @@ export trait Display {
 Source: [`src/traits/equal.vit`](src/traits/equal.vit) · exports: 2
 
 ```vit
-export trait PartialEq<Rhs> {
-    proc eq(&self, other: &Rhs) -> bool;
+export trait PartialEq<Receiver, Rhs> {
+    proc eq(receiver: &Receiver, other: &Rhs) -> bool;
 }
-export trait Eq {}
+export trait Eq<Receiver> {}
 ```
 
 ## `core::traits::hash`
@@ -3269,8 +3534,8 @@ export trait Eq {}
 Source: [`src/traits/hash.vit`](src/traits/hash.vit) · exports: 1
 
 ```vit
-export trait Hash {
-    proc hash(&self, state: &mut u64);
+export trait Hash<Receiver> {
+    proc hash(receiver: &Receiver, state: &mut u64);
 }
 ```
 
@@ -3279,13 +3544,11 @@ export trait Hash {
 Source: [`src/traits/index.vit`](src/traits/index.vit) · exports: 2
 
 ```vit
-export trait Index<IndexType> {
-    type Output;
-    proc index(&self, index: IndexType) -> &Self::Output;
+export trait Index<Receiver, IndexType, Output> {
+    proc index(receiver: &Receiver, index: IndexType) -> &Output;
 }
-export trait IndexMut<IndexType> {
-    type Output;
-    proc index_mut(&mut self, index: IndexType) -> &mut Self::Output;
+export trait IndexMut<Receiver, IndexType, Output> {
+    proc index_mut(receiver: &mut Receiver, index: IndexType) -> &mut Output;
 }
 ```
 
@@ -3294,11 +3557,11 @@ export trait IndexMut<IndexType> {
 Source: [`src/traits/iterator.vit`](src/traits/iterator.vit) · exports: 2
 
 ```vit
-export trait Iterator<Item> {
-    proc next(&mut self) -> ?Item;
+export trait Iterator<Receiver, Item> {
+    proc next(iterator: &mut Receiver) -> ?Item;
 }
-export trait DoubleEndedIterator<Item> {
-    proc next_back(&mut self) -> ?Item;
+export trait DoubleEndedIterator<Receiver, Item> {
+    proc next_back(iterator: &mut Receiver) -> ?Item;
 }
 ```
 
@@ -3434,11 +3697,24 @@ export proc slice_is_empty<T>(value: &[T]) -> bool;
 
 ## `core::types::tuple`
 
-Source: [`src/types/tuple.vit`](src/types/tuple.vit) · exports: 2
+Source: [`src/types/tuple.vit`](src/types/tuple.vit) · exports: 3
 
 ```vit
-export type Pair<T, U> = (T, U);
-export type Triple<T, U, V> = (T, U, V);
+export form Pair<T, U> {
+    first: T,
+    second: U,
+}
+export form Triple<T, U, V> {
+    first: T,
+    second: U,
+    third: V,
+}
+export form Quad<T, U, V, W> {
+    first: T,
+    second: U,
+    third: V,
+    fourth: W,
+}
 ```
 
 ## `vitte::core::memory`

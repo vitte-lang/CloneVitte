@@ -102,7 +102,8 @@ declaration_block ::= "{" { declaration } "}" ;
 generic_parameters ::= [ "<" [ generic_parameter
                                { "," generic_parameter } ] ">" ] ;
 
-generic_parameter ::= identifier [ ":" type { "+" type } ] ;
+generic_parameter ::= identifier [ ":" type { "+" type } ]
+                    | "const" identifier ":" type ;
 
 where_clause ::= "where" type ":" type { "+" type }
                  { "," type ":" type { "+" type } } ;

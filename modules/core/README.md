@@ -55,7 +55,10 @@ Les résultats des opérations fallibles suivent ces règles :
 | `convert::cast` | `Cast*Result` | `CastError`; valeur zéro à l'échec |
 | `convert::parse` | `Parse*Result` | `ParseError`, valeur neutre et `error_index` |
 | `num::checked` | `CheckedI64Result`, `CheckedU64Result` | `CheckedError`, valeur zéro |
+| `num::integer` LCM et puissance de deux | `bool` et sortie `&mut u64` | `false` en dépassement; sortie inchangée |
+| `ops::checked_shl_*`, `checked_shr_*` | `bool` et sortie typée | `false` si le décalage dépasse la largeur; sortie inchangée |
 | `convert::format` | `FormatResult` | `FormatError`, `length == 0` |
+| `str::search` | `bool` et sortie `&mut usize` | `false` si absent; index inchangé |
 | `str::utf8` | `Utf8DecodeResult` | `Utf8Error`, point de code et largeur nuls; index absolu |
 | `slice::binary_search` | `BinarySearchResult` | `found == false` signifie absence, pas erreur |
 
@@ -63,15 +66,18 @@ Les résultats des opérations fallibles suivent ces règles :
 son champ `code` reste une donnée de diagnostic, pas une variante de `Error`.
 
 `?T` signale une absence, une limite dépassée ou un calcul impossible selon le
-module; il ne donne pas une raison détaillée. Utiliser un résultat typé lorsque
-l'appelant doit distinguer ces causes. Un booléen peut représenter un prédicat,
-une réussite simple ou une décision de protocole; ces usages ne sont pas
-interchangeables. Par exemple, `false` de compare-exchange signifie que la
-valeur observée ne correspond pas, tandis que `false` de `try_lock` signifie
-que le verrou n'a pas été acquis. Les erreurs de domaine gardent leurs enums
-(`CastError`, `ParseError`, `CheckedError`, `FormatError`, `Utf8Error`);
-`core::error::Error` sert aux diagnostics génériques et `LocatedError` ajoute
-une `SourceSpan`.
+module; il ne donne pas une raison détaillée. Le backend C17 représente
+actuellement `?T` pour un contenu scalaire comme un pointeur vers `T`, sans
+constructeur sûr qui stocke une valeur retournée. Une procédure qui retourne
+directement un entier `?i64` peut donc produire du C invalide. Les nouvelles
+opérations de recherche, d'entiers et de décalage utilisent un booléen et un
+paramètre de sortie : en cas d'échec, elles laissent ce paramètre inchangé.
+Utiliser un résultat typé lorsque l'appelant doit distinguer plusieurs causes.
+Un booléen peut représenter un prédicat, une réussite simple ou une décision
+de protocole; ces usages ne sont pas interchangeables. Les erreurs de domaine
+gardent leurs enums (`CastError`, `ParseError`, `CheckedError`, `FormatError`,
+`Utf8Error`); `core::error::Error` sert aux diagnostics génériques et
+`LocatedError` ajoute une `SourceSpan`.
 
 Les formes publiques gardent leurs champs spécifiques lorsqu'ils transportent
 une métadonnée utile (`error_index`, `length`, `codepoint`, `width`, `span`);
@@ -79,14 +85,16 @@ elles respectent néanmoins le statut et l'erreur communs ci-dessus. Les champs
 `valid` et `found` décrivent des propriétés de domaine, pas le succès d'une
 opération fallible.
 
-Le compilateur natif ne sait pas encore construire une forme générique avec une
+Le compilateur ne sait pas encore construire une forme générique avec une
 charge `T` convertie en `?T`. `Result<T, E>` et ses accesseurs sont donc
 déclarés, mais il n'existe pas encore de constructeur Vitte utilisable. Les
 consommateurs doivent employer les formes concrètes de leur module
 (`Cast*Result`, `Parse*Result`, `CheckedI64Result`, `FormatResult`, etc.) jusqu'à
 l'ajout de cette conversion au langage. Les signatures de `TryFrom` et
 `TryInto` anticipent ce type générique; leur implémentation n'est pas encore
-reliée au compilateur.
+reliée au compilateur. Les fonctions de `core::cell::cell` sont sémantiquement
+acceptées, mais l'inférence des paramètres génériques à travers `Cell[T]` et
+l'émission d'une fabrique générique qui construit `Cell[T]` restent incomplètes.
 
 `core::types::option` utilise le type nullable natif `?T`; cette représentation
 ne distingue pas `None` de `Some(null)` pour un paramètre lui-même nullable.
@@ -104,7 +112,9 @@ Les traits de formatage écrivent dans `core::fmt::Formatter` fourni par
 l'appelant, sans exiger la création d'une chaîne allouée. Les marqueurs
 `Copy`, `Send`, `Sync`, `Sized` et `Unpin` sont déclarés, mais le compilateur ne
 vérifie pas encore leurs implémentations ni leurs propriétés automatiques.
-Les contrats de traits sont définis, mais les déclarations `impl` ne sont pas
+Les contrats de traits prennent explicitement leur type récepteur et leurs
+types de sortie en paramètres, car le langage ne fournit pas encore `Self`, les
+récepteurs de trait ni les types associés. Les déclarations `impl` ne sont pas
 encore reliées aux traits par l'analyse sémantique; le dispatch générique n'est
 donc pas disponible.
 
@@ -118,12 +128,42 @@ qu'une vérification d'alignement. Les rotations, comptages de bits, inversions
 d'octets, classifications flottantes et contrôles d'ordre atomique sont écrits
 en Vitte.
 
+`core::array::fixed` applique ses algorithmes à des tranches empruntées; les
+fonctions de copie s'arrêtent à la capacité disponible. Il ne s'agit pas de
+fonctions à longueur constante : les paramètres génériques `const N` et la
+conversion automatique de `[N]T` vers `&[T]` ne sont pas disponibles dans le
+langage.
+
+`core::array::init` et `core::array::repeat` exposent les remplissages, copies,
+motifs, plages, pas et séquences qui ne nécessitent pas de callback. Les
+séquences numériques retournent un booléen; elles vérifient tous les calculs
+avant d'écrire, donc un débordement laisse le tampon inchangé. `array::zip`
+copie deux, trois ou quatre tranches dans des tampons parallèles et retourne le
+nombre écrit, limité par les capacités de toutes les tranches.
+
+`core::slice::iterator` offre aussi un curseur sans allocation sous forme de
+deux indices `front`/`back`; les extractions retournent un booléen et écrivent
+dans une sortie fournie par l'appelant, pour éviter les résultats scalaires
+`?T` que le backend natif ne sait pas représenter de façon fiable.
+
+Le langage ne représente pas encore les tuples. `core::types::tuple` fournit
+donc des formes nommées `Pair`, `Triple` et `Quad`. Les opérations `zip` et
+`enumerate` écrivent leurs résultats dans des tampons de sortie parallèles;
+elles n'allouent pas et s'arrêtent à la capacité minimale disponible.
+
 `MaybeUninit<T>` suit un état et une valeur nullable; ce n'est pas une réserve
 d'octets réellement non initialisés. Il faut une primitive de stockage du
 compilateur pour garantir cette représentation. La complétude fonctionnelle et
 la compatibilité de chaque déclaration avec le compilateur restent à valider.
 Ce paquet ne doit pas encore être considéré comme prêt pour une utilisation
 native complète.
+
+`core::primitive::Unit` est une forme vide constructible via `unit_value`; le
+langage ne fournit pas encore d'alias source pour son type unité interne.
+`core::intrinsics::unreachable::unreachable` et `core::error::panic::panic`
+retournent `never`, le type bottom du compilateur. Les conversions depuis ce
+type sont acceptées vers tout type attendu; le backend C17 l'abaisse à `void`
+et protège les retours divergents par `abort()` si l'appel ne termine pas.
 
 Les opérations dépendant de la machine sont déclarées comme intrinsics Vitte,
 sans liaison C :
@@ -164,13 +204,94 @@ offrent charge, stockage, échange, comparaison-échange et additions/soustracti
 tentative de déverrouillage. Ces APIs restent conditionnées à l'abaissement
 correct des intrinsics par le backend natif.
 
+## Validation observée
+
+`make MODE=release test-core` exécute 17 fichiers principaux avec
+`vitte-bootstrap` et le backend C17, puis 8 tests réservés au bootstrap. Les 25
+passent localement sur macOS. Cette cible fait partie
+de `make test`. Elle couvre les conversions et le parsing, les erreurs, le
+formatage, le hachage, les nombres, les comparaisons, les primitives, les
+opérations binaires et leurs décalages vérifiés, les comparaisons de tranches,
+les helpers de tableaux empruntés, l'initialisation et la répétition bornées,
+les séquences numériques vérifiées, les formes `Pair`/`Triple`/`Quad`, les
+tampons parallèles d'itération et de zip, le curseur de tranche à indices, les
+layouts, les plages, la recherche de chaînes, les intrinsics arithmétiques
+portables et la synchronisation. Le fixture
+`src/tests/generic_form_bracket_runtime.vit` valide aussi un constructeur
+`Box[T] { ... }` sur les chemins bootstrap et natif. Le smoke
+`src/tests/core_native_smoke_runtime.vit` vérifie l'import `core::...` natif,
+le tri d'une tranche `i64`, les helpers entiers et de décalage, la recherche de
+chaînes et une forme générique. La cible `make test-runtime` passe sur macOS.
+Deux probes de processus supplémentaires confirment que `panic` et
+`unreachable` compilent puis terminent effectivement le programme sur les
+chemins bootstrap et natif.
+
+`make MODE=release test-core-native` exécute les 17 fichiers principaux avec le
+compilateur natif. Les 8 tests génériques bootstrap-only ne sont pas inclus,
+car l'inférence native à travers certaines formes et tranches n'est pas encore
+implémentée. Les 17 passent localement sur macOS, y compris les séquences
+numériques ajoutées à `array_test`. Les anciens échecs sur `integration`, `ops`
+et `error` ont été corrigés; les cas de formes génériques restent couverts par
+le gate bootstrap. Le rebuild du compilateur a émis deux avertissements de
+conversion de signe dans le code C généré depuis
+`src/compiler/diagnostic/help`; ils ne proviennent pas de `modules/core`. Un
+probe d'`array_map` avec un callback nommé échoue encore à l'émission C17
+(`E0902`); les helpers à callback ne sont pas déclarés comme opérationnels par
+le gate.
+
+Les fonctions génériques de tranche comme `fixed_reverse<T>` passent les tests
+bootstrap; leur spécialisation native avec un argument emprunté reste bloquée
+par l'inférence C17 des paramètres génériques. Le smoke natif exerce donc la
+fonction typée `fixed_is_sorted_i64` sur tranche. Cette limite ne réduit pas le
+résultat du gate bootstrap.
+
+Le run Actions [42485197082](https://github.com/vitte-lang/vitte/actions/runs/42485197082)
+du commit `f43cbdc` a réussi sur ses 25 jobs. Il valide les gates compilateur,
+runtime, parité native, corpus, `test-core`, `test-core-native` et self-host
+stages 0 à 3 sous Linux, macOS et Windows. Les installations de paquets ont
+réussi sur ces trois systèmes. Les jobs d'architecture Linux i386/i686, ARMv6,
+ARMv7, RISC-V RV32, MIPS32 et PowerPC 32, ainsi que FreeBSD i386/i686, FreeBSD
+ARMv7, Windows i386 et Android ARMv7, sont verts. Les runners VM FreeBSD,
+OpenBSD, NetBSD, Solaris, OmniOS et OpenIndiana ont aussi réussi. Ce run
+remplace le run précédent
+[42431047837](https://github.com/vitte-lang/vitte/actions/runs/42431047837)
+pour la révision Core actuelle.
+
+Ce résultat valide ce sous-ensemble sur le chemin bootstrap, pas toute la
+bibliothèque ni la compatibilité intégrale du module. `make check-core-sources`
+vérifie les 202 sources individuellement avec le bootstrap et en accepte 199
+à l'analyse sémantique. Les trois rejets sont : `cell/lazycell.vit` et
+`cell/oncecell.vit` butent sur l'accès aux valeurs génériques optionnelles;
+`cell/refcell.vit` demande une mutabilité intérieure absente du langage.
+`types/array.vit` et sa déclaration `const N: usize` passent maintenant le
+parseur et l'analyse sémantique, mais l'instanciation des paramètres génériques
+de valeur et leur spécialisation native restent à terminer. `types/never.vit`, `error/panic.vit` et
+`intrinsics/unreachable.vit` sont maintenant acceptés par les deux frontends;
+`primitive/unit.vit` et les 14 fichiers de traits le sont aussi. Les traits
+utilisent des récepteurs et types de sortie explicites, car `Self`, les types associés et le
+dispatch d'`impl` ne sont pas encore reliés dans le compilateur. `Unit` est une
+forme vide constructible; il ne s'agit pas encore d'un alias du type unité
+interne. Les deux wrappers de terminaison appellent maintenant `trap`, et les
+deux émetteurs C17 fournissent son implémentation via `abort()`. Les formes de
+tuples restent nommées (`Pair`, `Triple`, `Quad`), faute de syntaxe de tuples.
+Les wrappers atomiques, les intrinsics de synchronisation, certaines
+spécialisations génériques et les valeurs `?T` scalaires restent aussi limités
+à l'exécution. Les gates bootstrap et natifs macOS passent localement avec ces
+changements, y compris les probes de terminaison. Les 25 jobs Actions du run
+cité précédemment valident la révision `f43cbdc`; ils ne couvrent pas encore
+l'ajout actuel de `never` au compilateur.
+Le gate « core 100 % » n'est pas atteint.
+
 ## Suite du travail
 
-1. Relier et abaisser toutes les intrinsics au runtime/backend natif, sans
-   imports C; préserver notamment les accès `volatile` et l'alignement garanti
-   par l'allocateur brut.
-2. Compléter l'exécution des modules `fmt::formatter` et `fmt::padding`, puis
-   vérifier la surface `core` entière avec le backend natif.
-3. Vérifier les consommateurs (`alloc`, `json` et le compilateur), publier les
-   réexports disponibles dans le langage et appliquer le versionnement aux
-   futures ruptures de contrat.
+1. Étendre encore le gate natif aux formes génériques représentables, puis
+   vérifier les consommateurs (`alloc`, `json`, compilateur) sur les trois OS.
+2. Terminer l'instanciation et la spécialisation des arguments `const N`;
+   ajouter l'extraction sûre de `?T` pour `lazycell` et `oncecell`.
+3. Ajouter une primitive de mutabilité intérieure et valider `refcell`.
+4. Relier les déclarations de traits et leurs implémentations au dispatch
+   générique, puis ajouter la spécialisation native aux tests Core.
+5. Finir l'abaissement et la validation des intrinsics mémoire, atomiques,
+   piège et allocation sur chaque cible prise en charge; ensuite exécuter les
+   consommateurs (`alloc`, `json`, compilateur) et les CI Linux, macOS et
+   Windows.

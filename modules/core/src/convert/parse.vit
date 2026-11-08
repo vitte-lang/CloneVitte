@@ -4,7 +4,7 @@ space core::convert::parse;
 const PARSE_U64_MAX: u64 = 18446744073709551615;
 const PARSE_I64_MAX: i64 = 9223372036854775807;
 const PARSE_I64_MIN: i64 = -9223372036854775807 - 1;
-const PARSE_I64_MIN_MAGNITUDE: u64 = 9223372036854775808;
+const PARSE_I64_MIN_MAGNITUDE: u64 = (PARSE_I64_MAX as u64) + 1 as u64;
 
 /// Raisons normalisées d'échec d'un parse.
 export pick ParseError {

@@ -1,52 +1,46 @@
 /// Contrats arithmétiques utilisés par les opérateurs et algorithmes génériques.
 space core::traits::arithmetic;
 
-export trait Add<Rhs> {
-    type Output;
-    proc add(&self, rhs: Rhs) -> Self::Output;
+export trait Add<Receiver, Rhs, Output> {
+    proc add(receiver: &Receiver, rhs: Rhs) -> Output;
 }
 
-export trait Sub<Rhs> {
-    type Output;
-    proc sub(&self, rhs: Rhs) -> Self::Output;
+export trait Sub<Receiver, Rhs, Output> {
+    proc sub(receiver: &Receiver, rhs: Rhs) -> Output;
 }
 
-export trait Mul<Rhs> {
-    type Output;
-    proc mul(&self, rhs: Rhs) -> Self::Output;
+export trait Mul<Receiver, Rhs, Output> {
+    proc mul(receiver: &Receiver, rhs: Rhs) -> Output;
 }
 
-export trait Div<Rhs> {
-    type Output;
-    proc div(&self, rhs: Rhs) -> Self::Output;
+export trait Div<Receiver, Rhs, Output> {
+    proc div(receiver: &Receiver, rhs: Rhs) -> Output;
 }
 
-export trait Rem<Rhs> {
-    type Output;
-    proc rem(&self, rhs: Rhs) -> Self::Output;
+export trait Rem<Receiver, Rhs, Output> {
+    proc rem(receiver: &Receiver, rhs: Rhs) -> Output;
 }
 
-export trait Neg {
-    type Output;
-    proc neg(&self) -> Self::Output;
+export trait Neg<Receiver, Output> {
+    proc neg(receiver: &Receiver) -> Output;
 }
 
-export trait AddAssign<Rhs> {
-    proc add_assign(&mut self, rhs: Rhs);
+export trait AddAssign<Receiver, Rhs> {
+    proc add_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 
-export trait SubAssign<Rhs> {
-    proc sub_assign(&mut self, rhs: Rhs);
+export trait SubAssign<Receiver, Rhs> {
+    proc sub_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 
-export trait MulAssign<Rhs> {
-    proc mul_assign(&mut self, rhs: Rhs);
+export trait MulAssign<Receiver, Rhs> {
+    proc mul_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 
-export trait DivAssign<Rhs> {
-    proc div_assign(&mut self, rhs: Rhs);
+export trait DivAssign<Receiver, Rhs> {
+    proc div_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 
-export trait RemAssign<Rhs> {
-    proc rem_assign(&mut self, rhs: Rhs);
+export trait RemAssign<Receiver, Rhs> {
+    proc rem_assign(receiver: &mut Receiver, rhs: Rhs);
 }

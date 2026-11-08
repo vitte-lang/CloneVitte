@@ -44,7 +44,7 @@ extern "C" {
 /* Version                                                                   */
 /* ========================================================================= */
 
-#define VITTE_SEMA_API_VERSION_MAJOR 1u
+#define VITTE_SEMA_API_VERSION_MAJOR 2u
 #define VITTE_SEMA_API_VERSION_MINOR 0u
 #define VITTE_SEMA_API_VERSION_PATCH 0u
 
@@ -206,6 +206,9 @@ typedef enum vitte_sema_type_kind {
 
     /* Compiler-generated result wrapper for an async procedure call. */
     VITTE_SEMA_TYPE_TASK,
+
+    /* Bottom type: values of this type never return to the caller. */
+    VITTE_SEMA_TYPE_NEVER,
 
     VITTE_SEMA_TYPE_COUNT
 } vitte_sema_type_kind_t;
@@ -677,6 +680,9 @@ typedef struct vitte_sema {
      * Incremented by reset.
      */
     uint64_t generation;
+
+    /* Appended so existing public field offsets stay stable in API v2. */
+    vitte_sema_type_id_t type_never;
 } vitte_sema_t;
 
 /* ========================================================================= */
@@ -1057,6 +1063,15 @@ vitte_sema_void_type(
 }
 
 static inline vitte_sema_type_id_t
+vitte_sema_never_type(
+    const vitte_sema_t *context)
+{
+    return context != NULL
+        ? context->type_never
+        : VITTE_SEMA_INVALID_TYPE_ID;
+}
+
+static inline vitte_sema_type_id_t
 vitte_sema_bool_type(
     const vitte_sema_t *context)
 {
@@ -1167,6 +1182,16 @@ vitte_sema_type_is_void(
     return context != NULL &&
            type_id ==
                context->type_void;
+}
+
+static inline bool
+vitte_sema_type_is_never(
+    const vitte_sema_t *context,
+    vitte_sema_type_id_t type_id)
+{
+    return context != NULL &&
+           type_id ==
+               context->type_never;
 }
 
 static inline bool

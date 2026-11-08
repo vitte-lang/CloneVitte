@@ -1,0 +1,106 @@
+use core::array::repeat::{
+    array_repeat_fill,
+    array_repeat_n,
+    array_repeat_range,
+    array_repeat_pattern,
+    array_repeat_pattern_n,
+    array_repeat_alternating,
+    array_repeat_three,
+    array_repeat_step,
+    array_repeat_blocks,
+    array_repeat_sequence,
+    array_repeat_each,
+    array_repeat_reverse_pattern,
+    array_repeat_ping_pong,
+    array_repeat_fill_count,
+    array_repeat_pattern_range,
+};
+use core::num::limits::{I64_MAX};
+
+proc repeat_i64_range(array: &mut [i64], start: usize, end: usize, value: i64) -> usize {
+    return array_repeat_range(array, start, end, value);
+}
+
+proc repeat_i64_pattern(array: &mut [i64], pattern: &[i64]) -> usize {
+    return array_repeat_pattern(array, pattern);
+}
+
+proc repeat_i64_ping_pong(array: &mut [i64], pattern: &[i64]) -> usize {
+    return array_repeat_ping_pong(array, pattern);
+}
+
+test "repeat operations fill bounded ranges cycles and patterns" {
+    let mut values: [i64] = [0, 0, 0, 0, 0];
+    array_repeat_fill(&mut values, 7);
+    assert(values[0] == 7 && values[4] == 7);
+    assert(array_repeat_n(&mut values, 2, 3) == 3);
+    assert(values[0] == 2 && values[2] == 2 && values[3] == 7);
+    assert(array_repeat_range(&mut values, 1, 4, 5) == 3);
+    assert(values[0] == 2 && values[1] == 5 && values[3] == 5 && values[4] == 7);
+    assert(repeat_i64_range(&mut values, 4, 2, 1) == 0);
+    assert(values[0] == 2 && values[1] == 5 && values[3] == 5 && values[4] == 7);
+
+    let pattern: [i64] = [1, 2, 3];
+    assert(array_repeat_pattern(&mut values, &pattern) == 5);
+    assert(values[0] == 1 && values[1] == 2 && values[2] == 3 && values[3] == 1 && values[4] == 2);
+    assert(array_repeat_pattern_n(&mut values, &pattern, 2) == 5);
+    assert(values[0] == 1 && values[1] == 2 && values[2] == 3 && values[3] == 1 && values[4] == 2);
+
+    array_repeat_alternating(&mut values, 4, 9);
+    assert(values[0] == 4 && values[1] == 9 && values[4] == 4);
+    array_repeat_three(&mut values, 6, 7, 8);
+    assert(values[0] == 6 && values[1] == 7 && values[2] == 8 && values[4] == 7);
+}
+
+test "repeat operations honor steps blocks and repeated elements" {
+    let mut values: [i64] = [0, 0, 0, 0, 0, 0, 0];
+    assert(array_repeat_step(&mut values, 4, 3) == 3);
+    assert(values[0] == 4 && values[1] == 0 && values[3] == 4 && values[6] == 4);
+    assert(array_repeat_step(&mut values, 8, 0) == 0);
+    assert(array_repeat_blocks(&mut values, 2, 2) == 4);
+    assert(values[0] == 2 && values[1] == 2 && values[2] == 0 && values[3] == 4);
+    assert(array_repeat_blocks(&mut values, 9, 0) == 0);
+
+    let source: [i64] = [3, 5];
+    let mut expanded: [i64] = [0, 0, 0, 0, 0];
+    assert(array_repeat_each(&source, &mut expanded, 3) == 5);
+    assert(expanded[0] == 3 && expanded[1] == 3 && expanded[2] == 3 && expanded[3] == 5 && expanded[4] == 5);
+}
+
+test "repeat patterns support reverse ping pong and range forms" {
+    let pattern: [i64] = [1, 2, 3];
+    let mut values: [i64] = [0, 0, 0, 0, 0, 0, 0];
+    assert(array_repeat_reverse_pattern(&mut values, &pattern) == 7);
+    assert(values[0] == 3 && values[1] == 2 && values[2] == 1 && values[3] == 3);
+    assert(array_repeat_ping_pong(&mut values, &pattern) == 7);
+    assert(values[0] == 1 && values[1] == 2 && values[2] == 3 && values[3] == 2 && values[4] == 1 && values[5] == 2);
+
+    let one: [i64] = [12];
+    assert(array_repeat_ping_pong(&mut values, &one) == 7);
+    assert(values[0] == 12 && values[6] == 12);
+
+    assert(array_repeat_fill_count(&mut values, 6) == 7);
+    assert(values[0] == 6 && values[6] == 6);
+    assert(array_repeat_pattern_range(&mut values, &pattern, 2, 6) == 4);
+    assert(values[1] == 6 && values[2] == 1 && values[3] == 2 && values[4] == 3 && values[5] == 1 && values[6] == 6);
+
+    let empty: [i64] = [];
+    assert(repeat_i64_pattern(&mut values, &empty) == 0);
+    assert(repeat_i64_ping_pong(&mut values, &empty) == 0);
+    assert(values[0] == 6 && values[6] == 6);
+
+}
+
+test "numeric repeat sequences report overflow transactionally" {
+    let mut values: [i64] = [10, 20, 30];
+    assert(array_repeat_sequence(&mut values, 2, 3, 2));
+    assert(values[0] == 2 && values[1] == 5 && values[2] == 2);
+
+    set values[0] = 10;
+    set values[1] = 20;
+    set values[2] = 30;
+    assert(not array_repeat_sequence(&mut values, I64_MAX, 1, 2));
+    assert(values[0] == 10 && values[1] == 20 && values[2] == 30);
+    assert(not array_repeat_sequence(&mut values, 1, 1, 0));
+    assert(values[0] == 10 && values[1] == 20 && values[2] == 30);
+}

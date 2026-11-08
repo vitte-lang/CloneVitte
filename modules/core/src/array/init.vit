@@ -1,7 +1,9 @@
-space core::array::init
+space core::array::init;
+
+use core::num::checked::{CheckedI64Result, checked_i64_add, checked_i64_sub, checked_i64_mul};
 
 /// Initialise tous les éléments avec une valeur donnée.
-proc array_init_fill[T](
+export proc array_init_fill<T>(
     array: &mut [T],
     value: T
 ) {
@@ -11,7 +13,7 @@ proc array_init_fill[T](
 }
 
 /// Initialise les éléments avec leur valeur par défaut.
-proc array_init_default[T](
+proc array_init_default<T>(
     array: &mut [T]
 ) {
     for i in 0..array.len() {
@@ -20,7 +22,7 @@ proc array_init_default[T](
 }
 
 /// Initialise tous les éléments à zéro.
-proc array_init_zero[T](
+proc array_init_zero<T>(
     array: &mut [T]
 ) {
     for i in 0..array.len() {
@@ -29,7 +31,7 @@ proc array_init_zero[T](
 }
 
 /// Initialise les éléments à partir d'une fonction génératrice.
-proc array_init_with[T](
+proc array_init_with<T>(
     array: &mut [T],
     generator: proc(usize) -> T
 ) {
@@ -39,7 +41,7 @@ proc array_init_with[T](
 }
 
 /// Initialise les éléments à partir de leur indice.
-proc array_init_indexed(
+export proc array_init_indexed(
     array: &mut [usize]
 ) {
     for i in 0..array.len() {
@@ -48,54 +50,83 @@ proc array_init_indexed(
 }
 
 /// Initialise un tableau avec une séquence croissante.
-proc array_init_sequence(
+export proc array_init_sequence(
     array: &mut [i64],
     start: i64,
     step: i64
-) {
+) -> bool {
+    let mut probe: i64 = start;
+
+    // Valider toute la séquence avant écriture évite un résultat partiel.
+    for i in 0..array.len() {
+        if i + 1 < array.len() {
+            let next: CheckedI64Result = checked_i64_add(probe, step);
+            if not next.success { return false; }
+            set probe = next.value;
+        }
+    }
+
     let mut current: i64 = start;
 
     for i in 0..array.len() {
         set array[i] = current;
-        set current = current + step;
+        if i + 1 < array.len() {
+            set current = current + step;
+        }
     }
+
+    return true;
 }
 
 /// Initialise un tableau avec une séquence décroissante.
-proc array_init_reverse_sequence(
+export proc array_init_reverse_sequence(
     array: &mut [i64],
     start: i64,
     step: i64
-) {
+) -> bool {
+    let mut probe: i64 = start;
+
+    for i in 0..array.len() {
+        if i + 1 < array.len() {
+            let next: CheckedI64Result = checked_i64_sub(probe, step);
+            if not next.success { return false; }
+            set probe = next.value;
+        }
+    }
+
     let mut current: i64 = start;
 
     for i in 0..array.len() {
         set array[i] = current;
-        set current = current - step;
+        if i + 1 < array.len() {
+            set current = current - step;
+        }
     }
+
+    return true;
 }
 
 /// Copie les éléments d'un tableau source.
 /// Retourne le nombre d'éléments copiés.
-proc array_init_copy[T](
-    destination: &mut [T],
-    source: &[T]
+export proc array_init_copy<T>(
+    source: &[T],
+    destination: &mut [T]
 ) -> usize {
-    let mut count = destination.len();
+    let mut count: usize = destination.len() as usize;
 
-    if source.len() < count {
-        set count = source.len();
+    if (source.len() as usize) < count {
+        set count = source.len() as usize;
     }
 
-    for i in 0..count {
-        set destination[i] = source[i];
+    for i in 0 as usize..count {
+        set destination[i as usize] = source[i as usize];
     }
 
     return count;
 }
 
 /// Initialise uniquement les éléments satisfaisant une condition.
-proc array_init_if[T](
+proc array_init_if<T>(
     array: &mut [T],
     predicate: proc(usize) -> bool,
     value: T
@@ -108,7 +139,7 @@ proc array_init_if[T](
 }
 
 /// Initialise les éléments d'une plage [start, end).
-proc array_init_range[T](
+export proc array_init_range<T>(
     array: &mut [T],
     start: usize,
     end: usize,
@@ -125,13 +156,15 @@ proc array_init_range[T](
         set limit = array.len();
     }
 
-    for i in begin..limit {
-        set array[i] = value;
+    let mut index: usize = begin;
+    while index < limit {
+        set array[index] = value;
+        set index = index + 1;
     }
 }
 
 /// Initialise les éléments d'un tableau avec une alternance de valeurs.
-proc array_init_alternating[T](
+export proc array_init_alternating<T>(
     array: &mut [T],
     first: T,
     second: T
@@ -146,21 +179,35 @@ proc array_init_alternating[T](
 }
 
 /// Initialise les éléments selon une progression géométrique.
-proc array_init_geometric(
+export proc array_init_geometric(
     array: &mut [i64],
     start: i64,
     ratio: i64
-) {
+) -> bool {
+    let mut probe: i64 = start;
+
+    for i in 0..array.len() {
+        if i + 1 < array.len() {
+            let next: CheckedI64Result = checked_i64_mul(probe, ratio);
+            if not next.success { return false; }
+            set probe = next.value;
+        }
+    }
+
     let mut current: i64 = start;
 
     for i in 0..array.len() {
         set array[i] = current;
-        set current = current * ratio;
+        if i + 1 < array.len() {
+            set current = current * ratio;
+        }
     }
+
+    return true;
 }
 
 /// Initialise tous les éléments avec la même valeur booléenne.
-proc array_init_bool(
+export proc array_init_bool(
     array: &mut [bool],
     value: bool
 ) {
@@ -170,7 +217,7 @@ proc array_init_bool(
 }
 
 /// Initialise un tableau de booléens à false.
-proc array_init_false(
+export proc array_init_false(
     array: &mut [bool]
 ) {
     for i in 0..array.len() {
@@ -179,7 +226,7 @@ proc array_init_false(
 }
 
 /// Initialise un tableau de booléens à true.
-proc array_init_true(
+export proc array_init_true(
     array: &mut [bool]
 ) {
     for i in 0..array.len() {

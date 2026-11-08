@@ -1,0 +1,17 @@
+use core::types::ordering::{Ordering, ordering_reverse, ordering_is_less};
+use core::types::never::{Never};
+use core::intrinsics::unreachable::{unreachable};
+
+proc never_value() -> Never {
+    unreachable();
+}
+
+proc never_coerces_to_usize() -> usize {
+    return never_value();
+}
+
+test "ordering type helpers preserve the ordering contract" {
+    assert(ordering_reverse(Ordering.Less) == Ordering.Greater);
+    assert(ordering_reverse(Ordering.Greater) == Ordering.Less);
+    assert(ordering_is_less(Ordering.Less));
+}

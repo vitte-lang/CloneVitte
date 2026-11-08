@@ -1,3 +1,9 @@
+proc fill_by_range(values: &mut [i64]) {
+    for index in 0..values.len() {
+        set values[index] = index as i64;
+    }
+}
+
 proc main() -> i64 {
     let mut exclusive_sum: i64 = 0;
     for value in 1..5 {
@@ -14,8 +20,14 @@ proc main() -> i64 {
         set empty_count += value;
     }
 
+    let mut indexed_values: [i64] = [0, 0, 0];
+    fill_by_range(&mut indexed_values);
+
     if exclusive_sum != 10 { return 1; }
     if inclusive_sum != 10 { return 2; }
     if empty_count != 0 { return 3; }
+    if indexed_values[0] != 0 { return 4; }
+    if indexed_values[1] != 1 { return 5; }
+    if indexed_values[2] != 2 { return 6; }
     return 0;
 }

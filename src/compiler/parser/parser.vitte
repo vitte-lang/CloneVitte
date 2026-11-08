@@ -26,6 +26,7 @@ use compiler::ast::ast::{
     AST_NODE_FLAG_PATTERN_OR,
     AST_NODE_FLAG_PATTERN_RANGE,
     AST_NODE_FLAG_PATTERN_STRUCT,
+    AST_NODE_FLAG_CONST_GENERIC,
     AST_NODE_FLAG_UNSAFE,
     Ast,
     AstBinaryOperator,
@@ -85,6 +86,7 @@ export const PARSER_AST_FLAG_PATTERN_HEAD: u32 = 1048576;
 export const PARSER_AST_FLAG_PATTERN_OR: u32 = 2097152;
 export const PARSER_AST_FLAG_PATTERN_RANGE: u32 = 4194304;
 export const PARSER_AST_FLAG_PATTERN_STRUCT: u32 = 8388608;
+export const PARSER_AST_FLAG_CONST_GENERIC: u32 = 16777216;
 const PARSER_AST_CONVERSION_MAX_DEPTH: usize = 1024;
 export pick ParserError {
     None,
@@ -1403,6 +1405,48 @@ proc parser_has_generic_form_suffix(parser: *const Parser) -> bool {
     );
 }
 
+proc parser_has_generic_bracket_suffix(
+    parser: *const Parser,
+    required_follow: TokenKind
+) -> bool {
+    if not parser_check(parser, TokenKind.LeftBracket) { return false; }
+    let mut depth: usize = 0;
+    let mut distance: usize = 0;
+    while true {
+        let token = parser_peek(parser, distance);
+        if token == null { return false; }
+        if (*token).kind == TokenKind.LeftBracket {
+            set depth += 1;
+        } elif (*token).kind == TokenKind.RightBracket {
+            if depth == 0 { return false; }
+            set depth -= 1;
+            if depth == 0 {
+                let after_closer = parser_peek(parser, distance + 1);
+                if after_closer == null or
+                   (*after_closer).kind != required_follow {
+                    return false;
+                }
+                if required_follow == TokenKind.LeftBrace {
+                    let first_field = parser_peek(parser, distance + 2);
+                    if first_field == null {
+                        return false;
+                    }
+                    if (*first_field).kind == TokenKind.RightBrace {
+                        return true;
+                    }
+                    let field_colon = parser_peek(parser, distance + 3);
+                    return parser_token_is_identifier(first_field) and
+                        field_colon != null and
+                        (*field_colon).kind == TokenKind.Colon;
+                }
+                return true;
+            }
+        }
+        if distance == PARSER_SIZE_MAX { return false; }
+        set distance += 1;
+    }
+}
+
 proc parser_has_generic_variant_pattern_suffix(
     parser: *const Parser
 ) -> bool {
@@ -1525,6 +1569,11 @@ proc parser_parse_type_arguments(
 
 proc parser_parse_generic_parameter(parser: *mut Parser) -> ASTNodeId {
     let begin: usize = (*parser).position;
+    let mut parameter_flags: u32 = 0;
+    if parser_check(parser, TokenKind.KwConst) {
+        parser_advance(parser);
+        set parameter_flags = PARSER_AST_FLAG_CONST_GENERIC;
+    }
     let name = parser_parse_identifier_node(parser);
     if name == PARSER_INVALID_NODE_ID {
         return name;
@@ -1559,6 +1608,8 @@ proc parser_parse_generic_parameter(parser: *mut Parser) -> ASTNodeId {
 
     let parameter_node = vitte_parser_get_node_mut(parser, parameter);
     if parameter_node != null {
+        set (*parameter_node).node_flags =
+            (*parameter_node).node_flags | parameter_flags;
         set (*parameter_node).span = parser_span_from_range(parser, begin, (*parser).position);
         set (*parameter_node).token_index = begin;
     }
@@ -3808,6 +3859,48 @@ proc parser_parse_postfix_expression(parser: *mut Parser) -> ASTNodeId {
     }
 
     while not parser_at_end(parser) {
+        if parser_has_generic_bracket_suffix(
+            parser,
+            TokenKind.LeftBrace
+        ) or parser_has_generic_bracket_suffix(
+            parser,
+            TokenKind.ColonColon
+        ) {
+            let mut pending_generic_closers: usize = 0;
+            let base_node = vitte_parser_get_node(parser, expression);
+            if base_node == null {
+                return PARSER_INVALID_NODE_ID;
+            }
+            let base_span: ParserSpan = (*base_node).span;
+            let generic_type = parser_add_node(
+                parser,
+                ASTNodeKind.TypeExpr,
+                base_span
+            );
+            if generic_type == PARSER_INVALID_NODE_ID or
+               not parser_node_append_child(parser, generic_type, expression) {
+                return PARSER_INVALID_NODE_ID;
+            }
+            parser_advance(parser);
+            if not parser_parse_type_arguments(
+                parser,
+                generic_type,
+                TokenKind.RightBracket,
+                &mut pending_generic_closers
+            ) {
+                return PARSER_INVALID_NODE_ID;
+            }
+            let generic_type_node = vitte_parser_get_node_mut(parser, generic_type);
+            if generic_type_node != null {
+                set (*generic_type_node).span = parser_span_join(
+                    base_span,
+                    parser_span_from_token(parser_previous(parser))
+                );
+            }
+            set expression = generic_type;
+            continue;
+        }
+
         if parser_check(parser, TokenKind.Less) and
            parser_has_generic_form_suffix(parser) {
             let mut pending_generic_closers: usize = 0;
@@ -6123,6 +6216,9 @@ proc parser_ast_copy_flags(
     }
     if ((*source).node_flags & PARSER_AST_FLAG_PATTERN_STRUCT) != 0 {
         ast_node_set_flag(target, AST_NODE_FLAG_PATTERN_STRUCT);
+    }
+    if ((*source).node_flags & PARSER_AST_FLAG_CONST_GENERIC) != 0 {
+        ast_node_set_flag(target, AST_NODE_FLAG_CONST_GENERIC);
     }
     if (*source).kind == ASTNodeKind.UseDecl and token != null and
        (*token).kind == TokenKind.KwExport {

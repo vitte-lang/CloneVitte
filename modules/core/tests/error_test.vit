@@ -3,32 +3,34 @@ use core::error::location::{SourceSpan, source_location, source_span_is_valid, s
 
 test "error values distinguish empty from meaningful errors" {
     let empty: Error = error_new(0, "", 0);
-    assert not error_is_valid(&empty);
-    assert not error_has_message(&empty);
+    assert(not error_is_valid(&empty));
+    assert(not error_has_message(&empty));
 
     let code_only: Error = error_new(7, "", 0);
-    assert error_is_valid(&code_only);
-    assert not error_has_message(&code_only);
+    assert(error_is_valid(&code_only));
+    assert(not error_has_message(&code_only));
 
     let with_message: Error = error_new(0, "bad input", 12);
-    assert error_is_valid(&with_message);
-    assert error_has_message(&with_message);
-    assert error_same_code(&code_only, &error_new(7, "other", 99));
-    assert error_fingerprint(&with_message) == error_fingerprint(&with_message);
-    assert error_fingerprint(&with_message) != error_fingerprint(&error_new(0, "other", 12));
+    let same_code: Error = error_new(7, "other", 99);
+    let different_message: Error = error_new(0, "other", 12);
+    assert(error_is_valid(&with_message));
+    assert(error_has_message(&with_message));
+    assert(error_same_code(&code_only, &same_code));
+    assert(error_fingerprint(&with_message) == error_fingerprint(&with_message));
+    assert(error_fingerprint(&with_message) != error_fingerprint(&different_message));
 }
 
 test "source spans are half-open and reject reversed ranges" {
     let start = source_location(3, 10, 2, 4);
     let end = source_location(3, 15, 2, 9);
     let span: SourceSpan = SourceSpan { start: start, end: end };
-    assert source_span_is_valid(&span);
-    assert source_span_length(&span) == 5;
-    assert source_span_contains_offset(&span, 3, 10);
-    assert source_span_contains_offset(&span, 3, 14);
-    assert not source_span_contains_offset(&span, 3, 15);
-    assert source_span_covers_offset(&span, 3, 15);
+    assert(source_span_is_valid(&span));
+    assert(source_span_length(&span) == 5);
+    assert(source_span_contains_offset(&span, 3, 10));
+    assert(source_span_contains_offset(&span, 3, 14));
+    assert(not source_span_contains_offset(&span, 3, 15));
+    assert(source_span_covers_offset(&span, 3, 15));
 
     let reversed: SourceSpan = SourceSpan { start: end, end: start };
-    assert not source_span_is_valid(&reversed);
+    assert(not source_span_is_valid(&reversed));
 }

@@ -1,4 +1,4 @@
-space core::cell::lazycell
+space core::cell::lazycell;
 
 /// États internes d'une cellule à initialisation différée.
 pick LazyCellState {

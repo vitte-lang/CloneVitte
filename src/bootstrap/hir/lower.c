@@ -21,6 +21,7 @@ typedef struct vitte_hir_lower_context {
     vitte_hir_t *hir;
     const vitte_parser_t *parser;
     vitte_hir_type_id_t unit_type;
+    vitte_hir_type_id_t never_type;
     vitte_hir_type_id_t bool_type;
     vitte_hir_type_id_t i64_type;
     vitte_hir_type_id_t u64_type;
@@ -161,6 +162,9 @@ vitte_hir_lower_type(vitte_hir_lower_context_t *context,
         ? (token == NULL ? NULL : token->lexeme) : interned_name->data;
     if (name != NULL) {
         size_t name_length = interned_name == NULL ? token->length : interned_name->length;
+        if (name_length == 5u && memcmp(name, "never", 5u) == 0) return context->never_type;
+        if ((name_length == 4u && memcmp(name, "void", 4u) == 0) ||
+            (name_length == 4u && memcmp(name, "unit", 4u) == 0)) return context->unit_type;
         if (name_length == 4u && memcmp(name, "bool", 4u) == 0) return context->bool_type;
         if (name_length == 2u && memcmp(name, "u8", 2u) == 0) {
             memset(&type, 0, sizeof(type));
@@ -1193,12 +1197,13 @@ vitte_hir_lower_ast(vitte_hir_t *hir, const vitte_parser_t *parser)
     context.hir = hir;
     context.parser = parser;
     context.unit_type = vitte_hir_lower_primitive(&context, VITTE_HIR_TYPE_UNIT);
+    context.never_type = vitte_hir_lower_primitive(&context, VITTE_HIR_TYPE_NEVER);
     context.bool_type = vitte_hir_lower_primitive(&context, VITTE_HIR_TYPE_BOOL);
     context.i64_type = vitte_hir_lower_primitive(&context, VITTE_HIR_TYPE_I64);
     context.u64_type = vitte_hir_lower_primitive(&context, VITTE_HIR_TYPE_U64);
     context.f64_type = vitte_hir_lower_primitive(&context, VITTE_HIR_TYPE_F64);
     context.string_type = vitte_hir_lower_primitive(&context, VITTE_HIR_TYPE_STRING);
-    if (context.unit_type == 0u || context.bool_type == 0u || context.i64_type == 0u ||
+    if (context.unit_type == 0u || context.never_type == 0u || context.bool_type == 0u || context.i64_type == 0u ||
         context.u64_type == 0u ||
         context.f64_type == 0u || context.string_type == 0u) goto failure;
     translation = vitte_hir_lower_node(&context, vitte_parser_root(parser));

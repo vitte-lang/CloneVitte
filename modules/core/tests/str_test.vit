@@ -1,0 +1,26 @@
+use core::str::compare::{str_compare, str_equal, str_starts_with, str_ends_with};
+use core::str::{str_is_empty, str_length};
+use core::str::search::{str_find, str_find_char, str_contains};
+
+test "string comparisons use bytewise order and prefix boundaries" {
+    assert(str_equal("vitte", "vitte"));
+    assert(not str_equal("vitte", "Vitte"));
+    assert(str_compare("abc", "abd") < 0);
+    assert(str_starts_with("vitte-core", "vitte"));
+    assert(str_ends_with("vitte-core", "core"));
+    assert(str_is_empty(""));
+    assert(str_length("core") == 4);
+
+    let mut index: usize = 99;
+    assert(str_find("vitte-core", "core", &mut index));
+    assert(index == 6);
+    assert(str_find_char("vitte", 't', &mut index));
+    assert(index == 2);
+    assert(str_find("vitte", "", &mut index));
+    assert(index == 0);
+    set index = 99;
+    assert(not str_find("vitte", "missing", &mut index));
+    assert(index == 99);
+    assert(str_contains("vitte-core", "core"));
+    assert(not str_contains("vitte-core", "json"));
+}

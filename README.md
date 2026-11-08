@@ -282,8 +282,20 @@ sur 25, couvrant compilateur/runtime, self-host (3 systèmes), installation de
 paquets (3 systèmes), portabilité VM (6 systèmes), architectures (10 jobs),
 extension/DAP et le gate agrégé `Release readiness`. Le statut s’applique au
 commit `f460997` et à ce run CI ; il ne constitue pas à lui seul une déclaration
-d’autonomie complète du compilateur, qui dépend encore de l’audit des symboles
-du binaire principal.
+d’autonomie complète du compilateur.
+
+L’audit des symboles du binaire principal, effectué sur le build release ARM64
+macOS, a identifié une dépendance résiduelle : l’objet filesystem de
+`src/bootstrap` ajoute 27 symboles C publics au lien. Le frontend généré depuis
+Vitte en appelle directement 8 : `stat`,
+`create_directories`, `current_directory`, `list_directory`, les opérations de
+suppression et de renommage, et la libération des listes. Les 19 autres symboles
+de cet objet ne sont pas référencés par le frontend, mais restent inclus parce
+que l’objet est lié directement. Le nouveau gate `compiler-binary-ownership`
+vérifie cet inventaire et bloque toute nouvelle dépendance ou modification
+inattendue ; les tests runtime et filesystem couvrent les chemins actifs. Le
+portage Vitte de ces huit fonctions puis le retrait de l’objet C restent
+nécessaires avant de qualifier le binaire d’autonome.
 
 La branche `main` exige le statut `Release readiness`, avec les vérifications à
 jour et sans contournement administrateur. Les règles de protection GitHub sont

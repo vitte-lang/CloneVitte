@@ -1,98 +1,57 @@
-space core::array::compare
+/// Algorithmes d'égalité et d'ordre sur des tranches empruntées.
+space core::array::compare;
 
-/// Vérifie si deux tableaux sont identiques.
-proc array_equal[T](
-    left: &[T],
-    right: &[T]
-) -> bool {
-    if left.len() != right.len() {
-        return false;
+export proc array_equal<T>(left: &[T], right: &[T]) -> bool {
+    if left.len() != right.len() { return false; }
+    let mut index: usize = 0;
+    while index < left.len() {
+        let position: i64 = index as i64;
+        if left[position] != right[position] { return false; }
+        set index = index + 1;
     }
-
-    for i in 0..left.len() {
-        if left[i] != right[i] {
-            return false;
-        }
-    }
-
     return true;
 }
 
-/// Compare deux tableaux lexicographiquement.
-/// Retourne -1, 0 ou 1.
-proc array_compare[T](
-    left: &[T],
-    right: &[T]
-) -> i32 {
-    let mut limit = left.len();
-
-    if right.len() < limit {
-        set limit = right.len();
+export proc array_compare<T>(left: &[T], right: &[T], compare: proc(&T, &T) -> i8) -> i32 {
+    let mut limit: usize = left.len();
+    if right.len() < limit { set limit = right.len(); }
+    let mut index: usize = 0;
+    while index < limit {
+        let position: i64 = index as i64;
+        let ordering: i8 = compare(&left[position], &right[position]);
+        if ordering < 0 { return -1; }
+        if ordering > 0 { return 1; }
+        set index = index + 1;
     }
-
-    for i in 0..limit {
-        if left[i] < right[i] {
-            return -1;
-        }
-
-        if left[i] > right[i] {
-            return 1;
-        }
-    }
-
-    if left.len() < right.len() {
-        return -1;
-    }
-
-    if left.len() > right.len() {
-        return 1;
-    }
-
+    if left.len() < right.len() { return -1; }
+    if left.len() > right.len() { return 1; }
     return 0;
 }
 
-/// Vérifie si deux tableaux sont différents.
-proc array_not_equal[T](
-    left: &[T],
-    right: &[T]
-) -> bool {
+export proc array_not_equal<T>(left: &[T], right: &[T]) -> bool {
     return not array_equal(left, right);
 }
 
-/// Vérifie si un tableau commence par un préfixe.
-proc array_starts_with[T](
-    array: &[T],
-    prefix: &[T]
-) -> bool {
-    if prefix.len() > array.len() {
-        return false;
+export proc array_starts_with<T>(array: &[T], prefix: &[T]) -> bool {
+    if prefix.len() > array.len() { return false; }
+    let mut index: usize = 0;
+    while index < prefix.len() {
+        let position: i64 = index as i64;
+        if array[position] != prefix[position] { return false; }
+        set index = index + 1;
     }
-
-    for i in 0..prefix.len() {
-        if array[i] != prefix[i] {
-            return false;
-        }
-    }
-
     return true;
 }
 
-/// Vérifie si un tableau se termine par un suffixe.
-proc array_ends_with[T](
-    array: &[T],
-    suffix: &[T]
-) -> bool {
-    if suffix.len() > array.len() {
-        return false;
+export proc array_ends_with<T>(array: &[T], suffix: &[T]) -> bool {
+    if suffix.len() > array.len() { return false; }
+    let offset: usize = array.len() - suffix.len();
+    let mut index: usize = 0;
+    while index < suffix.len() {
+        let source_position: i64 = (offset + index) as i64;
+        let suffix_position: i64 = index as i64;
+        if array[source_position] != suffix[suffix_position] { return false; }
+        set index = index + 1;
     }
-
-    let offset = array.len() - suffix.len();
-
-    for i in 0..suffix.len() {
-        if array[offset + i] != suffix[i] {
-            return false;
-        }
-    }
-
     return true;
 }

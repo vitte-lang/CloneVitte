@@ -2,10 +2,10 @@
 space compiler::sema::sema;
 
 /// Native semantic analysis over the parser's AST representation.
-export const SEMA_API_VERSION_MAJOR: u32 = 1;
+export const SEMA_API_VERSION_MAJOR: u32 = 2;
 export const SEMA_API_VERSION_MINOR: u32 = 0;
 export const SEMA_API_VERSION_PATCH: u32 = 0;
-export const SEMA_API_VERSION: u32 = 10000;
+export const SEMA_API_VERSION: u32 = 20000;
 export const SEMA_MAGIC: u64 = 0x5649545453454d41;
 export const SEMA_DEAD_MAGIC: u64 = 0x4445414453454d41;
 export const SEMA_FNV_OFFSET: u64 = 14695981039346656037;
@@ -52,6 +52,7 @@ use compiler::parser::parser::{
     PARSER_AST_FLAG_PATTERN_OR,
     PARSER_AST_FLAG_PATTERN_RANGE,
     PARSER_AST_FLAG_PATTERN_STRUCT,
+    PARSER_AST_FLAG_CONST_GENERIC,
     PARSER_AST_FLAG_GLOB_IMPORT,
     vitte_parser_get_node,
     vitte_parser_node_token,
@@ -159,6 +160,7 @@ export pick SemaTypeKind {
     Dyn,
     GenericParameter,
     Task,
+    Never,
     Count
 }
 
@@ -351,7 +353,8 @@ export form Sema {
     type_string: SemaTypeId,
     type_null: SemaTypeId,
     stats: SemaStats,
-    generation: u64
+    generation: u64,
+    type_never: SemaTypeId
 }
 
 export type SemaTypeId = u64;
@@ -497,7 +500,8 @@ proc sema_builtin_types(context: *mut Sema) -> bool {
     set (*context).type_char = sema_add_type(context, SemaTypeKind.Char, 0, 0, 0, false, 0, null, 0);
     set (*context).type_string = sema_add_type(context, SemaTypeKind.String, 0, 0, 0, false, 0, null, 0);
     set (*context).type_null = sema_add_type(context, SemaTypeKind.Null, 0, 0, 0, false, 0, null, 0);
-    return (*context).type_error != 0 and (*context).type_u8 != 0 and (*context).type_void != 0 and (*context).type_bool != 0 and (*context).type_i64 != 0 and (*context).type_u64 != 0 and (*context).type_f32 != 0 and (*context).type_f64 != 0 and (*context).type_char != 0 and (*context).type_string != 0 and (*context).type_null != 0;
+    set (*context).type_never = sema_add_type(context, SemaTypeKind.Never, 0, 0, 0, false, 0, null, 0);
+    return (*context).type_error != 0 and (*context).type_u8 != 0 and (*context).type_void != 0 and (*context).type_bool != 0 and (*context).type_i64 != 0 and (*context).type_u64 != 0 and (*context).type_f32 != 0 and (*context).type_f64 != 0 and (*context).type_char != 0 and (*context).type_string != 0 and (*context).type_null != 0 and (*context).type_never != 0;
 }
 
 proc sema_symbol_set_type(context: *mut Sema, symbol_id: SymbolId, type_id: SemaTypeId) {
@@ -1697,6 +1701,10 @@ proc sema_generic_declaration_validate_constraints(
             child_index
         );
         if child != null and (*child).kind == ASTNodeKind.GenericParam {
+            if ((*child).node_flags & PARSER_AST_FLAG_CONST_GENERIC) != 0 {
+                set child_index += 1;
+                continue;
+            }
             let mut bound_index: usize = 1;
             while bound_index < (*child).child_count {
                 if not sema_generic_constraint_validate_trait_type(
@@ -2658,6 +2666,7 @@ proc sema_type_from_node_depth(context: *mut Sema, node_id: ASTNodeId, scope_id:
     }
     let token = sema_token_name_node((*context).parser, node);
     if sema_name_is(token, "void") { return (*context).type_void; }
+    if sema_name_is(token, "never") { return (*context).type_never; }
     if sema_name_is(token, "bool") { return (*context).type_bool; }
     if sema_name_is(token, "i64") or sema_name_is(token, "int") { return (*context).type_i64; }
     if sema_name_is(token, "u64") or sema_name_is(token, "usize") { return (*context).type_u64; }
@@ -4226,8 +4235,20 @@ proc sema_register_generic_parameters(
                 set type_id = (*generic_info).type_id;
             }
             if type_id == 0 {
-                set type_id = sema_add_type(context, SemaTypeKind.GenericParameter, 0, 0, symbol, false, 0, null, 0);
-                if generic_info != null { set (*generic_info).type_id = type_id; }
+                if ((*generic).node_flags & PARSER_AST_FLAG_CONST_GENERIC) != 0 {
+                    let declared_type = sema_child((*context).parser, generic, 1);
+                    if declared_type == null { return false; }
+                    set type_id = sema_type_from_node(
+                        context,
+                        (*declared_type).id,
+                        scope_id
+                    );
+                } else {
+                    set type_id = sema_add_type(context, SemaTypeKind.GenericParameter, 0, 0, symbol, false, 0, null, 0);
+                }
+                if type_id != 0 and generic_info != null {
+                    set (*generic_info).type_id = type_id;
+                }
             }
             if type_id == 0 { return false; }
             sema_symbol_set_type(context, symbol, type_id);
@@ -4638,7 +4659,10 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
         case ASTNodeKind.CallExpr => {
             let callee_node = sema_child((*context).parser, node, 0);
             let callee_token = sema_token_name_node((*context).parser, callee_node);
-            let builtin: *const BuiltinDescriptor = if callee_token == null { null } else { vitte_builtin_find((*callee_token).lexeme) };
+            let is_sequence_len_method = callee_node != null and
+                (*callee_node).kind == ASTNodeKind.MemberExpr and
+                sema_name_is(callee_token, "len");
+            let builtin: *const BuiltinDescriptor = if callee_token == null or is_sequence_len_method { null } else { vitte_builtin_find((*callee_token).lexeme) };
             let argument_count: usize = if (*node).child_count == 0 { 0 as usize } else { (*node).child_count - 1 };
             set (*context).stats.calls_checked = sema_sat_add((*context).stats.calls_checked, 1);
             let mut is_pick_path = false;
@@ -4707,7 +4731,11 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                     set argument_index += 1;
                 }
                 set result = (*context).type_void;
-            } else if sema_name_is(callee_token, "len") {
+            } else if sema_name_is(callee_token, "len") and
+                      callee_node != null and
+                      ((*callee_node).kind == ASTNodeKind.Identifier or
+                       ((*callee_node).kind == ASTNodeKind.Path and
+                        (*callee_node).child_count == 1)) {
                 if argument_count != 1 and
                    sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.InvalidArgumentCount, node, 0, 0) {
                     sema_set_argument_count_help(context, 1, argument_count);
@@ -4717,9 +4745,18 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                     let argument_node = sema_child((*context).parser, node, argument_index + 1);
                     let argument_type = sema_analyze_expression(context, argument_node, scope_id);
                     if argument_index == 0 {
-                        let argument_record: *const SemaType = if argument_type != 0 and argument_type <= (*context).type_count as SemaTypeId { &(*context).types[(argument_type - 1) as usize] } else { null };
-                        if argument_type != (*context).type_string and
-                           (argument_record == null or ((*argument_record).kind != SemaTypeKind.Array and (*argument_record).kind != SemaTypeKind.Slice)) and
+                        let mut argument_value_type = argument_type;
+                        let mut argument_record: *const SemaType = if argument_value_type != 0 and argument_value_type <= (*context).type_count as SemaTypeId { &(*context).types[(argument_value_type - 1) as usize] } else { null };
+                        while argument_record != null and
+                              ((*argument_record).kind == SemaTypeKind.Pointer or
+                               (*argument_record).kind == SemaTypeKind.Reference) {
+                            set argument_value_type = (*argument_record).element_type;
+                            set argument_record = if argument_value_type != 0 and argument_value_type <= (*context).type_count as SemaTypeId { &(*context).types[(argument_value_type - 1) as usize] } else { null };
+                        }
+                        if argument_value_type != (*context).type_string and
+                           (argument_record == null or
+                            ((*argument_record).kind != SemaTypeKind.Array and
+                             (*argument_record).kind != SemaTypeKind.Slice)) and
                            argument_type != (*context).type_error {
                             if sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.InvalidArgumentType, argument_node, (*context).type_string, argument_type) {
                                 let diag_ptr = (&mut (*context).diagnostics[(*context).diagnostic_count - 1]) as *mut SemaDiagnostic;
@@ -4874,7 +4911,9 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
             if not sema_type_integer(context as *const Sema, index_type) and index_type != (*context).type_error {
                 let _ = sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.InvalidIndexType, index_node, (*context).type_u64, index_type);
             }
-            let object_record: *const SemaType = if object_type != 0 and object_type <= (*context).type_count as SemaTypeId { &(*context).types[(object_type - 1) as usize] } else { null };
+            let object_value_type = sema_value_type(context as *const Sema, object_type);
+            let object_record: *const SemaType = if object_value_type != 0 and object_value_type <= (*context).type_count as SemaTypeId { &(*context).types[(object_value_type - 1) as usize] } else { null };
+            let original_object_record: *const SemaType = if object_type != 0 and object_type <= (*context).type_count as SemaTypeId { &(*context).types[(object_type - 1) as usize] } else { null };
             if object_type == (*context).type_string { set result = (*context).type_char; }
             else if object_record != null and ((*object_record).kind == SemaTypeKind.Array or (*object_record).kind == SemaTypeKind.Slice or (*object_record).kind == SemaTypeKind.Pointer or (*object_record).kind == SemaTypeKind.Reference) { set result = (*object_record).element_type; }
             else if object_type != (*context).type_error { let _ = sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.NotIndexable, node, 0, object_type); }
@@ -4885,9 +4924,9 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                     set (*index_info).node_flags = (*index_info).node_flags | SEMA_NODE_FLAG_LVALUE | SEMA_NODE_FLAG_ADDRESSABLE;
                     set (*index_info).symbol_id = (*object_info).symbol_id;
                     if ((*object_info).node_flags & SEMA_NODE_FLAG_MUTABLE) != 0 or
-                       (object_record != null and
-                        ((*object_record).kind == SemaTypeKind.Pointer or (*object_record).kind == SemaTypeKind.Reference) and
-                        (*object_record).is_mutable) {
+                       (original_object_record != null and
+                        ((*original_object_record).kind == SemaTypeKind.Pointer or (*original_object_record).kind == SemaTypeKind.Reference) and
+                        (*original_object_record).is_mutable) {
                         set (*index_info).node_flags = (*index_info).node_flags | SEMA_NODE_FLAG_MUTABLE;
                     }
                 }
@@ -4930,7 +4969,29 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                 let object_type_record: *const SemaType = if object_type != 0 and object_type <= (*context).type_count as SemaTypeId {
                     &(*context).types[(object_type - 1) as usize]
                 } else { null };
-                if object_type_record != null and
+                if (object_type == (*context).type_string or
+                    (object_type_record != null and
+                     ((*object_type_record).kind == SemaTypeKind.Array or
+                      (*object_type_record).kind == SemaTypeKind.Slice))) and
+                   sema_name_is(member_token, "len") {
+                    let method_type = sema_add_type(
+                        context,
+                        SemaTypeKind.Function,
+                        0,
+                        0,
+                        0,
+                        false,
+                        (*context).type_u64,
+                        null,
+                        0
+                    );
+                    set result = method_type;
+                    let member_info: *mut SemaNodeInfo = sema_node_info_mut(context, (*node).id);
+                    if member_info != null {
+                        set (*member_info).type_id = method_type;
+                        set (*member_info).node_flags = (*member_info).node_flags | SEMA_NODE_FLAG_RESOLVED;
+                    }
+                } elif object_type_record != null and
                    (*object_type_record).kind == SemaTypeKind.Slice and
                    sema_name_is(member_token, "length") {
                     set result = (*context).type_u64;
@@ -5702,7 +5763,28 @@ proc sema_analyze_node(context: *mut Sema, node_id: ASTNodeId, scope_id: ScopeId
             let iterable_type = sema_analyze_expression(context, iterable_node, scope_id);
             let iterable_record: *const SemaType = if iterable_type != 0 and iterable_type <= (*context).type_count as SemaTypeId { &(*context).types[(iterable_type - 1) as usize] } else { null };
             let mut element_type: SemaTypeId = (*context).type_error;
-            if iterable_record != null and ((*iterable_record).kind == SemaTypeKind.Array or (*iterable_record).kind == SemaTypeKind.Slice or (*iterable_record).kind == SemaTypeKind.Range or (*iterable_record).kind == SemaTypeKind.Pointer) {
+            if iterable_node != null and
+               (*iterable_node).kind == ASTNodeKind.BinaryExpr and
+               ((*iterable_node).operator_kind == TokenKind.DotDot or
+                (*iterable_node).operator_kind == TokenKind.DotDotEqual) {
+                /* Range expressions carry the start type as their element
+                 * type. Derive it from the bound itself as well so loop
+                 * bindings do not become `error` if the synthetic range
+                 * type loses that payload during semantic analysis. */
+                let range_start = sema_child((*context).parser, iterable_node, 0);
+                let range_start_type = sema_analyze_expression(
+                    context,
+                    range_start,
+                    scope_id
+                );
+                if sema_type_integer(context as *const Sema, range_start_type) {
+                    set element_type = range_start_type;
+                }
+            }
+            if element_type != (*context).type_error {
+                // The range start already provided its concrete element type.
+            } elif iterable_record != null and
+               ((*iterable_record).kind == SemaTypeKind.Array or (*iterable_record).kind == SemaTypeKind.Slice or (*iterable_record).kind == SemaTypeKind.Range or (*iterable_record).kind == SemaTypeKind.Pointer) {
                 set element_type = (*iterable_record).element_type;
             } else if iterable_type == (*context).type_string {
                 set element_type = (*context).type_char;
@@ -5777,7 +5859,7 @@ export proc vitte_sema_error_name(error: SemaError) -> string {
     match error { case SemaError.None => return "none"; case SemaError.InvalidArgument => return "invalid_argument"; case SemaError.InvalidContext => return "invalid_context"; case SemaError.InvalidState => return "invalid_state"; case SemaError.InvalidAst => return "invalid_ast"; case SemaError.InvalidScope => return "invalid_scope"; case SemaError.InvalidType => return "invalid_type"; case SemaError.TypeLimit => return "type_limit"; case SemaError.DiagnosticLimit => return "diagnostic_limit"; case SemaError.RecursionLimit => return "recursion_limit"; case SemaError.Overflow => return "overflow"; case SemaError.OutOfMemory => return "out_of_memory"; case SemaError.Validation => return "validation"; case SemaError.Corruption => return "corruption"; case SemaError.Internal => return "internal"; case SemaError.Count => return "count"; }
 }
 export proc vitte_sema_state_name(state: SemaState) -> string { match state { case SemaState.Invalid => return "invalid"; case SemaState.Ready => return "ready"; case SemaState.Analyzing => return "analyzing"; case SemaState.Done => return "done"; case SemaState.Failed => return "failed"; case SemaState.Destroyed => return "destroyed"; case SemaState.Count => return "count"; } }
-export proc vitte_sema_type_kind_name(kind: SemaTypeKind) -> string { match kind { case SemaTypeKind.Invalid => return "invalid"; case SemaTypeKind.Error => return "error"; case SemaTypeKind.Void => return "void"; case SemaTypeKind.Bool => return "bool"; case SemaTypeKind.I64 => return "i64"; case SemaTypeKind.U64 => return "u64"; case SemaTypeKind.U8 => return "u8"; case SemaTypeKind.F32 => return "f32"; case SemaTypeKind.F64 => return "f64"; case SemaTypeKind.Char => return "char"; case SemaTypeKind.String => return "string"; case SemaTypeKind.Null => return "null"; case SemaTypeKind.Pointer => return "pointer"; case SemaTypeKind.Reference => return "reference"; case SemaTypeKind.Optional => return "optional"; case SemaTypeKind.Array => return "array"; case SemaTypeKind.Slice => return "slice"; case SemaTypeKind.Range => return "range"; case SemaTypeKind.Function => return "function"; case SemaTypeKind.Named => return "named"; case SemaTypeKind.Dyn => return "dyn"; case SemaTypeKind.GenericParameter => return "generic_parameter"; case SemaTypeKind.Task => return "task"; case SemaTypeKind.Count => return "count"; } }
+export proc vitte_sema_type_kind_name(kind: SemaTypeKind) -> string { match kind { case SemaTypeKind.Invalid => return "invalid"; case SemaTypeKind.Error => return "error"; case SemaTypeKind.Void => return "void"; case SemaTypeKind.Bool => return "bool"; case SemaTypeKind.I64 => return "i64"; case SemaTypeKind.U64 => return "u64"; case SemaTypeKind.U8 => return "u8"; case SemaTypeKind.F32 => return "f32"; case SemaTypeKind.F64 => return "f64"; case SemaTypeKind.Char => return "char"; case SemaTypeKind.String => return "string"; case SemaTypeKind.Null => return "null"; case SemaTypeKind.Pointer => return "pointer"; case SemaTypeKind.Reference => return "reference"; case SemaTypeKind.Optional => return "optional"; case SemaTypeKind.Array => return "array"; case SemaTypeKind.Slice => return "slice"; case SemaTypeKind.Range => return "range"; case SemaTypeKind.Function => return "function"; case SemaTypeKind.Named => return "named"; case SemaTypeKind.Dyn => return "dyn"; case SemaTypeKind.GenericParameter => return "generic_parameter"; case SemaTypeKind.Task => return "task"; case SemaTypeKind.Never => return "never"; case SemaTypeKind.Count => return "count"; } }
 export proc vitte_sema_type_conversion_kind_name(kind: SemaTypeConversionKind) -> string { match kind { case SemaTypeConversionKind.Incompatible => return "incompatible"; case SemaTypeConversionKind.Exact => return "exact"; case SemaTypeConversionKind.Safe => return "safe"; case SemaTypeConversionKind.Lossy => return "lossy"; case SemaTypeConversionKind.Count => return "count"; } }
 export proc vitte_sema_diagnostic_kind_name(kind: SemaDiagnosticKind) -> string { match kind { case SemaDiagnosticKind.Note => return "note"; case SemaDiagnosticKind.Help => return "help"; case SemaDiagnosticKind.Warning => return "warning"; case SemaDiagnosticKind.Error => return "error"; case SemaDiagnosticKind.KindCount => return "count"; } }
 export proc vitte_sema_diagnostic_code_name(code: SemaDiagnosticCode) -> string { match code { case SemaDiagnosticCode.None => return "none"; case SemaDiagnosticCode.UnresolvedName => return "unresolved_name"; case SemaDiagnosticCode.PrivateSymbol => return "private_symbol"; case SemaDiagnosticCode.DuplicateDeclaration => return "duplicate_declaration"; case SemaDiagnosticCode.ShadowedDeclaration => return "shadowed_declaration"; case SemaDiagnosticCode.UnknownType => return "unknown_type"; case SemaDiagnosticCode.NotAType => return "not_a_type"; case SemaDiagnosticCode.TypeMismatch => return "type_mismatch"; case SemaDiagnosticCode.InvalidUnaryOperand => return "invalid_unary_operand"; case SemaDiagnosticCode.InvalidBinaryOperands => return "invalid_binary_operands"; case SemaDiagnosticCode.NotAssignable => return "not_assignable"; case SemaDiagnosticCode.NotCallable => return "not_callable"; case SemaDiagnosticCode.InvalidArgumentCount => return "invalid_argument_count"; case SemaDiagnosticCode.InvalidArgumentType => return "invalid_argument_type"; case SemaDiagnosticCode.NotIndexable => return "not_indexable"; case SemaDiagnosticCode.InvalidIndexType => return "invalid_index_type"; case SemaDiagnosticCode.UnknownMember => return "unknown_member"; case SemaDiagnosticCode.ConditionNotBool => return "condition_not_bool"; case SemaDiagnosticCode.ReturnOutsideProc => return "return_outside_proc"; case SemaDiagnosticCode.ReturnTypeMismatch => return "return_type_mismatch"; case SemaDiagnosticCode.BreakOutsideLoop => return "break_outside_loop"; case SemaDiagnosticCode.ContinueOutsideLoop => return "continue_outside_loop"; case SemaDiagnosticCode.UnreachableCode => return "unreachable_code"; case SemaDiagnosticCode.RecursionLimit => return "recursion_limit"; case SemaDiagnosticCode.InvalidType => return "invalid_type"; case SemaDiagnosticCode.InvalidPatternBindings => return "invalid_pattern_bindings"; case SemaDiagnosticCode.CodeCount => return "count"; } }
@@ -5872,6 +5954,7 @@ export proc vitte_sema_type_conversion(context: *const Sema, destination: SemaTy
     let source_type: &SemaType = &(*context).types[(source - 1) as usize];
     let destination_kind: SemaTypeKind = (*destination_type).kind; let source_kind: SemaTypeKind = (*source_type).kind;
     if destination_kind == SemaTypeKind.Error or source_kind == SemaTypeKind.Error { return SemaTypeConversionKind.Safe; }
+    if source_kind == SemaTypeKind.Never { return SemaTypeConversionKind.Safe; }
     if sema_type_identical(context, destination, source, 0) { return SemaTypeConversionKind.Exact; }
     if destination_kind == SemaTypeKind.Optional and source_kind == SemaTypeKind.Null { return SemaTypeConversionKind.Safe; }
     if destination_kind == SemaTypeKind.Optional { return vitte_sema_type_conversion(context, (*destination_type).element_type, source); }
@@ -5909,7 +5992,7 @@ export proc vitte_sema_has_errors(context: *const Sema) -> bool { if not sema_co
 export proc vitte_sema_validate(context: *mut Sema) -> bool {
     if not sema_context_valid(context as *const Sema) { return false; }
     set (*context).stats.validation_runs = sema_sat_add((*context).stats.validation_runs, 1);
-    if not vitte_scope_is_valid(&(*context).scopes) or (*context).type_count < 11 or (*context).type_count > (*context).max_types { set (*context).stats.validation_failures = sema_sat_add((*context).stats.validation_failures, 1); return false; }
+    if not vitte_scope_is_valid(&(*context).scopes) or (*context).type_count < 12 or (*context).type_count > (*context).max_types { set (*context).stats.validation_failures = sema_sat_add((*context).stats.validation_failures, 1); return false; }
     let mut index: usize = 0; while index < (*context).type_count { if (*context).types[index].id != (index + 1) as SemaTypeId or (*context).types[index].kind <= SemaTypeKind.Invalid or (*context).types[index].kind >= SemaTypeKind.Count { set (*context).stats.validation_failures = sema_sat_add((*context).stats.validation_failures, 1); return false; } set index += 1; }
     if (*context).state == SemaState.Done and not vitte_scope_validate(sema_scope_ptr(context)) { set (*context).stats.validation_failures = sema_sat_add((*context).stats.validation_failures, 1); return false; }
     return true;
@@ -5961,6 +6044,7 @@ export proc vitte_sema_warning_count(context: *const Sema) -> usize { if context
 
 export proc vitte_sema_error_type(context: *const Sema) -> SemaTypeId { if context == null { return 0; } return (*context).type_error; }
 export proc vitte_sema_void_type(context: *const Sema) -> SemaTypeId { if context == null { return 0; } return (*context).type_void; }
+export proc vitte_sema_never_type(context: *const Sema) -> SemaTypeId { if context == null { return 0; } return (*context).type_never; }
 export proc vitte_sema_bool_type(context: *const Sema) -> SemaTypeId { if context == null { return 0; } return (*context).type_bool; }
 export proc vitte_sema_i64_type(context: *const Sema) -> SemaTypeId { if context == null { return 0; } return (*context).type_i64; }
 export proc vitte_sema_u64_type(context: *const Sema) -> SemaTypeId { if context == null { return 0; } return (*context).type_u64; }
@@ -5974,6 +6058,7 @@ export proc vitte_sema_null_type(context: *const Sema) -> SemaTypeId { if contex
 export proc vitte_sema_type_id_is_valid(type_id: SemaTypeId) -> bool { return type_id != SEMA_INVALID_TYPE_ID; }
 export proc vitte_sema_type_is_error(context: *const Sema, type_id: SemaTypeId) -> bool { return context != null and type_id != 0 and type_id <= (*context).type_count as SemaTypeId and (*context).types[(type_id - 1) as usize].kind == SemaTypeKind.Error; }
 export proc vitte_sema_type_is_void(context: *const Sema, type_id: SemaTypeId) -> bool { return context != null and type_id == (*context).type_void; }
+export proc vitte_sema_type_is_never(context: *const Sema, type_id: SemaTypeId) -> bool { return context != null and type_id == (*context).type_never; }
 export proc vitte_sema_type_is_bool(context: *const Sema, type_id: SemaTypeId) -> bool { return context != null and type_id == (*context).type_bool; }
 export proc vitte_sema_type_is_string(context: *const Sema, type_id: SemaTypeId) -> bool { return context != null and type_id == (*context).type_string; }
 export proc vitte_sema_type_is_null(context: *const Sema, type_id: SemaTypeId) -> bool { return context != null and type_id == (*context).type_null; }

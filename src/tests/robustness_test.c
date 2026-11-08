@@ -85,10 +85,95 @@ test_large_file_and_path_limits(void)
     free(directory);
 }
 
+static void
+test_active_filesystem_abi(void)
+{
+    static const char payload[] = "vitte-filesystem-abi";
+    char *current_directory = NULL;
+    char *root = NULL;
+    char *nested = NULL;
+    char *source_path = NULL;
+    char *renamed_path = NULL;
+    vitte_filesystem_metadata_t metadata;
+    vitte_filesystem_buffer_t buffer = {NULL, 0u, 0u};
+    vitte_filesystem_directory_list_t entries = {NULL, 0u, 0u};
+    vitte_filesystem_result_t result;
+    size_t index;
+    bool found_renamed = false;
+
+    assert(vitte_filesystem_current_directory(&current_directory).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+    assert(vitte_filesystem_join(
+               current_directory, ".vitte-filesystem-abi", &root).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+    assert(vitte_filesystem_join(root, "nested", &nested).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+    assert(vitte_filesystem_join(nested, "source.bin", &source_path).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+    assert(vitte_filesystem_join(nested, "renamed.bin", &renamed_path).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+
+    /* Clear only the known paths left by an interrupted prior test run. */
+    (void)vitte_filesystem_remove_file(source_path);
+    (void)vitte_filesystem_remove_file(renamed_path);
+    (void)vitte_filesystem_remove_directory(nested);
+    (void)vitte_filesystem_remove_directory(root);
+
+    assert(vitte_filesystem_create_directory(root).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+    assert(vitte_filesystem_create_directories(nested).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+    assert(vitte_filesystem_is_directory(nested));
+
+    result = vitte_filesystem_write_file_atomic(
+        source_path, payload, sizeof(payload) - (size_t)1u);
+    assert(result.error == VITTE_FILESYSTEM_ERROR_NONE);
+    result = vitte_filesystem_stat(source_path, true, &metadata);
+    assert(result.error == VITTE_FILESYSTEM_ERROR_NONE);
+    assert(metadata.kind == VITTE_FILESYSTEM_KIND_REGULAR);
+    assert(metadata.size == sizeof(payload) - (size_t)1u);
+
+    assert(vitte_filesystem_rename(source_path, renamed_path).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+    assert(!vitte_filesystem_exists(source_path));
+    assert(vitte_filesystem_is_file(renamed_path));
+    assert(vitte_filesystem_read_file(renamed_path, 0u, &buffer).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+    assert(buffer.length == sizeof(payload) - (size_t)1u);
+    assert(memcmp(buffer.data, payload, buffer.length) == 0);
+    vitte_filesystem_buffer_destroy(&buffer);
+
+    result = vitte_filesystem_list_directory(nested, 0u, &entries);
+    assert(result.error == VITTE_FILESYSTEM_ERROR_NONE);
+    for (index = 0u; index < entries.count; ++index) {
+        if (strcmp(entries.entries[index].name, "renamed.bin") == 0 &&
+            entries.entries[index].kind == VITTE_FILESYSTEM_KIND_REGULAR) {
+            found_renamed = true;
+            break;
+        }
+    }
+    assert(found_renamed);
+    vitte_filesystem_directory_list_destroy(&entries);
+
+    assert(vitte_filesystem_remove_file(renamed_path).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+    assert(vitte_filesystem_remove_directory(nested).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+    assert(vitte_filesystem_remove_directory(root).error ==
+           VITTE_FILESYSTEM_ERROR_NONE);
+
+    free(renamed_path);
+    free(source_path);
+    free(nested);
+    free(root);
+    free(current_directory);
+}
+
 int
 main(void)
 {
     test_arena_limits();
     test_large_file_and_path_limits();
+    test_active_filesystem_abi();
     return 0;
 }

@@ -1,38 +1,40 @@
 /// Helpers arithmétiques à débordement explicite.
 space core::intrinsics::arithmetic;
 
+use core::num::limits::{I64_MAX, I64_MIN, U64_MAX};
+
 export proc add_overflow_u64(left: u64, right: u64) -> bool {
-    return left > u64.MAX - right;
+    return left > U64_MAX - right;
 }
 
 export proc sub_overflow_u64(left: u64, right: u64) -> bool { return left < right; }
 
 export proc mul_overflow_u64(left: u64, right: u64) -> bool {
-    return right != 0 && left > u64.MAX / right;
+    return right != 0 && left > U64_MAX / right;
 }
 
 export proc add_overflow_i64(left: i64, right: i64) -> bool {
-    if right > 0 { return left > i64.MAX - right; }
-    if right < 0 { return left < i64.MIN - right; }
+    if right > 0 { return left > I64_MAX - right; }
+    if right < 0 { return left < I64_MIN - right; }
     return false;
 }
 
 export proc sub_overflow_i64(left: i64, right: i64) -> bool {
-    if right > 0 { return left < i64.MIN + right; }
-    if right < 0 { return left > i64.MAX + right; }
+    if right > 0 { return left < I64_MIN + right; }
+    if right < 0 { return left > I64_MAX + right; }
     return false;
 }
 
 export proc mul_overflow_i64(left: i64, right: i64) -> bool {
     if left == 0 || right == 0 { return false; }
-    if left == i64.MIN && right == -1 { return true; }
-    if right == i64.MIN && left == -1 { return true; }
+    if left == I64_MIN && right == -1 { return true; }
+    if right == I64_MIN && left == -1 { return true; }
     if left > 0 {
-        if right > 0 { return left > i64.MAX / right; }
-        return right < i64.MIN / left;
+        if right > 0 { return left > I64_MAX / right; }
+        return right < I64_MIN / left;
     }
-    if right > 0 { return left < i64.MIN / right; }
-    return left < i64.MAX / right;
+    if right > 0 { return left < I64_MIN / right; }
+    return left < I64_MAX / right;
 }
 
 export proc add_overflow_usize(left: usize, right: usize) -> bool {

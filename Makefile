@@ -56,6 +56,7 @@ PATH_LIST_SEPARATOR := $(if $(filter MINGW% MSYS% CYGWIN%,$(BUILD_HOST_OS)),;,:)
 CC ?= cc
 AR ?= ar
 RANLIB ?= ranlib
+NM ?= nm
 
 PYTHON ?= python3
 
@@ -269,8 +270,9 @@ $(BUILD_CONFIG_STAMP):
 	@printf '%s\n' '$(BUILD_CONFIG_KEY)' > "$(ACTIVE_BUILD_CONFIG)"
 
 # The bootstrap binary emits the Vitte API translation unit. The standard
-# executable links that Vitte frontend with only OS and ABI boundary objects;
-# the historical C compiler remains isolated in the bootstrap target.
+# executable links that Vitte frontend with native OS/ABI bridges and the
+# remaining bootstrap filesystem ABI object. The historical C compiler stays
+# isolated in the bootstrap target.
 NATIVE_FRONTEND_ENTRY := $(VITTE_ROOT)/compiler/api/api.vitte
 NATIVE_FRONTEND_SOURCES := $(shell find $(VITTE_ROOT)/compiler -type f -name '*.vitte' | LC_ALL=C sort)
 # The manifest defines the package prefix stripped by the source module loader.
@@ -804,7 +806,7 @@ test-source-map: $(TARGET_BIN)
 
 .PHONY: test-corpus
 test-corpus: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
-	$(PYTHON) \
+	VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" $(PYTHON) \
 		$(TEST_DIR)/run_corpus.py \
 		--compiler $(BOOTSTRAP_TARGET_BIN) \
 		--exclude src/tests/expression_literals_parse.vit \
@@ -830,7 +832,8 @@ GRAMMAR_FIXTURES := \
 	$(TEST_DIR)/expression_literals_parse.vit \
 	$(TEST_DIR)/form_parse.vit \
 	$(TEST_DIR)/pick_parse.vit \
-	$(TEST_DIR)/nested_generic_type_arguments_parse.vit
+	$(TEST_DIR)/nested_generic_type_arguments_parse.vit \
+	$(TEST_DIR)/sema_const_generic_declaration_ok.vit
 
 $(GRAMMAR_TEST_BIN): $(TEST_DIR)/grammar_parser_test.c $(LIB_OBJECTS)
 	@mkdir -p $(BIN_DIR)
@@ -933,6 +936,26 @@ check-ebnf-frontend-sync:
 
 .PHONY: test-sema
 test-sema: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
+	$(TARGET_BIN) compile \
+		$(TEST_DIR)/sema_never_type_ok.vit \
+		--stop-after-sema \
+		--quiet
+
+	$(BOOTSTRAP_TARGET_BIN) compile \
+		$(TEST_DIR)/sema_never_type_ok.vit \
+		--stop-after-sema \
+		--quiet
+
+	$(TARGET_BIN) compile \
+		$(TEST_DIR)/sema_const_generic_declaration_ok.vit \
+		--stop-after-sema \
+		--quiet
+
+	$(BOOTSTRAP_TARGET_BIN) compile \
+		$(TEST_DIR)/sema_const_generic_declaration_ok.vit \
+		--stop-after-sema \
+		--quiet
+
 	$(TARGET_BIN) compile \
 		$(TEST_DIR)/sema_calls/local_param_ok.vit \
 		--stop-after-sema \
@@ -1120,9 +1143,16 @@ test-frontend: $(TARGET_BIN)
 
 RUNTIME_CANDIDATES := \
 	$(TEST_DIR)/aggregate_runtime.vit \
+	$(TEST_DIR)/asm_runtime.vit \
+	$(TEST_DIR)/assert_runtime.vit \
+	$(TEST_DIR)/async_runtime.vit \
 	$(TEST_DIR)/contracts_ok.vit \
+	$(TEST_DIR)/core_native_smoke_runtime.vit \
+	$(TEST_DIR)/defer_runtime.vit \
+	$(TEST_DIR)/generic_form_bracket_runtime.vit \
 	$(TEST_DIR)/generic_trait_method_dispatch_runtime.vit \
 	$(TEST_DIR)/generic_pick_runtime.vit \
+	$(TEST_DIR)/intrinsic_runtime.vit \
 	$(TEST_DIR)/ir_declaration_runtime.vit \
 	$(TEST_DIR)/native_fixed_array_runtime.vit \
 	$(TEST_DIR)/llvm_array_runtime.vit \
@@ -1156,7 +1186,63 @@ test-runtime: $(TARGET_BIN)
 	done; \
 	for file in $(RUNTIME_TESTS); do \
 		printf '[RUNTIME] %s\n' "$$file"; \
-		$(TARGET_BIN) run "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)$(PATH_LIST_SEPARATOR)$(VITTE_ROOT)" \
+			$(TARGET_BIN) run "$$file"; \
+	done
+
+# This target exercises the executable C17 bootstrap subset of core; broader
+# source and native-frontend limits are recorded in modules/core/README.md.
+CORE_TESTS := $(sort $(wildcard modules/core/tests/*.vit))
+CORE_BOOTSTRAP_ONLY_TESTS := $(sort $(wildcard modules/core/tests/bootstrap_only/*.vit))
+CORE_TRAP_TESTS := $(sort $(wildcard modules/core/tests/runtime/*_trap_runtime.vit))
+
+.PHONY: check-core-sources
+check-core-sources: $(BOOTSTRAP_TARGET_BIN)
+	$(PYTHON) modules/core/tools/check_sources.py "$(BOOTSTRAP_TARGET_BIN)"
+
+.PHONY: test-core
+test-core: $(BOOTSTRAP_TARGET_BIN)
+	@set -e; \
+	for file in $(CORE_TESTS); do \
+		if test ! -s "$$file"; then \
+			printf '[CORE-FAIL] empty test file: %s\n' "$$file"; \
+			exit 1; \
+		fi; \
+		printf '[CORE] %s\n' "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
+			$(BOOTSTRAP_TARGET_BIN) run "$$file" --quiet --no-color; \
+	done; \
+	for file in $(CORE_BOOTSTRAP_ONLY_TESTS); do \
+		if test ! -s "$$file"; then \
+			printf '[CORE-FAIL] empty bootstrap-only test file: %s\n' "$$file"; \
+			exit 1; \
+		fi; \
+		printf '[CORE-BOOTSTRAP] %s\n' "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
+			$(BOOTSTRAP_TARGET_BIN) run "$$file" --quiet --no-color; \
+	done; \
+	for file in $(CORE_TRAP_TESTS); do \
+		printf '[CORE-TRAP-BOOTSTRAP] %s\n' "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
+			$(PYTHON) modules/core/tools/trap_runtime_test.py \
+			"$(BOOTSTRAP_TARGET_BIN)" "$$file"; \
+	done
+
+# The root-level Core suite contains tests that the native frontend supports;
+# generic-form and generic-specialization regressions stay in test-core above.
+.PHONY: test-core-native
+test-core-native: $(TARGET_BIN)
+	@set -e; \
+	for file in $(CORE_TESTS); do \
+		printf '[CORE-NATIVE] %s\n' "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
+			$(TARGET_BIN) run "$$file" --quiet --no-color; \
+	done; \
+	for file in $(CORE_TRAP_TESTS); do \
+		printf '[CORE-TRAP-NATIVE] %s\n' "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
+			$(PYTHON) modules/core/tools/trap_runtime_test.py \
+			"$(TARGET_BIN)" "$$file"; \
 	done
 
 # Qualified imports must preserve same-named declarations through semantic
@@ -1206,14 +1292,23 @@ test-build-invalidation: $(BOOTSTRAP_TARGET_BIN)
 test-packaging-matrix:
 	$(PYTHON) scripts/test-packaging-matrix.py
 
-# Blocking release criteria: every diagnostic is owned and every native
-# frontend action/fallback path has a checked witness in the compiler gate.
+# Blocking release criteria: every diagnostic and binary owner is accounted
+# for, and every native frontend action/fallback path has a checked witness.
 .PHONY: compiler-release-criteria
-compiler-release-criteria:
+compiler-release-criteria: compiler-binary-ownership
 	$(PYTHON) scripts/check-release-criteria.py
+
+.PHONY: compiler-binary-ownership
+compiler-binary-ownership: $(TARGET_BIN)
+	$(PYTHON) scripts/audit-native-binary-ownership.py \
+		--nm "$(NM)" \
+		--binary "$(TARGET_BIN)" \
+		--frontend-object "$(NATIVE_FRONTEND_OBJECT)" \
+		--filesystem-object "$(NATIVE_FILESYSTEM_OBJECT)"
 
 .PHONY: compiler-power-gate
 compiler-power-gate: \
+	test-core \
 	test-cli-driver \
 	test-diagnostic \
 	test-diagnostic-golden \
@@ -1228,6 +1323,8 @@ compiler-power-gate: \
 	test-imports \
 	test-native-frontend-subset \
 	test-native-bootstrap-parity \
+	test-runtime \
+	test-robustness \
 	test-ir-backend \
 	test-mir-control-flow \
 	test-build-invalidation \
@@ -1437,6 +1534,8 @@ bootstrap-selfhost: compiler-selfhost-gate
 
 .PHONY: test
 test: \
+	test-core \
+	test-core-native \
 	test-cli-driver \
 	test-source \
 	test-diagnostic \
@@ -1731,6 +1830,7 @@ help:
 		'  make docs-site-check         Check generated site audits and metadata' \
 		'  make check                   Syntax-check every C source' \
 		'  make test                    Run complete test suite' \
+		'  make test-core               Run the Vitte core library tests' \
 		'  make test-corpus             Run corpus tests' \
 		'  make test-grammar            Run grammar tests' \
 		'  make test-sema               Run semantic tests' \

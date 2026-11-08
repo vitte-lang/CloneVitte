@@ -1,0 +1,39 @@
+use core::array::fixed::{fixed_is_sorted_i64};
+use core::array::init::{array_init_sequence, array_init_reverse_sequence, array_init_geometric};
+use core::array::repeat::{array_repeat_sequence};
+use core::num::limits::{I64_MIN, I64_MAX};
+
+test "typed borrowed slice ordering handles sorted and unsorted values" {
+    let sorted: [i64] = [1, 2, 2, 5];
+    let unsorted: [i64] = [1, 5, 2, 2];
+
+    assert(fixed_is_sorted_i64(&sorted));
+    assert(not fixed_is_sorted_i64(&unsorted));
+}
+
+test "numeric array generation is checked and transactional" {
+    let mut values: [i64] = [0, 0, 0];
+    assert(array_init_sequence(&mut values, 2, 3));
+    assert(values[0] == 2 && values[1] == 5 && values[2] == 8);
+
+    assert(array_init_reverse_sequence(&mut values, 9, 3));
+    assert(values[0] == 9 && values[1] == 6 && values[2] == 3);
+
+    assert(array_init_geometric(&mut values, 2, 3));
+    assert(values[0] == 2 && values[1] == 6 && values[2] == 18);
+
+    assert(array_repeat_sequence(&mut values, 4, 2, 2));
+    assert(values[0] == 4 && values[1] == 6 && values[2] == 4);
+
+    set values[0] = 11;
+    set values[1] = 22;
+    set values[2] = 33;
+    assert(not array_init_sequence(&mut values, I64_MAX, 1));
+    assert(values[0] == 11 && values[1] == 22 && values[2] == 33);
+    assert(not array_init_reverse_sequence(&mut values, I64_MIN, 1));
+    assert(values[0] == 11 && values[1] == 22 && values[2] == 33);
+    assert(not array_init_geometric(&mut values, I64_MAX, 2));
+    assert(values[0] == 11 && values[1] == 22 && values[2] == 33);
+    assert(not array_repeat_sequence(&mut values, I64_MAX, 1, 2));
+    assert(values[0] == 11 && values[1] == 22 && values[2] == 33);
+}

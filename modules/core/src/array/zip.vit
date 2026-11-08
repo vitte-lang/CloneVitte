@@ -1,7 +1,7 @@
-space core::array::zip
+space core::array::zip;
 
 /// Retourne la plus petite longueur de deux tableaux.
-proc array_zip_min_length<T, U>(
+export proc array_zip_min_length<T, U>(
     left: &[T],
     right: &[U]
 ) -> usize {
@@ -13,7 +13,7 @@ proc array_zip_min_length<T, U>(
 }
 
 /// Retourne la plus petite longueur de trois tableaux.
-proc array_zip3_min_length<T, U, V>(
+export proc array_zip3_min_length<T, U, V>(
     first: &[T],
     second: &[U],
     third: &[V]
@@ -32,7 +32,7 @@ proc array_zip3_min_length<T, U, V>(
 }
 
 /// Retourne la plus petite longueur de quatre tableaux.
-proc array_zip4_min_length<T, U, V, W>(
+export proc array_zip4_min_length<T, U, V, W>(
     first: &[T],
     second: &[U],
     third: &[V],
@@ -55,31 +55,38 @@ proc array_zip4_min_length<T, U, V, W>(
     return limit;
 }
 
-/// Combine deux tableaux dans un tableau de couples.
-proc array_zip<T, U>(
+/// Copie deux tableaux dans des tampons parallèles.
+export proc array_zip<T, U>(
     left: &[T],
     right: &[U],
-    destination: &mut [(T, U)]
+    left_output: &mut [T],
+    right_output: &mut [U]
 ) -> usize {
     let mut limit: usize = array_zip_min_length(left, right);
 
-    if destination.len() < limit {
-        set limit = destination.len();
+    if left_output.len() < limit {
+        set limit = left_output.len();
+    }
+    if right_output.len() < limit {
+        set limit = right_output.len();
     }
 
     for i in 0..limit {
-        set destination[i] = (left[i], right[i]);
+        set left_output[i] = left[i];
+        set right_output[i] = right[i];
     }
 
     return limit;
 }
 
-/// Combine trois tableaux dans un tableau de triplets.
-proc array_zip3<T, U, V>(
+/// Copie trois tableaux dans des tampons parallèles.
+export proc array_zip3<T, U, V>(
     first: &[T],
     second: &[U],
     third: &[V],
-    destination: &mut [(T, U, V)]
+    first_output: &mut [T],
+    second_output: &mut [U],
+    third_output: &mut [V]
 ) -> usize {
     let mut limit: usize = array_zip3_min_length(
         first,
@@ -87,28 +94,35 @@ proc array_zip3<T, U, V>(
         third
     );
 
-    if destination.len() < limit {
-        set limit = destination.len();
+    if first_output.len() < limit {
+        set limit = first_output.len();
+    }
+    if second_output.len() < limit {
+        set limit = second_output.len();
+    }
+    if third_output.len() < limit {
+        set limit = third_output.len();
     }
 
     for i in 0..limit {
-        set destination[i] = (
-            first[i],
-            second[i],
-            third[i]
-        );
+        set first_output[i] = first[i];
+        set second_output[i] = second[i];
+        set third_output[i] = third[i];
     }
 
     return limit;
 }
 
-/// Combine quatre tableaux dans un tableau de quadruplets.
-proc array_zip4<T, U, V, W>(
+/// Copie quatre tableaux dans des tampons parallèles.
+export proc array_zip4<T, U, V, W>(
     first: &[T],
     second: &[U],
     third: &[V],
     fourth: &[W],
-    destination: &mut [(T, U, V, W)]
+    first_output: &mut [T],
+    second_output: &mut [U],
+    third_output: &mut [V],
+    fourth_output: &mut [W]
 ) -> usize {
     let mut limit: usize = array_zip4_min_length(
         first,
@@ -117,17 +131,24 @@ proc array_zip4<T, U, V, W>(
         fourth
     );
 
-    if destination.len() < limit {
-        set limit = destination.len();
+    if first_output.len() < limit {
+        set limit = first_output.len();
+    }
+    if second_output.len() < limit {
+        set limit = second_output.len();
+    }
+    if third_output.len() < limit {
+        set limit = third_output.len();
+    }
+    if fourth_output.len() < limit {
+        set limit = fourth_output.len();
     }
 
     for i in 0..limit {
-        set destination[i] = (
-            first[i],
-            second[i],
-            third[i],
-            fourth[i]
-        );
+        set first_output[i] = first[i];
+        set second_output[i] = second[i];
+        set third_output[i] = third[i];
+        set fourth_output[i] = fourth[i];
     }
 
     return limit;

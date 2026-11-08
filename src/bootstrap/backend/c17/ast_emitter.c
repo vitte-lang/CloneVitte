@@ -2666,7 +2666,9 @@ vitte_c17_ast_emit_type(
                     path,
                     path->child_count - 1u);
                 if (path->child_count == 1u &&
-                    vitte_c17_ast_token_is(emitter, name, "void")) {
+                    (vitte_c17_ast_token_is(emitter, name, "void") ||
+                     vitte_c17_ast_token_is(emitter, name, "never") ||
+                     vitte_c17_ast_token_is(emitter, name, "unit"))) {
                     vitte_c17_ast_write(emitter, "void");
                 } else if (path->child_count == 1u &&
                            vitte_c17_ast_token_is(emitter, name, "bool")) {
@@ -4436,7 +4438,8 @@ vitte_c17_ast_enclosing_procedure(
         current = vitte_c17_ast_node(emitter, parent_id);
         if (current != NULL &&
             (current->kind == VITTE_AST_NODE_PROC_DECL ||
-             current->kind == VITTE_AST_NODE_EXTERN_PROC_DECL)) {
+             current->kind == VITTE_AST_NODE_EXTERN_PROC_DECL ||
+             current->kind == VITTE_AST_NODE_TEST_DECL)) {
             return current;
         }
     }
@@ -4813,9 +4816,23 @@ vitte_c17_ast_infer_generic_parameter_from_type(
     size_t depth)
 {
     size_t index;
+    const vitte_ast_node_t *matched_actual_type = actual_type;
+    const vitte_ast_node_t *matched_expression = actual_expression;
     if (emitter == NULL || pattern == NULL || parameter_name == NULL ||
         found == NULL || depth > VITTE_C17_AST_GENERIC_FORM_TYPE_DEPTH_MAX) {
         return false;
+    }
+    /* A reference parameter accepts a borrowed value expression such as
+     * `&items`. Infer its pointee type from the operand; matching below
+     * removes the reference wrapper from the parameter pattern. */
+    if (pattern->kind == VITTE_AST_NODE_REFERENCE_TYPE &&
+        actual_expression != NULL &&
+        actual_expression->kind == VITTE_AST_NODE_UNARY_EXPR &&
+        actual_expression->operator_kind == VITTE_TOKEN_AMP) {
+        matched_expression = vitte_c17_ast_child(
+            emitter, actual_expression, 0u);
+        matched_actual_type = vitte_c17_ast_expression_type(
+            emitter, matched_expression);
     }
     if (!vitte_c17_ast_type_contains_generic_parameter(
             emitter, pattern, parameter_name, depth)) {
@@ -4824,7 +4841,7 @@ vitte_c17_ast_infer_generic_parameter_from_type(
     if (vitte_c17_ast_generic_parameter_type_matches(
             emitter, pattern, parameter_name)) {
         char candidate_key[VITTE_C17_AST_GENERIC_FORM_ARGUMENT_NAME_MAX];
-        const vitte_ast_node_t *candidate_type = actual_type;
+        const vitte_ast_node_t *candidate_type = matched_actual_type;
         const char *candidate_c_type = NULL;
         const char *source_name;
         bool key_ready = false;
@@ -4842,14 +4859,14 @@ vitte_c17_ast_infer_generic_parameter_from_type(
             if (!key_ready) {
                 candidate_c_type =
                     vitte_c17_ast_infer_scalar_c_type(
-                        emitter, actual_expression, call);
+                        emitter, matched_expression, call);
                 if (candidate_c_type != NULL) {
                     candidate_type = NULL;
                 }
             }
         } else {
             candidate_c_type = vitte_c17_ast_infer_scalar_c_type(
-                emitter, actual_expression, call);
+                emitter, matched_expression, call);
         }
         if (!key_ready) {
             source_name = vitte_c17_ast_source_scalar_name_from_c_type(
@@ -4881,25 +4898,47 @@ vitte_c17_ast_infer_generic_parameter_from_type(
         return true;
     }
 
-    if (actual_type == NULL || pattern->kind != actual_type->kind) {
+    if (pattern->kind == VITTE_AST_NODE_REFERENCE_TYPE) {
+        const vitte_ast_node_t *actual_payload = matched_actual_type;
+        if (actual_payload != NULL &&
+            actual_payload->kind == VITTE_AST_NODE_REFERENCE_TYPE) {
+            actual_payload = vitte_c17_ast_child(
+                emitter, actual_payload, 0u);
+        }
+        return vitte_c17_ast_infer_generic_parameter_from_type(
+            emitter,
+            vitte_c17_ast_child(emitter, pattern, 0u),
+            actual_payload,
+            matched_expression,
+            call,
+            parameter_name,
+            resolved_type,
+            resolved_c_type,
+            resolved_key,
+            resolved_key_capacity,
+            found,
+            depth + 1u);
+    }
+    if (matched_actual_type == NULL ||
+        pattern->kind != matched_actual_type->kind) {
         return false;
     }
     if (pattern->kind == VITTE_AST_NODE_TYPE_EXPR) {
         const vitte_ast_node_t *pattern_path =
             vitte_c17_ast_child(emitter, pattern, 0u);
         const vitte_ast_node_t *actual_path =
-            vitte_c17_ast_child(emitter, actual_type, 0u);
+            vitte_c17_ast_child(emitter, matched_actual_type, 0u);
         if (!vitte_c17_ast_type_paths_equal(
                 emitter, pattern_path, actual_path) ||
-            pattern->child_count != actual_type->child_count) {
+            pattern->child_count != matched_actual_type->child_count) {
             return false;
         }
         for (index = 1u; index < pattern->child_count; ++index) {
             if (!vitte_c17_ast_infer_generic_parameter_from_type(
                     emitter,
                     vitte_c17_ast_child(emitter, pattern, index),
-                    vitte_c17_ast_child(emitter, actual_type, index),
-                    actual_expression,
+                    vitte_c17_ast_child(emitter, matched_actual_type, index),
+                    matched_expression,
                     call,
                     parameter_name,
                     resolved_type,
@@ -4914,14 +4953,14 @@ vitte_c17_ast_infer_generic_parameter_from_type(
         return true;
     }
     if (pattern->kind == VITTE_AST_NODE_ARRAY_TYPE) {
-        if (pattern->child_count != actual_type->child_count) {
+        if (pattern->child_count != matched_actual_type->child_count) {
             return false;
         }
         for (index = 0u; index < pattern->child_count; ++index) {
             const vitte_ast_node_t *pattern_child =
                 vitte_c17_ast_child(emitter, pattern, index);
             const vitte_ast_node_t *actual_child =
-                vitte_c17_ast_child(emitter, actual_type, index);
+                vitte_c17_ast_child(emitter, matched_actual_type, index);
             if (pattern_child == NULL || actual_child == NULL) {
                 return false;
             }
@@ -4934,7 +4973,7 @@ vitte_c17_ast_infer_generic_parameter_from_type(
                            emitter,
                            pattern_child,
                            actual_child,
-                           actual_expression,
+                           matched_expression,
                            call,
                            parameter_name,
                            resolved_type,
@@ -4952,8 +4991,8 @@ vitte_c17_ast_infer_generic_parameter_from_type(
         if (!vitte_c17_ast_infer_generic_parameter_from_type(
                 emitter,
                 vitte_c17_ast_child(emitter, pattern, index),
-                vitte_c17_ast_child(emitter, actual_type, index),
-                actual_expression,
+                vitte_c17_ast_child(emitter, matched_actual_type, index),
+                matched_expression,
                 call,
                 parameter_name,
                 resolved_type,
@@ -6690,6 +6729,72 @@ vitte_c17_ast_type_is_named(
     return token != NULL &&
            token->length == strlen(name) &&
            memcmp(token->lexeme, name, token->length) == 0;
+}
+
+static bool
+vitte_c17_ast_type_is_never_recursive(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *type,
+    size_t depth)
+{
+    const vitte_ast_node_t *path;
+    const vitte_ast_node_t *name;
+    const vitte_ast_node_t *root;
+    const vitte_ast_node_t *alias_target;
+
+    if (type == NULL || depth >= 32u) {
+        return false;
+    }
+    if (vitte_c17_ast_type_is_named(emitter, type, "never")) {
+        return true;
+    }
+    if (type->kind != VITTE_AST_NODE_TYPE_EXPR || type->child_count == 0u) {
+        return false;
+    }
+    path = vitte_c17_ast_child(emitter, type, 0u);
+    if (path == NULL || path->kind != VITTE_AST_NODE_PATH ||
+        path->child_count == 0u) {
+        return false;
+    }
+    name = vitte_c17_ast_child(emitter, path, path->child_count - 1u);
+    root = vitte_c17_ast_node(
+        emitter, vitte_parser_root(emitter->parser));
+    alias_target = vitte_c17_ast_find_type_alias_target(
+        emitter, root, name);
+    return alias_target != NULL && alias_target != type &&
+           vitte_c17_ast_type_is_never_recursive(
+               emitter, alias_target, depth + 1u);
+}
+
+static bool
+vitte_c17_ast_type_is_never(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *type)
+{
+    return vitte_c17_ast_type_is_never_recursive(
+        emitter, type, 0u);
+}
+
+static bool
+vitte_c17_ast_expression_returns_never(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *expression)
+{
+    const vitte_ast_node_t *return_type;
+
+    if (expression == NULL) {
+        return false;
+    }
+    if (expression->kind == VITTE_AST_NODE_GROUP_EXPR) {
+        return vitte_c17_ast_expression_returns_never(
+            emitter,
+            vitte_c17_ast_child(emitter, expression, 0u));
+    }
+    if (expression->kind != VITTE_AST_NODE_CALL_EXPR) {
+        return false;
+    }
+    return_type = vitte_c17_ast_call_return_type(emitter, expression);
+    return vitte_c17_ast_type_is_never(emitter, return_type);
 }
 
 static bool
@@ -10728,6 +10833,18 @@ vitte_c17_ast_emit_statement(
                           emitter,
                           emitter->function)
                     : NULL;
+                if (node->child_count != 0u &&
+                    vitte_c17_ast_expression_returns_never(
+                        emitter,
+                        vitte_c17_ast_child(emitter, node, 0u))) {
+                    vitte_c17_ast_emit_expression(
+                        emitter,
+                        vitte_c17_ast_child(emitter, node, 0u));
+                    vitte_c17_ast_write(emitter, ";\n");
+                    vitte_c17_ast_indent(emitter, indent);
+                    vitte_c17_ast_write(emitter, "abort();\n");
+                    return;
+                }
                 if (emitter->deferred_count != 0u &&
                     node->child_count != 0u &&
                     return_type != NULL &&
@@ -10735,6 +10852,8 @@ vitte_c17_ast_emit_statement(
                         emitter, return_type, "void") &&
                     !vitte_c17_ast_type_is_named(
                         emitter, return_type, "unit") &&
+                    !vitte_c17_ast_type_is_never(
+                        emitter, return_type) &&
                     !(return_type->kind == VITTE_AST_NODE_ARRAY_TYPE &&
                       return_type->child_count == 1u) &&
                     vitte_c17_ast_generic_alias_slice_element_recursive(
@@ -10767,7 +10886,9 @@ vitte_c17_ast_emit_statement(
                      vitte_c17_ast_type_is_named(
                          emitter, return_type, "void") ||
                      vitte_c17_ast_type_is_named(
-                         emitter, return_type, "unit"))) {
+                         emitter, return_type, "unit") ||
+                     vitte_c17_ast_type_is_never(
+                         emitter, return_type))) {
                     vitte_c17_ast_emit_expression(
                         emitter,
                         vitte_c17_ast_child(emitter, node, 0u));
@@ -11661,7 +11782,8 @@ vitte_c17_ast_async_result_is_void(
         vitte_c17_ast_function_return_type(emitter, function);
     return return_type == NULL ||
            vitte_c17_ast_type_is_named(emitter, return_type, "void") ||
-           vitte_c17_ast_type_is_named(emitter, return_type, "unit");
+           vitte_c17_ast_type_is_named(emitter, return_type, "unit") ||
+           vitte_c17_ast_type_is_never(emitter, return_type);
 }
 
 static void
@@ -14145,6 +14267,23 @@ vitte_c17_ast_collect_nested_generic_proc_instances(
         emitter->function = procedure;
         emitter->generic_proc_context_active = true;
         emitter->generic_proc_context_index = instance_index;
+        {
+            const vitte_ast_node_t *root = vitte_c17_ast_node(
+                emitter,
+                vitte_parser_root(emitter->parser));
+            if (root == NULL) {
+                emitter->failed = true;
+            } else {
+                /* Generic procedure bodies can construct generic forms after
+                 * their parameters have been specialized. Discover those
+                 * concrete layouts in this substitution context. */
+                vitte_c17_ast_collect_generic_form_instances(
+                    emitter,
+                    root,
+                    procedure,
+                    0u);
+            }
+        }
         for (node_index = 0u;
              node_index < emitter->parser->node_count && !emitter->failed;
              ++node_index) {
@@ -14954,6 +15093,7 @@ vitte_c17_emit_ast_with_options(
         "void io_print_i64(int64_t value) {\n"
         "    (void)printf(\"%\" PRId64, value);\n"
         "}\n"
+        "void trap(void) { abort(); }\n"
         "int64_t io_read_i64(void) {\n"
         "    int64_t value = 0;\n"
         "    if (scanf(\"%\" SCNd64, &value) != 1) { return 0; }\n"

@@ -1,55 +1,115 @@
-/// Décalages binaires vers la droite.
+/// Décalages binaires vers la droite avec extension du signe pour les signés.
 ///
-/// Les formes `shr_*` exigent `amount < largeur`; utiliser `checked_shr_*`
-/// lorsque cette condition n'est pas déjà garantie. Les types signés suivent
-/// la sémantique de décalage arithmétique définie par le compilateur.
+/// Une quantité supérieure ou égale à la largeur produit zéro pour les
+/// entiers non signés et zéro ou -1 selon le signe pour les entiers signés.
+/// Les formes vérifiées écrivent dans un paramètre de sortie et retournent
+/// `false` sans le modifier dans ce cas.
 space core::ops::shr;
 
-export proc shr_i8(left: i8, amount: usize) -> i8 { return left >> amount; }
-export proc shr_i16(left: i16, amount: usize) -> i16 { return left >> amount; }
-export proc shr_i32(left: i32, amount: usize) -> i32 { return left >> amount; }
-export proc shr_i64(left: i64, amount: usize) -> i64 { return left >> amount; }
-export proc shr_u8(left: u8, amount: usize) -> u8 { return left >> amount; }
-export proc shr_u16(left: u16, amount: usize) -> u16 { return left >> amount; }
-export proc shr_u32(left: u32, amount: usize) -> u32 { return left >> amount; }
-export proc shr_u64(left: u64, amount: usize) -> u64 { return left >> amount; }
+use core::num::limits::{U64_MAX};
 
-export proc checked_shr_i8(left: i8, amount: usize) -> ?i8 {
-    if amount >= 8 { return null; }
+export proc shr_i8(left: i8, amount: usize) -> i8 {
+    if amount >= 8 {
+        if left < 0 { return -1; }
+        return 0;
+    }
+    return ((left as u64) >> amount) as i8;
+}
+
+export proc shr_i16(left: i16, amount: usize) -> i16 {
+    if amount >= 16 {
+        if left < 0 { return -1; }
+        return 0;
+    }
+    return ((left as u64) >> amount) as i16;
+}
+
+export proc shr_i32(left: i32, amount: usize) -> i32 {
+    if amount >= 32 {
+        if left < 0 { return -1; }
+        return 0;
+    }
+    return ((left as u64) >> amount) as i32;
+}
+
+export proc shr_i64(left: i64, amount: usize) -> i64 {
+    if amount == 0 { return left; }
+    if amount >= 64 {
+        if left < 0 { return -1; }
+        return 0;
+    }
+
+    let mut shifted: u64 = (left as u64) >> amount;
+    if left < 0 {
+        set shifted = shifted | (U64_MAX << (64 - amount));
+    }
+    return shifted as i64;
+}
+
+export proc shr_u8(left: u8, amount: usize) -> u8 {
+    if amount >= 8 { return 0; }
+    return ((left as u64) >> amount) as u8;
+}
+
+export proc shr_u16(left: u16, amount: usize) -> u16 {
+    if amount >= 16 { return 0; }
+    return ((left as u64) >> amount) as u16;
+}
+
+export proc shr_u32(left: u32, amount: usize) -> u32 {
+    if amount >= 32 { return 0; }
+    return ((left as u64) >> amount) as u32;
+}
+
+export proc shr_u64(left: u64, amount: usize) -> u64 {
+    if amount >= 64 { return 0; }
     return left >> amount;
 }
 
-export proc checked_shr_i16(left: i16, amount: usize) -> ?i16 {
-    if amount >= 16 { return null; }
-    return left >> amount;
+export proc checked_shr_i8(left: i8, amount: usize, output: &mut i8) -> bool {
+    if amount >= 8 { return false; }
+    set *output = shr_i8(left, amount);
+    return true;
 }
 
-export proc checked_shr_i32(left: i32, amount: usize) -> ?i32 {
-    if amount >= 32 { return null; }
-    return left >> amount;
+export proc checked_shr_i16(left: i16, amount: usize, output: &mut i16) -> bool {
+    if amount >= 16 { return false; }
+    set *output = shr_i16(left, amount);
+    return true;
 }
 
-export proc checked_shr_i64(left: i64, amount: usize) -> ?i64 {
-    if amount >= 64 { return null; }
-    return left >> amount;
+export proc checked_shr_i32(left: i32, amount: usize, output: &mut i32) -> bool {
+    if amount >= 32 { return false; }
+    set *output = shr_i32(left, amount);
+    return true;
 }
 
-export proc checked_shr_u8(left: u8, amount: usize) -> ?u8 {
-    if amount >= 8 { return null; }
-    return left >> amount;
+export proc checked_shr_i64(left: i64, amount: usize, output: &mut i64) -> bool {
+    if amount >= 64 { return false; }
+    set *output = shr_i64(left, amount);
+    return true;
 }
 
-export proc checked_shr_u16(left: u16, amount: usize) -> ?u16 {
-    if amount >= 16 { return null; }
-    return left >> amount;
+export proc checked_shr_u8(left: u8, amount: usize, output: &mut u8) -> bool {
+    if amount >= 8 { return false; }
+    set *output = shr_u8(left, amount);
+    return true;
 }
 
-export proc checked_shr_u32(left: u32, amount: usize) -> ?u32 {
-    if amount >= 32 { return null; }
-    return left >> amount;
+export proc checked_shr_u16(left: u16, amount: usize, output: &mut u16) -> bool {
+    if amount >= 16 { return false; }
+    set *output = shr_u16(left, amount);
+    return true;
 }
 
-export proc checked_shr_u64(left: u64, amount: usize) -> ?u64 {
-    if amount >= 64 { return null; }
-    return left >> amount;
+export proc checked_shr_u32(left: u32, amount: usize, output: &mut u32) -> bool {
+    if amount >= 32 { return false; }
+    set *output = shr_u32(left, amount);
+    return true;
+}
+
+export proc checked_shr_u64(left: u64, amount: usize, output: &mut u64) -> bool {
+    if amount >= 64 { return false; }
+    set *output = shr_u64(left, amount);
+    return true;
 }
