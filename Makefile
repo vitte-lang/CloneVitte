@@ -832,7 +832,8 @@ GRAMMAR_FIXTURES := \
 	$(TEST_DIR)/expression_literals_parse.vit \
 	$(TEST_DIR)/form_parse.vit \
 	$(TEST_DIR)/pick_parse.vit \
-	$(TEST_DIR)/nested_generic_type_arguments_parse.vit
+	$(TEST_DIR)/nested_generic_type_arguments_parse.vit \
+	$(TEST_DIR)/sema_const_generic_declaration_ok.vit
 
 $(GRAMMAR_TEST_BIN): $(TEST_DIR)/grammar_parser_test.c $(LIB_OBJECTS)
 	@mkdir -p $(BIN_DIR)
