@@ -233,16 +233,19 @@ par l'inférence C17 des paramètres génériques. Le smoke natif exerce donc la
 fonction typée `fixed_is_sorted_i64` sur tranche. Cette limite ne réduit pas le
 résultat du gate bootstrap.
 
-Le run Actions [42419827950](https://github.com/vitte-lang/vitte/actions/runs/42419827950)
-a validé les gates précédents (`test-runtime`, `test-core`, parité, corpus et
-stages 0 à 3) sous Linux, macOS et Windows; les installations de paquets ont
-aussi réussi sur ces trois systèmes. Il précède les tests et exports de tableaux
-ajoutés ici, qui n'ont pour l'instant qu'une validation locale macOS. Le run
-global a ensuite été annulé pendant le cross-build FreeBSD ARMv7 par VM.
+Le run Actions [42431047837](https://github.com/vitte-lang/vitte/actions/runs/42431047837)
+a réussi après ces changements. Il valide `test-core`, `test-core-native`, la
+parité, le corpus et les stages 0 à 3 sous Linux, macOS et Windows; les trois
+installations natives de paquets ont également réussi. Les jobs d'architecture
+i386/i686, ARMv6, ARMv7, RISC-V RV32, MIPS32, PowerPC 32, FreeBSD i386/ARMv7,
+Windows i386 et Android ARMv7 sont verts. Les runners VM FreeBSD, OpenBSD,
+NetBSD, Solaris, OmniOS et OpenIndiana ont aussi réussi. Ce résultat remplace
+le run précédent [42419827950](https://github.com/vitte-lang/vitte/actions/runs/42419827950),
+qui avait été annulé pendant le cross-build FreeBSD ARMv7.
 
 Ce résultat valide ce sous-ensemble sur le chemin bootstrap, pas toute la
-bibliothèque ni le frontend natif. Une vérification directe des 202 sources
-individuelles donne 180 fichiers acceptés et 22 rejetés par l'analyse
+bibliothèque ni la compatibilité intégrale du module. Une vérification directe
+des 202 sources individuelles donne 180 fichiers acceptés et 22 rejetés par l'analyse
 sémantique bootstrap. Les 22 blocages sont : les 14 fichiers de traits qui
 utilisent des récepteurs `self`, `types/array.vit` pour ses paramètres
 `const N`, les cellules génériques `lazycell`, `oncecell` et `refcell`,
