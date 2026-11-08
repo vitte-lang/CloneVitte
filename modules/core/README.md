@@ -244,17 +244,17 @@ par l'inférence C17 des paramètres génériques. Le smoke natif exerce donc la
 fonction typée `fixed_is_sorted_i64` sur tranche. Cette limite ne réduit pas le
 résultat du gate bootstrap.
 
-Le run Actions [42431047837](https://github.com/vitte-lang/vitte/actions/runs/42431047837)
-est la dernière validation multiplateforme verte avant les changements locaux
-de signatures des traits, de `Unit` et de l'intrinsic `trap`. Il a validé
-`test-core`, `test-core-native`, la parité, le corpus et les stages 0 à 3 sous
-Linux, macOS et Windows; les trois installations natives de paquets ont aussi
-réussi. Les jobs d'architecture i386/i686, ARMv6, ARMv7, RISC-V RV32, MIPS32,
-PowerPC 32, FreeBSD i386/ARMv7, Windows i386 et Android ARMv7 sont verts. Les
-runners VM FreeBSD, OpenBSD, NetBSD, Solaris, OmniOS et OpenIndiana ont aussi
-réussi. Ce résultat remplace le run précédent
-[42419827950](https://github.com/vitte-lang/vitte/actions/runs/42419827950),
-qui avait été annulé pendant le cross-build FreeBSD ARMv7.
+Le run Actions [42485197082](https://github.com/vitte-lang/vitte/actions/runs/42485197082)
+du commit `f43cbdc` a réussi sur ses 25 jobs. Il valide les gates compilateur,
+runtime, parité native, corpus, `test-core`, `test-core-native` et self-host
+stages 0 à 3 sous Linux, macOS et Windows. Les installations de paquets ont
+réussi sur ces trois systèmes. Les jobs d'architecture Linux i386/i686, ARMv6,
+ARMv7, RISC-V RV32, MIPS32 et PowerPC 32, ainsi que FreeBSD i386/i686, FreeBSD
+ARMv7, Windows i386 et Android ARMv7, sont verts. Les runners VM FreeBSD,
+OpenBSD, NetBSD, Solaris, OmniOS et OpenIndiana ont aussi réussi. Ce run
+remplace le run précédent
+[42431047837](https://github.com/vitte-lang/vitte/actions/runs/42431047837)
+pour la révision Core actuelle.
 
 Ce résultat valide ce sous-ensemble sur le chemin bootstrap, pas toute la
 bibliothèque ni la compatibilité intégrale du module. Une vérification directe
@@ -275,13 +275,13 @@ Les wrappers atomiques, les intrinsics de synchronisation, certaines
 spécialisations génériques et les valeurs `?T` scalaires restent aussi limités
 à l'exécution. Les gates bootstrap et natifs macOS passent localement avec ces
 changements, y compris les probes de terminaison. La CI multiplateforme de ces
-derniers changements reste à exécuter.
+changements a aussi réussi sur les 25 jobs du run lié ci-dessus.
 Le gate « core 100 % » n'est pas atteint.
 
 ## Suite du travail
 
-1. Exécuter ces exports et tests étendus sous Linux, macOS et Windows, puis
-   étendre encore le gate natif aux formes génériques représentables.
+1. Étendre encore le gate natif aux formes génériques représentables, puis
+   vérifier les consommateurs (`alloc`, `json`, compilateur) sur les trois OS.
 2. Ajouter au langage les paramètres `const`, un type bottom et l'extraction
    sûre de `?T` pour traiter les cinq sources encore rejetées.
 3. Relier les déclarations de traits et leurs implémentations au dispatch
