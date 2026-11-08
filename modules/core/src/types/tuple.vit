@@ -1,8 +1,23 @@
-/// Alias nommés pour les tuples intégrés au langage.
+/// Formes nommées pour les regroupements de valeurs à arité fixe.
 space core::types::tuple;
 
 /// Paire de valeurs potentiellement distinctes.
-export type Pair<T, U> = (T, U);
+export form Pair<T, U> {
+    first: T,
+    second: U,
+}
 
 /// Triplet de valeurs potentiellement distinctes.
-export type Triple<T, U, V> = (T, U, V);
+export form Triple<T, U, V> {
+    first: T,
+    second: U,
+    third: V,
+}
+
+/// Groupe de quatre valeurs potentiellement distinctes.
+export form Quad<T, U, V, W> {
+    first: T,
+    second: U,
+    third: V,
+    fourth: W,
+}

@@ -3,6 +3,7 @@ use core::primitive::char::{char_is_ascii_digit, char_to_ascii_lowercase, char_t
 use core::primitive::float::{f64_abs, f64_is_finite, f64_is_zero};
 use core::primitive::integer::{i64_is_even, i64_is_odd, u64_is_power_of_two};
 use core::primitive::signed::{i64_signum, i64_unsigned_abs};
+use core::num::limits::{I64_MAX};
 
 test "primitive helpers cover booleans characters numbers and floats" {
     assert(bool_is_true(true));
@@ -19,5 +20,5 @@ test "primitive helpers cover booleans characters numbers and floats" {
     assert(i64_is_odd(3));
     assert(u64_is_power_of_two(1024));
     assert(i64_signum(-5) == -1);
-    assert(i64_unsigned_abs(-9223372036854775807 - 1) == 9223372036854775808);
+    assert(i64_unsigned_abs(-9223372036854775807 - 1) == I64_MAX as u64 + 1 as u64);
 }

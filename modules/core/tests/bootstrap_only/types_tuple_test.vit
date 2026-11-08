@@ -1,0 +1,21 @@
+use core::types::tuple::{Pair, Triple, Quad};
+
+test "named tuple forms retain their fields at each arity" {
+    let pair: Pair[i64, u8] = Pair[i64, u8] { first: 11, second: 7 as u8 };
+    let triple: Triple[i64, u8, bool] = Triple[i64, u8, bool] {
+        first: pair.first,
+        second: pair.second,
+        third: true,
+    };
+    let quad: Quad[i64, u8, bool, i32] = Quad[i64, u8, bool, i32] {
+        first: triple.first,
+        second: triple.second,
+        third: triple.third,
+        fourth: 42,
+    };
+
+    assert(quad.first == 11);
+    assert(quad.second == 7 as u8);
+    assert(quad.third);
+    assert(quad.fourth == 42);
+}

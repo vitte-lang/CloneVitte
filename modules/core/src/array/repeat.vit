@@ -1,7 +1,10 @@
 space core::array::repeat;
 
+use core::num::checked::{CheckedI64Result, checked_i64_add, checked_i64_mul};
+use core::num::limits::{I64_MAX};
+
 /// Remplit un tableau avec une valeur répétée.
-proc array_repeat_fill<T>(
+export proc array_repeat_fill<T>(
     array: &mut [T],
     value: T
 ) {
@@ -12,7 +15,7 @@ proc array_repeat_fill<T>(
 
 /// Remplit les premières positions avec une valeur répétée.
 /// Retourne le nombre d'éléments écrits.
-proc array_repeat_n<T>(
+export proc array_repeat_n<T>(
     array: &mut [T],
     value: T,
     count: usize
@@ -31,7 +34,7 @@ proc array_repeat_n<T>(
 }
 
 /// Répète une valeur dans une plage [start, end).
-proc array_repeat_range<T>(
+export proc array_repeat_range<T>(
     array: &mut [T],
     start: usize,
     end: usize,
@@ -52,15 +55,17 @@ proc array_repeat_range<T>(
         return 0;
     }
 
-    for i in begin..limit {
-        set array[i] = value;
+    let mut index: usize = begin;
+    while index < limit {
+        set array[index] = value;
+        set index = index + 1;
     }
 
     return limit - begin;
 }
 
 /// Répète un motif jusqu'à remplir la destination.
-proc array_repeat_pattern<T>(
+export proc array_repeat_pattern<T>(
     destination: &mut [T],
     pattern: &[T]
 ) -> usize {
@@ -78,7 +83,7 @@ proc array_repeat_pattern<T>(
 
 /// Répète un motif un nombre déterminé de fois.
 /// Le résultat est limité à la capacité de destination.
-proc array_repeat_pattern_n<T>(
+export proc array_repeat_pattern_n<T>(
     destination: &mut [T],
     pattern: &[T],
     repetitions: usize
@@ -104,7 +109,7 @@ proc array_repeat_pattern_n<T>(
 }
 
 /// Répète deux valeurs en alternance.
-proc array_repeat_alternating<T>(
+export proc array_repeat_alternating<T>(
     array: &mut [T],
     first: T,
     second: T
@@ -119,7 +124,7 @@ proc array_repeat_alternating<T>(
 }
 
 /// Répète trois valeurs selon un cycle.
-proc array_repeat_three<T>(
+export proc array_repeat_three<T>(
     array: &mut [T],
     first: T,
     second: T,
@@ -139,7 +144,7 @@ proc array_repeat_three<T>(
 }
 
 /// Répète une valeur uniquement aux indices multiples d'un pas.
-proc array_repeat_step<T>(
+export proc array_repeat_step<T>(
     array: &mut [T],
     value: T,
     step: usize
@@ -162,7 +167,7 @@ proc array_repeat_step<T>(
 
 /// Répète une valeur sur des blocs de taille fixe.
 /// Chaque bloc écrit est suivi d'un bloc ignoré.
-proc array_repeat_blocks<T>(
+export proc array_repeat_blocks<T>(
     array: &mut [T],
     value: T,
     block_size: usize
@@ -245,28 +250,38 @@ proc array_repeat_cycle<T>(
 }
 
 /// Répète une séquence de valeurs numériques.
-proc array_repeat_sequence(
+export proc array_repeat_sequence(
     array: &mut [i64],
     start: i64,
     step: i64,
     cycle_length: usize
-) -> usize {
+) -> bool {
     if cycle_length == 0 {
-        return 0;
+        return false;
+    }
+
+    // Vérifier toutes les valeurs avant toute écriture.
+    for i in 0..array.len() {
+        let position: usize = i % cycle_length;
+        if position > I64_MAX as usize { return false; }
+        let product: CheckedI64Result = checked_i64_mul(position as i64, step);
+        if not product.success { return false; }
+        let value: CheckedI64Result = checked_i64_add(start, product.value);
+        if not value.success { return false; }
     }
 
     for i in 0..array.len() {
-        let position: usize = i % cycle_length;
-        let offset: i64 = position as i64;
-
-        set array[i] = start + offset * step;
+        let position: i64 = (i % cycle_length) as i64;
+        let product: CheckedI64Result = checked_i64_mul(position, step);
+        let value: CheckedI64Result = checked_i64_add(start, product.value);
+        set array[i] = value.value;
     }
 
-    return array.len();
+    return true;
 }
 
 /// Répète chaque élément source plusieurs fois.
-proc array_repeat_each<T>(
+export proc array_repeat_each<T>(
     source: &[T],
     destination: &mut [T],
     repetitions: usize
@@ -288,7 +303,7 @@ proc array_repeat_each<T>(
 }
 
 /// Répète un motif en ordre inverse.
-proc array_repeat_reverse_pattern<T>(
+export proc array_repeat_reverse_pattern<T>(
     destination: &mut [T],
     pattern: &[T]
 ) -> usize {
@@ -307,7 +322,7 @@ proc array_repeat_reverse_pattern<T>(
 }
 
 /// Répète un motif en alternant sens normal et inverse.
-proc array_repeat_ping_pong<T>(
+export proc array_repeat_ping_pong<T>(
     destination: &mut [T],
     pattern: &[T]
 ) -> usize {
@@ -316,19 +331,33 @@ proc array_repeat_ping_pong<T>(
     }
 
     if pattern.len() == 1 {
-        return array_repeat_fill_count(destination, pattern[0]);
+        for i in 0..destination.len() {
+            set destination[i] = pattern[0];
+        }
+        return destination.len();
     }
 
-    let period: usize = pattern.len() * 2 - 2;
+    let pattern_length: usize = pattern.len() as usize;
+    let mut source_index: usize = 0;
+    let mut forward: bool = true;
+    let mut destination_index: usize = 0;
 
-    for i in 0..destination.len() {
-        let position: usize = i % period;
+    while destination_index < destination.len() {
+        set destination[destination_index] = pattern[source_index];
+        set destination_index = destination_index + 1;
 
-        if position < pattern.len() {
-            set destination[i] = pattern[position];
+        if forward {
+            if source_index + 1 >= pattern_length {
+                set forward = false;
+                set source_index = source_index - 1;
+            } else {
+                set source_index = source_index + 1;
+            }
+        } else if source_index == 0 {
+            set forward = true;
+            set source_index = 1;
         } else {
-            let index: usize = period - position;
-            set destination[i] = pattern[index];
+            set source_index = source_index - 1;
         }
     }
 
@@ -336,7 +365,7 @@ proc array_repeat_ping_pong<T>(
 }
 
 /// Remplit un tableau et retourne sa longueur.
-proc array_repeat_fill_count<T>(
+export proc array_repeat_fill_count<T>(
     array: &mut [T],
     value: T
 ) -> usize {
@@ -348,7 +377,7 @@ proc array_repeat_fill_count<T>(
 }
 
 /// Répète un motif uniquement sur une plage.
-proc array_repeat_pattern_range<T>(
+export proc array_repeat_pattern_range<T>(
     destination: &mut [T],
     pattern: &[T],
     start: usize,
@@ -373,9 +402,11 @@ proc array_repeat_pattern_range<T>(
         return 0;
     }
 
-    for i in begin..limit {
-        let pattern_index: usize = (i - begin) % pattern.len();
-        set destination[i] = pattern[pattern_index];
+    let mut index: usize = begin;
+    while index < limit {
+        let pattern_index: usize = (index - begin) % pattern.len();
+        set destination[index] = pattern[pattern_index];
+        set index = index + 1;
     }
 
     return limit - begin;

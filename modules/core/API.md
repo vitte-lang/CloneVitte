@@ -6,8 +6,8 @@ changing an exported signature. Contracts and error semantics are described
 in [`README.md`](README.md). This is a source API index, not a stable ABI
 promise.
 
-Source files indexed: 178.
-Exported declarations indexed: 1618.
+Source files indexed: 181.
+Exported declarations indexed: 1651.
 
 ## `core::array::compare`
 
@@ -40,12 +40,193 @@ export proc fixed_is_sorted_u64(array: &[u64]) -> bool;
 export proc fixed_is_sorted_f64(array: &[f64]) -> bool;
 ```
 
+## `core::array::init`
+
+Source: [`src/array/init.vit`](src/array/init.vit) · exports: 11
+
+```vit
+export proc array_init_fill<T>(
+    array: &mut [T],
+    value: T
+);
+export proc array_init_indexed(
+    array: &mut [usize]
+);
+export proc array_init_sequence(
+    array: &mut [i64],
+    start: i64,
+    step: i64
+) -> bool;
+export proc array_init_reverse_sequence(
+    array: &mut [i64],
+    start: i64,
+    step: i64
+) -> bool;
+export proc array_init_copy<T>(
+    source: &[T],
+    destination: &mut [T]
+) -> usize;
+export proc array_init_range<T>(
+    array: &mut [T],
+    start: usize,
+    end: usize,
+    value: T
+);
+export proc array_init_alternating<T>(
+    array: &mut [T],
+    first: T,
+    second: T
+);
+export proc array_init_geometric(
+    array: &mut [i64],
+    start: i64,
+    ratio: i64
+) -> bool;
+export proc array_init_bool(
+    array: &mut [bool],
+    value: bool
+);
+export proc array_init_false(
+    array: &mut [bool]
+);
+export proc array_init_true(
+    array: &mut [bool]
+);
+```
+
 ## `core::array`
 
 Source: [`src/array/mod.vit`](src/array/mod.vit) · exports: 1
 
 ```vit
 export proc array_length<T>(value: &[T]) -> usize;
+```
+
+## `core::array::repeat`
+
+Source: [`src/array/repeat.vit`](src/array/repeat.vit) · exports: 15
+
+```vit
+export proc array_repeat_fill<T>(
+    array: &mut [T],
+    value: T
+);
+export proc array_repeat_n<T>(
+    array: &mut [T],
+    value: T,
+    count: usize
+) -> usize;
+export proc array_repeat_range<T>(
+    array: &mut [T],
+    start: usize,
+    end: usize,
+    value: T
+) -> usize;
+export proc array_repeat_pattern<T>(
+    destination: &mut [T],
+    pattern: &[T]
+) -> usize;
+export proc array_repeat_pattern_n<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    repetitions: usize
+) -> usize;
+export proc array_repeat_alternating<T>(
+    array: &mut [T],
+    first: T,
+    second: T
+);
+export proc array_repeat_three<T>(
+    array: &mut [T],
+    first: T,
+    second: T,
+    third: T
+);
+export proc array_repeat_step<T>(
+    array: &mut [T],
+    value: T,
+    step: usize
+) -> usize;
+export proc array_repeat_blocks<T>(
+    array: &mut [T],
+    value: T,
+    block_size: usize
+) -> usize;
+export proc array_repeat_sequence(
+    array: &mut [i64],
+    start: i64,
+    step: i64,
+    cycle_length: usize
+) -> bool;
+export proc array_repeat_each<T>(
+    source: &[T],
+    destination: &mut [T],
+    repetitions: usize
+) -> usize;
+export proc array_repeat_reverse_pattern<T>(
+    destination: &mut [T],
+    pattern: &[T]
+) -> usize;
+export proc array_repeat_ping_pong<T>(
+    destination: &mut [T],
+    pattern: &[T]
+) -> usize;
+export proc array_repeat_fill_count<T>(
+    array: &mut [T],
+    value: T
+) -> usize;
+export proc array_repeat_pattern_range<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    start: usize,
+    end: usize
+) -> usize;
+```
+
+## `core::array::zip`
+
+Source: [`src/array/zip.vit`](src/array/zip.vit) · exports: 6
+
+```vit
+export proc array_zip_min_length<T, U>(
+    left: &[T],
+    right: &[U]
+) -> usize;
+export proc array_zip3_min_length<T, U, V>(
+    first: &[T],
+    second: &[U],
+    third: &[V]
+) -> usize;
+export proc array_zip4_min_length<T, U, V, W>(
+    first: &[T],
+    second: &[U],
+    third: &[V],
+    fourth: &[W]
+) -> usize;
+export proc array_zip<T, U>(
+    left: &[T],
+    right: &[U],
+    left_output: &mut [T],
+    right_output: &mut [U]
+) -> usize;
+export proc array_zip3<T, U, V>(
+    first: &[T],
+    second: &[U],
+    third: &[V],
+    first_output: &mut [T],
+    second_output: &mut [U],
+    third_output: &mut [V]
+) -> usize;
+export proc array_zip4<T, U, V, W>(
+    first: &[T],
+    second: &[U],
+    third: &[V],
+    fourth: &[W],
+    first_output: &mut [T],
+    second_output: &mut [U],
+    third_output: &mut [V],
+    fourth_output: &mut [W]
+) -> usize;
 ```
 
 ## `core::cell::cell`
@@ -1736,7 +1917,11 @@ export proc chain_copy<T>(left: &[T], right: &[T], destination: &mut [T]) -> usi
 Source: [`src/iter/enumerate.vit`](src/iter/enumerate.vit) · exports: 1
 
 ```vit
-export proc enumerate_copy<T>(source: &[T], destination: &mut [(usize, T)]) -> usize;
+export proc enumerate_copy<T>(
+    source: &[T],
+    values: &mut [T],
+    indices: &mut [usize]
+) -> usize;
 ```
 
 ## `core::iter::filter`
@@ -1758,7 +1943,7 @@ Source: [`src/iter/fold.vit`](src/iter/fold.vit) · exports: 3
 ```vit
 export form FoldStep<U> {
     accumulator: U,
-    continue: bool,
+    should_continue: bool,
 }
 export proc fold<T, U>(
     source: &[T],
@@ -1871,7 +2056,8 @@ Source: [`src/iter/zip.vit`](src/iter/zip.vit) · exports: 1
 export proc zip_copy<T, U>(
     left: &[T],
     right: &[U],
-    destination: &mut [(T, U)]
+    left_output: &mut [T],
+    right_output: &mut [U]
 ) -> usize;
 ```
 
@@ -2855,10 +3041,10 @@ export proc slice_chunk_at(length: usize, chunk_size: usize, chunk_index: usize)
 Source: [`src/slice/iterator.vit`](src/slice/iterator.vit) · exports: 4
 
 ```vit
-export proc slice_cursor<T>(value: &[T]) -> SliceIterator[T];
-export proc slice_cursor_next<T>(value: &mut SliceIterator[T]) -> ?T;
-export proc slice_cursor_next_back<T>(value: &mut SliceIterator[T]) -> ?T;
-export proc slice_cursor_remaining<T>(value: &SliceIterator[T]) -> usize;
+export proc slice_cursor_init<T>(source: &[T], front: &mut usize, back: &mut usize);
+export proc slice_cursor_next<T>(source: &[T], front: &mut usize, back: &mut usize, output: &mut T) -> bool;
+export proc slice_cursor_next_back<T>(source: &[T], front: &mut usize, back: &mut usize, output: &mut T) -> bool;
+export proc slice_cursor_remaining(front: usize, back: usize) -> usize;
 ```
 
 ## `core::slice`
@@ -3528,11 +3714,24 @@ export proc slice_is_empty<T>(value: &[T]) -> bool;
 
 ## `core::types::tuple`
 
-Source: [`src/types/tuple.vit`](src/types/tuple.vit) · exports: 2
+Source: [`src/types/tuple.vit`](src/types/tuple.vit) · exports: 3
 
 ```vit
-export type Pair<T, U> = (T, U);
-export type Triple<T, U, V> = (T, U, V);
+export form Pair<T, U> {
+    first: T,
+    second: U,
+}
+export form Triple<T, U, V> {
+    first: T,
+    second: U,
+    third: V,
+}
+export form Quad<T, U, V, W> {
+    first: T,
+    second: U,
+    third: V,
+    fourth: W,
+}
 ```
 
 ## `vitte::core::memory`

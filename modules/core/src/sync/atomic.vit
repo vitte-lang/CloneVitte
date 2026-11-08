@@ -3,6 +3,8 @@ space core::sync::atomic;
 
 use core::sync::ordering::{AtomicOrdering};
 use core::intrinsics::atomic::{atomic_load, atomic_store, atomic_exchange, atomic_compare_exchange, atomic_fetch_add, atomic_fetch_sub, atomic_fence};
+use core::ptr::const_ptr::{const_ptr};
+use core::ptr::mut_ptr::{mut_ptr};
 
 export form AtomicUsize { value: usize }
 export form AtomicU64 { value: u64 }
@@ -10,30 +12,30 @@ export form AtomicBool { value: bool }
 /// Le backend doit limiter cette forme aux scalaires atomiques de la cible.
 export form Atomic<T> { value: T }
 
-export proc atomic_new<T>(value: T) -> Atomic[T] { return Atomic { value: value }; }
+export proc atomic_new<T>(value: T) -> Atomic[T] { return Atomic[T] { value: value }; }
 
 export proc atomic_load_value<T>(value: &Atomic[T], order: AtomicOrdering) -> T {
-    return atomic_load(&value.value, order);
+    return atomic_load(const_ptr(&value.value), order);
 }
 
 export proc atomic_store_value<T>(value: &mut Atomic[T], replacement: T, order: AtomicOrdering) {
-    atomic_store(&mut value.value, replacement, order);
+    atomic_store(mut_ptr(&mut value.value), replacement, order);
 }
 
 export proc atomic_exchange_value<T>(value: &mut Atomic[T], replacement: T, order: AtomicOrdering) -> T {
-    return atomic_exchange(&mut value.value, replacement, order);
+    return atomic_exchange(mut_ptr(&mut value.value), replacement, order);
 }
 
 export proc atomic_compare_exchange_value<T>(value: &mut Atomic[T], expected: T, replacement: T, success: AtomicOrdering, failure: AtomicOrdering) -> bool {
-    return atomic_compare_exchange(&mut value.value, expected, replacement, success, failure);
+    return atomic_compare_exchange(mut_ptr(&mut value.value), expected, replacement, success, failure);
 }
 
 export proc atomic_fetch_add_value<T>(value: &mut Atomic[T], amount: T, order: AtomicOrdering) -> T {
-    return atomic_fetch_add(&mut value.value, amount, order);
+    return atomic_fetch_add(mut_ptr(&mut value.value), amount, order);
 }
 
 export proc atomic_fetch_sub_value<T>(value: &mut Atomic[T], amount: T, order: AtomicOrdering) -> T {
-    return atomic_fetch_sub(&mut value.value, amount, order);
+    return atomic_fetch_sub(mut_ptr(&mut value.value), amount, order);
 }
 
 export proc atomic_usize(value: usize) -> AtomicUsize { return AtomicUsize { value: value }; }
@@ -41,135 +43,135 @@ export proc atomic_u64(value: u64) -> AtomicU64 { return AtomicU64 { value: valu
 export proc atomic_bool(value: bool) -> AtomicBool { return AtomicBool { value: value }; }
 
 export proc atomic_usize_load(value: &AtomicUsize, order: AtomicOrdering) -> usize {
-    return atomic_load(&value.value, order);
+    return atomic_load(const_ptr(&value.value), order);
 }
 
 export proc atomic_usize_store(value: &mut AtomicUsize, replacement: usize, order: AtomicOrdering) {
-    atomic_store(&mut value.value, replacement, order);
+    atomic_store(mut_ptr(&mut value.value), replacement, order);
 }
 
 export proc atomic_usize_exchange(value: &mut AtomicUsize, replacement: usize, order: AtomicOrdering) -> usize {
-    return atomic_exchange(&mut value.value, replacement, order);
+    return atomic_exchange(mut_ptr(&mut value.value), replacement, order);
 }
 
 export proc atomic_usize_compare_exchange(value: &mut AtomicUsize, expected: usize, replacement: usize, success: AtomicOrdering, failure: AtomicOrdering) -> bool {
-    return atomic_compare_exchange(&mut value.value, expected, replacement, success, failure);
+    return atomic_compare_exchange(mut_ptr(&mut value.value), expected, replacement, success, failure);
 }
 
 export proc atomic_usize_fetch_add(value: &mut AtomicUsize, amount: usize, order: AtomicOrdering) -> usize {
-    return atomic_fetch_add(&mut value.value, amount, order);
+    return atomic_fetch_add(mut_ptr(&mut value.value), amount, order);
 }
 
 export proc atomic_usize_fetch_sub(value: &mut AtomicUsize, amount: usize, order: AtomicOrdering) -> usize {
-    return atomic_fetch_sub(&mut value.value, amount, order);
+    return atomic_fetch_sub(mut_ptr(&mut value.value), amount, order);
 }
 
 export proc atomic_usize_fetch_and(value: &mut AtomicUsize, mask: usize, order: AtomicOrdering) -> usize {
-    let mut observed: usize = atomic_load(&value.value, AtomicOrdering.Relaxed);
+    let mut observed: usize = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     while true {
         let replacement: usize = observed & mask;
-        if atomic_compare_exchange(&mut value.value, observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
-        set observed = atomic_load(&value.value, AtomicOrdering.Relaxed);
+        if atomic_compare_exchange(mut_ptr(&mut value.value), observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
+        set observed = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     }
     return 0;
 }
 
 export proc atomic_usize_fetch_or(value: &mut AtomicUsize, mask: usize, order: AtomicOrdering) -> usize {
-    let mut observed: usize = atomic_load(&value.value, AtomicOrdering.Relaxed);
+    let mut observed: usize = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     while true {
         let replacement: usize = observed | mask;
-        if atomic_compare_exchange(&mut value.value, observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
-        set observed = atomic_load(&value.value, AtomicOrdering.Relaxed);
+        if atomic_compare_exchange(mut_ptr(&mut value.value), observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
+        set observed = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     }
     return 0;
 }
 
 export proc atomic_usize_fetch_xor(value: &mut AtomicUsize, mask: usize, order: AtomicOrdering) -> usize {
-    let mut observed: usize = atomic_load(&value.value, AtomicOrdering.Relaxed);
+    let mut observed: usize = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     while true {
         let replacement: usize = observed ^ mask;
-        if atomic_compare_exchange(&mut value.value, observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
-        set observed = atomic_load(&value.value, AtomicOrdering.Relaxed);
+        if atomic_compare_exchange(mut_ptr(&mut value.value), observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
+        set observed = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     }
     return 0;
 }
 
 export proc atomic_u64_load(value: &AtomicU64, order: AtomicOrdering) -> u64 {
-    return atomic_load(&value.value, order);
+    return atomic_load(const_ptr(&value.value), order);
 }
 
 export proc atomic_u64_store(value: &mut AtomicU64, replacement: u64, order: AtomicOrdering) {
-    atomic_store(&mut value.value, replacement, order);
+    atomic_store(mut_ptr(&mut value.value), replacement, order);
 }
 
 export proc atomic_u64_exchange(value: &mut AtomicU64, replacement: u64, order: AtomicOrdering) -> u64 {
-    return atomic_exchange(&mut value.value, replacement, order);
+    return atomic_exchange(mut_ptr(&mut value.value), replacement, order);
 }
 
 export proc atomic_u64_compare_exchange(value: &mut AtomicU64, expected: u64, replacement: u64, success: AtomicOrdering, failure: AtomicOrdering) -> bool {
-    return atomic_compare_exchange(&mut value.value, expected, replacement, success, failure);
+    return atomic_compare_exchange(mut_ptr(&mut value.value), expected, replacement, success, failure);
 }
 
 export proc atomic_u64_fetch_add(value: &mut AtomicU64, amount: u64, order: AtomicOrdering) -> u64 {
-    return atomic_fetch_add(&mut value.value, amount, order);
+    return atomic_fetch_add(mut_ptr(&mut value.value), amount, order);
 }
 
 export proc atomic_u64_fetch_sub(value: &mut AtomicU64, amount: u64, order: AtomicOrdering) -> u64 {
-    return atomic_fetch_sub(&mut value.value, amount, order);
+    return atomic_fetch_sub(mut_ptr(&mut value.value), amount, order);
 }
 
 export proc atomic_u64_fetch_and(value: &mut AtomicU64, mask: u64, order: AtomicOrdering) -> u64 {
-    let mut observed: u64 = atomic_load(&value.value, AtomicOrdering.Relaxed);
+    let mut observed: u64 = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     while true {
         let replacement: u64 = observed & mask;
-        if atomic_compare_exchange(&mut value.value, observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
-        set observed = atomic_load(&value.value, AtomicOrdering.Relaxed);
+        if atomic_compare_exchange(mut_ptr(&mut value.value), observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
+        set observed = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     }
     return 0;
 }
 
 export proc atomic_u64_fetch_or(value: &mut AtomicU64, mask: u64, order: AtomicOrdering) -> u64 {
-    let mut observed: u64 = atomic_load(&value.value, AtomicOrdering.Relaxed);
+    let mut observed: u64 = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     while true {
         let replacement: u64 = observed | mask;
-        if atomic_compare_exchange(&mut value.value, observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
-        set observed = atomic_load(&value.value, AtomicOrdering.Relaxed);
+        if atomic_compare_exchange(mut_ptr(&mut value.value), observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
+        set observed = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     }
     return 0;
 }
 
 export proc atomic_u64_fetch_xor(value: &mut AtomicU64, mask: u64, order: AtomicOrdering) -> u64 {
-    let mut observed: u64 = atomic_load(&value.value, AtomicOrdering.Relaxed);
+    let mut observed: u64 = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     while true {
         let replacement: u64 = observed ^ mask;
-        if atomic_compare_exchange(&mut value.value, observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
-        set observed = atomic_load(&value.value, AtomicOrdering.Relaxed);
+        if atomic_compare_exchange(mut_ptr(&mut value.value), observed, replacement, order, AtomicOrdering.Relaxed) { return observed; }
+        set observed = atomic_load(const_ptr(&value.value), AtomicOrdering.Relaxed);
     }
     return 0;
 }
 
 export proc atomic_bool_load(value: &AtomicBool, order: AtomicOrdering) -> bool {
-    return atomic_load(&value.value, order);
+    return atomic_load(const_ptr(&value.value), order);
 }
 
 export proc atomic_bool_store(value: &mut AtomicBool, replacement: bool, order: AtomicOrdering) {
-    atomic_store(&mut value.value, replacement, order);
+    atomic_store(mut_ptr(&mut value.value), replacement, order);
 }
 
 export proc atomic_bool_exchange(value: &mut AtomicBool, replacement: bool, order: AtomicOrdering) -> bool {
-    return atomic_exchange(&mut value.value, replacement, order);
+    return atomic_exchange(mut_ptr(&mut value.value), replacement, order);
 }
 
 export proc atomic_bool_compare_exchange(value: &mut AtomicBool, expected: bool, replacement: bool, success: AtomicOrdering, failure: AtomicOrdering) -> bool {
-    return atomic_compare_exchange(&mut value.value, expected, replacement, success, failure);
+    return atomic_compare_exchange(mut_ptr(&mut value.value), expected, replacement, success, failure);
 }
 
 export proc atomic_bool_test_and_set(value: &mut AtomicBool, order: AtomicOrdering) -> bool {
-    return atomic_exchange(&mut value.value, true, order);
+    return atomic_exchange(mut_ptr(&mut value.value), true, order);
 }
 
 export proc atomic_bool_clear(value: &mut AtomicBool, order: AtomicOrdering) {
-    atomic_store(&mut value.value, false, order);
+    atomic_store(mut_ptr(&mut value.value), false, order);
 }
 
 export proc atomic_thread_fence(order: AtomicOrdering) { atomic_fence(order); }

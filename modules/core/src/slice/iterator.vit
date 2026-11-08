@@ -1,20 +1,27 @@
 /// Interface de curseur emprunté pour les algorithmes de tranche.
 space core::slice::iterator;
 
-use core::iter::iterator::{SliceIterator, slice_iterator, iterator_next, iterator_next_back, iterator_remaining};
-
-export proc slice_cursor<T>(value: &[T]) -> SliceIterator[T] {
-    return slice_iterator(value);
+export proc slice_cursor_init<T>(source: &[T], front: &mut usize, back: &mut usize) {
+    set *front = 0;
+    set *back = source.len();
 }
 
-export proc slice_cursor_next<T>(value: &mut SliceIterator[T]) -> ?T {
-    return iterator_next(value);
+export proc slice_cursor_next<T>(source: &[T], front: &mut usize, back: &mut usize, output: &mut T) -> bool {
+    if *front >= *back { return false; }
+    let position: usize = *front;
+    set *front = *front + 1;
+    set *output = source[position];
+    return true;
 }
 
-export proc slice_cursor_next_back<T>(value: &mut SliceIterator[T]) -> ?T {
-    return iterator_next_back(value);
+export proc slice_cursor_next_back<T>(source: &[T], front: &mut usize, back: &mut usize, output: &mut T) -> bool {
+    if *front >= *back { return false; }
+    set *back = *back - 1;
+    set *output = source[*back];
+    return true;
 }
 
-export proc slice_cursor_remaining<T>(value: &SliceIterator[T]) -> usize {
-    return iterator_remaining(value);
+export proc slice_cursor_remaining(front: usize, back: usize) -> usize {
+    if front >= back { return 0; }
+    return back - front;
 }

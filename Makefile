@@ -1172,6 +1172,7 @@ test-runtime: $(TARGET_BIN)
 # This target exercises the executable C17 bootstrap subset of core; broader
 # source and native-frontend limits are recorded in modules/core/README.md.
 CORE_TESTS := $(sort $(wildcard modules/core/tests/*.vit))
+CORE_BOOTSTRAP_ONLY_TESTS := $(sort $(wildcard modules/core/tests/bootstrap_only/*.vit))
 
 .PHONY: test-core
 test-core: $(BOOTSTRAP_TARGET_BIN)
@@ -1184,6 +1185,26 @@ test-core: $(BOOTSTRAP_TARGET_BIN)
 		printf '[CORE] %s\n' "$$file"; \
 		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
 			$(BOOTSTRAP_TARGET_BIN) run "$$file" --quiet --no-color; \
+	done; \
+	for file in $(CORE_BOOTSTRAP_ONLY_TESTS); do \
+		if test ! -s "$$file"; then \
+			printf '[CORE-FAIL] empty bootstrap-only test file: %s\n' "$$file"; \
+			exit 1; \
+		fi; \
+		printf '[CORE-BOOTSTRAP] %s\n' "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
+			$(BOOTSTRAP_TARGET_BIN) run "$$file" --quiet --no-color; \
+	done
+
+# The root-level Core suite contains tests that the native frontend supports;
+# generic-form and generic-specialization regressions stay in test-core above.
+.PHONY: test-core-native
+test-core-native: $(TARGET_BIN)
+	@set -e; \
+	for file in $(CORE_TESTS); do \
+		printf '[CORE-NATIVE] %s\n' "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
+			$(TARGET_BIN) run "$$file" --quiet --no-color; \
 	done
 
 # Qualified imports must preserve same-named declarations through semantic
@@ -1476,6 +1497,7 @@ bootstrap-selfhost: compiler-selfhost-gate
 .PHONY: test
 test: \
 	test-core \
+	test-core-native \
 	test-cli-driver \
 	test-source \
 	test-diagnostic \

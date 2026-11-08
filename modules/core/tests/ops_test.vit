@@ -29,10 +29,10 @@ test "shifts preserve narrow widths and sign extend signed values" {
     assert(shifted_signed == -2);
 
     let mut byte: u8 = 3;
-    set shl_assign_u8(&mut byte, 2);
+    shl_assign_u8(&mut byte, 2);
     assert(byte == 12);
 
     let mut signed_value: i64 = -16;
-    set shr_assign_i64(&mut signed_value, 2);
+    shr_assign_i64(&mut signed_value, 2);
     assert(signed_value == -4);
 }

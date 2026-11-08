@@ -33,7 +33,7 @@ test "core modules compose across parse arithmetic format hash error and order c
     let mut hash_input: [u8] = [];
     let mut index: usize = 0;
     while index < formatted.length {
-        set hash_input.push(output[index]);
+        hash_input.push(output[index]);
         set index = index + 1;
     }
     assert(fnv1a64_bytes(&hash_input) == 0xc9f632a554f029b4);

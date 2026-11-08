@@ -1,11 +1,18 @@
 /// Associe chaque élément de la tranche à son indice.
 space core::iter::enumerate;
 
-export proc enumerate_copy<T>(source: &[T], destination: &mut [(usize, T)]) -> usize {
+/// Copie les valeurs et leurs indices dans deux tampons fournis par l'appelant.
+export proc enumerate_copy<T>(
+    source: &[T],
+    values: &mut [T],
+    indices: &mut [usize]
+) -> usize {
     let mut count: usize = source.len();
-    if destination.len() < count { set count = destination.len(); }
+    if values.len() < count { set count = values.len(); }
+    if indices.len() < count { set count = indices.len(); }
     for index in 0..count {
-        set destination[index] = (index, source[index]);
+        set values[index] = source[index];
+        set indices[index] = index;
     }
     return count;
 }

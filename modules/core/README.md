@@ -132,6 +132,23 @@ fonctions à longueur constante : les paramètres génériques `const N` et la
 conversion automatique de `[N]T` vers `&[T]` ne sont pas disponibles dans le
 langage.
 
+`core::array::init` et `core::array::repeat` exposent les remplissages, copies,
+motifs, plages, pas et séquences qui ne nécessitent pas de callback. Les
+séquences numériques retournent un booléen; elles vérifient tous les calculs
+avant d'écrire, donc un débordement laisse le tampon inchangé. `array::zip`
+copie deux, trois ou quatre tranches dans des tampons parallèles et retourne le
+nombre écrit, limité par les capacités de toutes les tranches.
+
+`core::slice::iterator` offre aussi un curseur sans allocation sous forme de
+deux indices `front`/`back`; les extractions retournent un booléen et écrivent
+dans une sortie fournie par l'appelant, pour éviter les résultats scalaires
+`?T` que le backend natif ne sait pas représenter de façon fiable.
+
+Le langage ne représente pas encore les tuples. `core::types::tuple` fournit
+donc des formes nommées `Pair`, `Triple` et `Quad`. Les opérations `zip` et
+`enumerate` écrivent leurs résultats dans des tampons de sortie parallèles;
+elles n'allouent pas et s'arrêtent à la capacité minimale disponible.
+
 `MaybeUninit<T>` suit un état et une valeur nullable; ce n'est pas une réserve
 d'octets réellement non initialisés. Il faut une primitive de stockage du
 compilateur pour garantir cette représentation. La complétude fonctionnelle et
@@ -180,26 +197,35 @@ correct des intrinsics par le backend natif.
 
 ## Validation observée
 
-`make test-core` exécute 18 fichiers de tests Vitte avec `vitte-bootstrap` et
-le backend C17; les 18 passent sur macOS. Cette cible fait partie
+`make MODE=release test-core` exécute 17 fichiers principaux avec
+`vitte-bootstrap` et le backend C17, puis 8 tests réservés au bootstrap. Les 25
+passent localement sur macOS. Cette cible fait partie
 de `make test`. Elle couvre les conversions et le parsing, les erreurs, le
 formatage, le hachage, les nombres, les comparaisons, les primitives, les
 opérations binaires et leurs décalages vérifiés, les comparaisons de tranches,
-les helpers de tableaux empruntés, le stockage générique inline de `Cell`, les
-itérateurs simples, les layouts, les plages, la recherche de chaînes, les
-intrinsics arithmétiques portables et la synchronisation. Le fixture
+les helpers de tableaux empruntés, l'initialisation et la répétition bornées,
+les séquences numériques vérifiées, les formes `Pair`/`Triple`/`Quad`, les
+tampons parallèles d'itération et de zip, le curseur de tranche à indices, les
+layouts, les plages, la recherche de chaînes, les intrinsics arithmétiques
+portables et la synchronisation. Le fixture
 `src/tests/generic_form_bracket_runtime.vit` valide aussi un constructeur
 `Box[T] { ... }` sur les chemins bootstrap et natif. Le smoke
 `src/tests/core_native_smoke_runtime.vit` vérifie l'import `core::...` natif,
 le tri d'une tranche `i64`, les helpers entiers et de décalage, la recherche de
 chaînes et une forme générique. La cible `make test-runtime` passe sur macOS.
 
-Une exécution exploratoire des 18 fichiers Core avec le frontend natif en
-réussit 13. Les cinq fichiers restants exposent encore des limites du frontend
-ou du backend : erreurs de parsing dans `array_test`, `integration_test` et
-`ops_test`, champ d'une forme générique importée dans `cell_test`, et adresse
-d'une valeur temporaire dans `error_test`. Ils ne sont pas comptés comme un
-gate natif réussi; le smoke importé est, lui, inclus dans `test-runtime`.
+`make MODE=release test-core-native` exécute les 17 fichiers principaux avec le
+compilateur natif. Les 8 tests génériques bootstrap-only ne sont pas inclus,
+car l'inférence native à travers certaines formes et tranches n'est pas encore
+implémentée. Les 17 passent localement sur macOS, y compris les séquences
+numériques ajoutées à `array_test`. Les anciens échecs sur `integration`, `ops`
+et `error` ont été corrigés; les cas de formes génériques restent couverts par
+le gate bootstrap. Le rebuild du compilateur a émis deux avertissements de
+conversion de signe dans le code C généré depuis
+`src/compiler/diagnostic/help`; ils ne proviennent pas de `modules/core`. Un
+probe d'`array_map` avec un callback nommé échoue encore à l'émission C17
+(`E0902`); les helpers à callback ne sont pas déclarés comme opérationnels par
+le gate.
 
 Les fonctions génériques de tranche comme `fixed_reverse<T>` passent les tests
 bootstrap; leur spécialisation native avec un argument emprunté reste bloquée
@@ -208,31 +234,38 @@ fonction typée `fixed_is_sorted_i64` sur tranche. Cette limite ne réduit pas l
 résultat du gate bootstrap.
 
 Le run Actions [42419827950](https://github.com/vitte-lang/vitte/actions/runs/42419827950)
-a validé `test-runtime`, `test-core`, la parité, le corpus et les stages 0 à 3
-sous Linux, macOS et Windows. Les jobs d'installation de paquets sont aussi
-passés sur ces trois systèmes. Le run global a ensuite été annulé pendant le
-cross-build FreeBSD ARMv7 par VM; cette annulation ne concerne pas les jobs
-Core ou d'installation, qui ont réussi. Les résultats locaux observés sont
-ceux de macOS.
+a validé les gates précédents (`test-runtime`, `test-core`, parité, corpus et
+stages 0 à 3) sous Linux, macOS et Windows; les installations de paquets ont
+aussi réussi sur ces trois systèmes. Il précède les tests et exports de tableaux
+ajoutés ici, qui n'ont pour l'instant qu'une validation locale macOS. Le run
+global a ensuite été annulé pendant le cross-build FreeBSD ARMv7 par VM.
 
 Ce résultat valide ce sous-ensemble sur le chemin bootstrap, pas toute la
-bibliothèque ni le frontend natif. Une vérification directe des 201 sources
-individuelles donne 170 fichiers acceptés et 31 rejetés par l'analyse
-sémantique bootstrap. Les blocages restants comprennent les tuples et les
-paramètres `const N`, plusieurs constructeurs génériques de cellules et
-itérateurs, le type `never`, les récepteurs `self` dans les traits, et les
-intrinsics atomiques. L'inférence générique à travers certains types de formes
-et les valeurs `?T` scalaires restent aussi limitées à l'exécution. Le gate
-« core 100 % » n'est pas atteint.
+bibliothèque ni le frontend natif. Une vérification directe des 202 sources
+individuelles donne 180 fichiers acceptés et 22 rejetés par l'analyse
+sémantique bootstrap. Les 22 blocages sont : les 14 fichiers de traits qui
+utilisent des récepteurs `self`, `types/array.vit` pour ses paramètres
+`const N`, les cellules génériques `lazycell`, `oncecell` et `refcell`,
+`error/panic.vit`, `intrinsics/unreachable.vit`, `primitive/unit.vit`,
+et `types/never.vit`. L'interface du curseur de tranche et les wrappers
+atomiques sont maintenant acceptés par le vérificateur; leur exécution native
+reste conditionnée à la spécialisation générique et à l'abaissement des
+intrinsics. Les formes de tuples natives ont été remplacées par des
+formes nommées, mais le langage n'a toujours pas de tuples ni de paramètres
+`const`. L'inférence générique à travers certains types de formes, les
+intrinsics de synchronisation et les valeurs `?T` scalaires restent aussi
+limitées à l'exécution. Le gate « core 100 % » n'est pas atteint.
 
 ## Suite du travail
 
-1. Ajouter les tuples, les paramètres `const N`, les récepteurs de traits et
-   l'inférence générique à travers les formes pour lever les 31 rejets.
-2. Définir une représentation C17 sûre pour `?T`, puis exécuter les helpers
-   génériques de cellule, d'itérateur et de pointeur de bout en bout.
-3. Finir l'abaissement natif des intrinsics `volatile`, atomiques, piège et
-   allocation, avec tests des erreurs d'ordre mémoire et de nullité.
-4. Exécuter tout le corpus core avec les frontends natif et bootstrap, puis
-   valider les consommateurs (`alloc`, `json`, compilateur) et les cibles
-   Linux, macOS et Windows.
+1. Exécuter ces exports et tests étendus sous Linux, macOS et Windows, puis
+   étendre encore le gate natif aux formes génériques représentables.
+2. Ajouter au langage les tuples et paramètres `const`, puis corriger les
+   récepteurs de traits et l'inférence générique pour que les 22 sources
+   rejetées soient vérifiables.
+3. Définir une représentation C17 sûre pour `?T`, puis faire fonctionner les
+   cellules génériques et les itérateurs de bout en bout.
+4. Finir l'abaissement et la validation des intrinsics mémoire, atomiques,
+   piège et allocation sur chaque cible prise en charge; ensuite exécuter les
+   consommateurs (`alloc`, `json`, compilateur) et les CI Linux, macOS et
+   Windows.

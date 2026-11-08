@@ -3,6 +3,8 @@ space core::sync::once;
 
 use core::sync::ordering::{AtomicOrdering};
 use core::intrinsics::atomic::{atomic_load, atomic_store, atomic_compare_exchange};
+use core::ptr::const_ptr::{const_ptr};
+use core::ptr::mut_ptr::{mut_ptr};
 
 export form Once {
     state: u8,
@@ -11,16 +13,16 @@ export form Once {
 export proc once_new() -> Once { return Once { state: 0 }; }
 
 export proc once_is_complete(value: &Once) -> bool {
-    return atomic_load(&value.state, AtomicOrdering.Acquire) == 2;
+    return atomic_load(const_ptr(&value.state), AtomicOrdering.Acquire) == 2;
 }
 
 export proc once_is_running(value: &Once) -> bool {
-    return atomic_load(&value.state, AtomicOrdering.Acquire) == 1;
+    return atomic_load(const_ptr(&value.state), AtomicOrdering.Acquire) == 1;
 }
 
 export proc once_call(value: &mut Once, initializer: proc() -> bool) -> bool {
     while true {
-        let state: u8 = atomic_load(&value.state, AtomicOrdering.Acquire);
+        let state: u8 = atomic_load(const_ptr(&value.state), AtomicOrdering.Acquire);
         if state == 2 { return true; }
         if state == 1 {
             // The winning caller owns initialization. Wait until it publishes
@@ -28,14 +30,14 @@ export proc once_call(value: &mut Once, initializer: proc() -> bool) -> bool {
             continue;
         }
         if state != 0 { return false; }
-        if not atomic_compare_exchange(&mut value.state, 0, 1, AtomicOrdering.AcqRel, AtomicOrdering.Acquire) {
+        if not atomic_compare_exchange(mut_ptr(&mut value.state), 0 as u8, 1 as u8, AtomicOrdering.AcqRel, AtomicOrdering.Acquire) {
             continue;
         }
         if initializer() {
-            atomic_store(&mut value.state, 2, AtomicOrdering.Release);
+            atomic_store(mut_ptr(&mut value.state), 2 as u8, AtomicOrdering.Release);
             return true;
         }
-        atomic_store(&mut value.state, 0, AtomicOrdering.Release);
+        atomic_store(mut_ptr(&mut value.state), 0 as u8, AtomicOrdering.Release);
         return false;
     }
     return false;
