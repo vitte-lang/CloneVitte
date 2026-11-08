@@ -4551,6 +4551,9 @@ vitte_sema_generic_declaration_validate_constraints_private(
         if (child != NULL &&
             child->kind == VITTE_AST_NODE_GENERIC_PARAM) {
             size_t bound_index;
+            if ((child->flags & VITTE_AST_FLAG_CONST_GENERIC) != 0u) {
+                continue;
+            }
             for (bound_index = 1u;
                  bound_index < child->child_count;
                  ++bound_index) {
@@ -11147,6 +11150,16 @@ vitte_sema_infer_declaration_type(
         vitte_symbol_id_t symbol_id = generic_info != NULL
             ? generic_info->symbol_id
             : VITTE_SCOPE_INVALID_SYMBOL_ID;
+        if ((node->flags & VITTE_AST_FLAG_CONST_GENERIC) != 0u) {
+            const vitte_ast_node_t *declared_type =
+                node->child_count > 1u
+                    ? vitte_sema_node(context, node->children[1])
+                    : NULL;
+            return declared_type != NULL
+                ? vitte_sema_analyze_type_node(
+                      context, declared_type->id, scope_id)
+                : context->type_error;
+        }
         return vitte_sema_create_type_private(
             context,
             VITTE_SEMA_TYPE_GENERIC_PARAMETER,

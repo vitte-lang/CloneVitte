@@ -1,5 +1,8 @@
 # 0.1.0
 
+- Les parseurs bootstrap et natif reconnaissent les paramètres génériques de
+  valeur (`const N: usize`); leur déclaration passe l'analyse sémantique. La
+  substitution des valeurs et la spécialisation native restent à compléter.
 - Ajout du type bottom `never` à l'analyse sémantique bootstrap et native, au
   HIR et au backend C17; les appels divergents sont compatibles avec le type
   attendu et les fonctions Core `panic`/`unreachable` exposent maintenant ce

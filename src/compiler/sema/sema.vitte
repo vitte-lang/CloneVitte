@@ -52,6 +52,7 @@ use compiler::parser::parser::{
     PARSER_AST_FLAG_PATTERN_OR,
     PARSER_AST_FLAG_PATTERN_RANGE,
     PARSER_AST_FLAG_PATTERN_STRUCT,
+    PARSER_AST_FLAG_CONST_GENERIC,
     PARSER_AST_FLAG_GLOB_IMPORT,
     vitte_parser_get_node,
     vitte_parser_node_token,
@@ -1700,6 +1701,10 @@ proc sema_generic_declaration_validate_constraints(
             child_index
         );
         if child != null and (*child).kind == ASTNodeKind.GenericParam {
+            if ((*child).node_flags & PARSER_AST_FLAG_CONST_GENERIC) != 0 {
+                set child_index += 1;
+                continue;
+            }
             let mut bound_index: usize = 1;
             while bound_index < (*child).child_count {
                 if not sema_generic_constraint_validate_trait_type(
@@ -4230,8 +4235,20 @@ proc sema_register_generic_parameters(
                 set type_id = (*generic_info).type_id;
             }
             if type_id == 0 {
-                set type_id = sema_add_type(context, SemaTypeKind.GenericParameter, 0, 0, symbol, false, 0, null, 0);
-                if generic_info != null { set (*generic_info).type_id = type_id; }
+                if ((*generic).node_flags & PARSER_AST_FLAG_CONST_GENERIC) != 0 {
+                    let declared_type = sema_child((*context).parser, generic, 1);
+                    if declared_type == null { return false; }
+                    set type_id = sema_type_from_node(
+                        context,
+                        (*declared_type).id,
+                        scope_id
+                    );
+                } else {
+                    set type_id = sema_add_type(context, SemaTypeKind.GenericParameter, 0, 0, symbol, false, 0, null, 0);
+                }
+                if type_id != 0 and generic_info != null {
+                    set (*generic_info).type_id = type_id;
+                }
             }
             if type_id == 0 { return false; }
             sema_symbol_set_type(context, symbol, type_id);

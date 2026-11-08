@@ -946,6 +946,16 @@ test-sema: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 		--quiet
 
 	$(TARGET_BIN) compile \
+		$(TEST_DIR)/sema_const_generic_declaration_ok.vit \
+		--stop-after-sema \
+		--quiet
+
+	$(BOOTSTRAP_TARGET_BIN) compile \
+		$(TEST_DIR)/sema_const_generic_declaration_ok.vit \
+		--stop-after-sema \
+		--quiet
+
+	$(TARGET_BIN) compile \
 		$(TEST_DIR)/sema_calls/local_param_ok.vit \
 		--stop-after-sema \
 		--quiet

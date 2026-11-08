@@ -4683,6 +4683,8 @@ vitte_parser_parse_generic_parameters(
         vitte_ast_node_id_t name;
         vitte_parser_list_recovery_t recovery;
         size_t parameter_begin = parser->position;
+        bool is_const_parameter = vitte_parser_match(
+            parser, VITTE_TOKEN_KW_CONST);
 
         name =
             vitte_parser_parse_identifier_node(
@@ -4709,6 +4711,15 @@ vitte_parser_parse_generic_parameters(
                 parameter,
                 name)) {
             return false;
+        }
+
+        if (is_const_parameter) {
+            vitte_ast_node_t *parameter_node =
+                vitte_parser_get_node_mut(parser, parameter);
+            if (parameter_node == NULL) {
+                return false;
+            }
+            parameter_node->flags |= VITTE_AST_FLAG_CONST_GENERIC;
         }
 
         if (vitte_parser_match(

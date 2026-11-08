@@ -259,11 +259,13 @@ pour la révision Core actuelle.
 
 Ce résultat valide ce sous-ensemble sur le chemin bootstrap, pas toute la
 bibliothèque ni la compatibilité intégrale du module. `make check-core-sources`
-vérifie les 202 sources individuellement avec le bootstrap et en accepte 198
-à l'analyse sémantique. Les 4 rejets sont : `types/array.vit` attend les paramètres
-`const N`; `cell/lazycell.vit` et `cell/oncecell.vit` butent sur l'accès aux
-valeurs génériques optionnelles; `cell/refcell.vit` demande une mutabilité
-intérieure absente du langage. `types/never.vit`, `error/panic.vit` et
+vérifie les 202 sources individuellement avec le bootstrap et en accepte 199
+à l'analyse sémantique. Les trois rejets sont : `cell/lazycell.vit` et
+`cell/oncecell.vit` butent sur l'accès aux valeurs génériques optionnelles;
+`cell/refcell.vit` demande une mutabilité intérieure absente du langage.
+`types/array.vit` et sa déclaration `const N: usize` passent maintenant le
+parseur et l'analyse sémantique, mais l'instanciation des paramètres génériques
+de valeur et leur spécialisation native restent à terminer. `types/never.vit`, `error/panic.vit` et
 `intrinsics/unreachable.vit` sont maintenant acceptés par les deux frontends;
 `primitive/unit.vit` et les 14 fichiers de traits le sont aussi. Les traits
 utilisent des récepteurs et types de sortie explicites, car `Self`, les types associés et le
@@ -284,8 +286,8 @@ Le gate « core 100 % » n'est pas atteint.
 
 1. Étendre encore le gate natif aux formes génériques représentables, puis
    vérifier les consommateurs (`alloc`, `json`, compilateur) sur les trois OS.
-2. Ajouter au langage les paramètres `const N` et l'extraction sûre de `?T`
-   pour les sources `array`, `lazycell` et `oncecell` encore rejetées.
+2. Terminer l'instanciation et la spécialisation des arguments `const N`;
+   ajouter l'extraction sûre de `?T` pour `lazycell` et `oncecell`.
 3. Ajouter une primitive de mutabilité intérieure et valider `refcell`.
 4. Relier les déclarations de traits et leurs implémentations au dispatch
    générique, puis ajouter la spécialisation native aux tests Core.
