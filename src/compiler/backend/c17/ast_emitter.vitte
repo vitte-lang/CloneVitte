@@ -10377,6 +10377,8 @@ proc ast_emit_host_intrinsics(emitter: &mut C17AstEmitter) {
                     "if (width == UINT64_MAX) return (int64_t)rand(); " +
                     "return (int64_t)((uint64_t)minimum + ((uint64_t)rand() % (width + 1))); }\n"
                 );
+            } elif procedure.name == "trap" {
+                ast_write(emitter, "void trap(void) { abort(); }\n");
             }
         }
         set index += 1;

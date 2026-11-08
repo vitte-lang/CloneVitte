@@ -1,12 +1,10 @@
 /// Contrats d'accès indexé en lecture et en écriture.
 space core::traits::index;
 
-export trait Index<IndexType> {
-    type Output;
-    proc index(&self, index: IndexType) -> &Self::Output;
+export trait Index<Receiver, IndexType, Output> {
+    proc index(receiver: &Receiver, index: IndexType) -> &Output;
 }
 
-export trait IndexMut<IndexType> {
-    type Output;
-    proc index_mut(&mut self, index: IndexType) -> &mut Self::Output;
+export trait IndexMut<Receiver, IndexType, Output> {
+    proc index_mut(receiver: &mut Receiver, index: IndexType) -> &mut Output;
 }

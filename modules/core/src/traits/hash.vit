@@ -1,6 +1,6 @@
 /// Contrat de hachage stable pour une valeur.
 space core::traits::hash;
 
-export trait Hash {
-    proc hash(&self, state: &mut u64);
+export trait Hash<Receiver> {
+    proc hash(receiver: &Receiver, state: &mut u64);
 }

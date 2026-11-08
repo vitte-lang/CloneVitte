@@ -3,20 +3,18 @@ space core::traits::convert;
 
 use core::types::result::{Result};
 
-export trait From<T> {
-    proc from(value: T) -> Self;
+export trait From<T, Receiver> {
+    proc from(value: T) -> Receiver;
 }
 
-export trait Into<T> {
-    proc into(self) -> T;
+export trait Into<Receiver, T> {
+    proc into(receiver: Receiver) -> T;
 }
 
-export trait TryFrom<T> {
-    type Error;
-    proc try_from(value: T) -> Result[Self, Self::Error];
+export trait TryFrom<T, Receiver, Error> {
+    proc try_from(value: T) -> Result[Receiver, Error];
 }
 
-export trait TryInto<T> {
-    type Error;
-    proc try_into(self) -> Result[T, Self::Error];
+export trait TryInto<Receiver, T, Error> {
+    proc try_into(receiver: Receiver) -> Result[T, Error];
 }

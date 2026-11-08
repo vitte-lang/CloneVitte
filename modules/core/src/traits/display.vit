@@ -4,6 +4,6 @@ space core::traits::display;
 
 use core::fmt::formatter::{Formatter};
 
-export trait Display {
-    proc fmt(&self, formatter: &mut Formatter) -> bool;
+export trait Display<Receiver> {
+    proc fmt(receiver: &Receiver, formatter: &mut Formatter) -> bool;
 }

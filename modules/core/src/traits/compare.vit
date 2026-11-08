@@ -3,10 +3,10 @@ space core::traits::compare;
 
 use core::types::ordering::{Ordering, PartialOrdering};
 
-export trait PartialOrd<Rhs> {
-    proc partial_cmp(&self, other: &Rhs) -> PartialOrdering;
+export trait PartialOrd<Receiver, Rhs> {
+    proc partial_cmp(receiver: &Receiver, other: &Rhs) -> PartialOrdering;
 }
 
-export trait Ord<Rhs> {
-    proc cmp(&self, other: &Rhs) -> Ordering;
+export trait Ord<Receiver, Rhs> {
+    proc cmp(receiver: &Receiver, other: &Rhs) -> Ordering;
 }

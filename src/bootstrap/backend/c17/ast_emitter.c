@@ -15008,6 +15008,7 @@ vitte_c17_emit_ast_with_options(
         "void io_print_i64(int64_t value) {\n"
         "    (void)printf(\"%\" PRId64, value);\n"
         "}\n"
+        "void trap(void) { abort(); }\n"
         "int64_t io_read_i64(void) {\n"
         "    int64_t value = 0;\n"
         "    if (scanf(\"%\" SCNd64, &value) != 1) { return 0; }\n"

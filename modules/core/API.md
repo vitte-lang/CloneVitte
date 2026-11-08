@@ -7,7 +7,7 @@ in [`README.md`](README.md). This is a source API index, not a stable ABI
 promise.
 
 Source files indexed: 181.
-Exported declarations indexed: 1651.
+Exported declarations indexed: 1652.
 
 ## `core::array::compare`
 
@@ -1518,7 +1518,7 @@ export form PanicInfo {
 export proc panic_info(message: str, file: u64, line: usize, column: usize) -> PanicInfo;
 export proc panic_info_is_valid(value: &PanicInfo) -> bool;
 export proc panic_has_location(value: &PanicInfo) -> bool;
-export proc panic(message: str) -> never;
+export proc panic(message: str);
 ```
 
 ## `core::error::result`
@@ -1901,7 +1901,7 @@ Source: [`src/intrinsics/unreachable.vit`](src/intrinsics/unreachable.vit) · ex
 
 ```vit
 export intrinsic trap();
-export proc unreachable() -> never;
+export proc unreachable();
 ```
 
 ## `core::iter::chain`
@@ -2858,10 +2858,11 @@ export proc i32_signum(value: i32) -> i8;
 
 ## `core::primitive::unit`
 
-Source: [`src/primitive/unit.vit`](src/primitive/unit.vit) · exports: 1
+Source: [`src/primitive/unit.vit`](src/primitive/unit.vit) · exports: 2
 
 ```vit
-export type Unit = unit;
+export form Unit {}
+export proc unit_value() -> Unit;
 ```
 
 ## `core::primitive::unsigned`
@@ -3341,44 +3342,38 @@ export proc spinlock_value_mut<T>(lock: &mut SpinLock[T]) -> &mut T;
 Source: [`src/traits/arithmetic.vit`](src/traits/arithmetic.vit) · exports: 11
 
 ```vit
-export trait Add<Rhs> {
-    type Output;
-    proc add(&self, rhs: Rhs) -> Self::Output;
+export trait Add<Receiver, Rhs, Output> {
+    proc add(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Sub<Rhs> {
-    type Output;
-    proc sub(&self, rhs: Rhs) -> Self::Output;
+export trait Sub<Receiver, Rhs, Output> {
+    proc sub(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Mul<Rhs> {
-    type Output;
-    proc mul(&self, rhs: Rhs) -> Self::Output;
+export trait Mul<Receiver, Rhs, Output> {
+    proc mul(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Div<Rhs> {
-    type Output;
-    proc div(&self, rhs: Rhs) -> Self::Output;
+export trait Div<Receiver, Rhs, Output> {
+    proc div(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Rem<Rhs> {
-    type Output;
-    proc rem(&self, rhs: Rhs) -> Self::Output;
+export trait Rem<Receiver, Rhs, Output> {
+    proc rem(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Neg {
-    type Output;
-    proc neg(&self) -> Self::Output;
+export trait Neg<Receiver, Output> {
+    proc neg(receiver: &Receiver) -> Output;
 }
-export trait AddAssign<Rhs> {
-    proc add_assign(&mut self, rhs: Rhs);
+export trait AddAssign<Receiver, Rhs> {
+    proc add_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait SubAssign<Rhs> {
-    proc sub_assign(&mut self, rhs: Rhs);
+export trait SubAssign<Receiver, Rhs> {
+    proc sub_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait MulAssign<Rhs> {
-    proc mul_assign(&mut self, rhs: Rhs);
+export trait MulAssign<Receiver, Rhs> {
+    proc mul_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait DivAssign<Rhs> {
-    proc div_assign(&mut self, rhs: Rhs);
+export trait DivAssign<Receiver, Rhs> {
+    proc div_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait RemAssign<Rhs> {
-    proc rem_assign(&mut self, rhs: Rhs);
+export trait RemAssign<Receiver, Rhs> {
+    proc rem_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 ```
 
@@ -3387,44 +3382,38 @@ export trait RemAssign<Rhs> {
 Source: [`src/traits/bitwise.vit`](src/traits/bitwise.vit) · exports: 11
 
 ```vit
-export trait BitAnd<Rhs> {
-    type Output;
-    proc bitand(&self, rhs: Rhs) -> Self::Output;
+export trait BitAnd<Receiver, Rhs, Output> {
+    proc bitand(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait BitOr<Rhs> {
-    type Output;
-    proc bitor(&self, rhs: Rhs) -> Self::Output;
+export trait BitOr<Receiver, Rhs, Output> {
+    proc bitor(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait BitXor<Rhs> {
-    type Output;
-    proc bitxor(&self, rhs: Rhs) -> Self::Output;
+export trait BitXor<Receiver, Rhs, Output> {
+    proc bitxor(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Shl<Rhs> {
-    type Output;
-    proc shl(&self, rhs: Rhs) -> Self::Output;
+export trait Shl<Receiver, Rhs, Output> {
+    proc shl(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Shr<Rhs> {
-    type Output;
-    proc shr(&self, rhs: Rhs) -> Self::Output;
+export trait Shr<Receiver, Rhs, Output> {
+    proc shr(receiver: &Receiver, rhs: Rhs) -> Output;
 }
-export trait Not {
-    type Output;
-    proc not(&self) -> Self::Output;
+export trait Not<Receiver, Output> {
+    proc bitnot(receiver: &Receiver) -> Output;
 }
-export trait BitAndAssign<Rhs> {
-    proc bitand_assign(&mut self, rhs: Rhs);
+export trait BitAndAssign<Receiver, Rhs> {
+    proc bitand_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait BitOrAssign<Rhs> {
-    proc bitor_assign(&mut self, rhs: Rhs);
+export trait BitOrAssign<Receiver, Rhs> {
+    proc bitor_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait BitXorAssign<Rhs> {
-    proc bitxor_assign(&mut self, rhs: Rhs);
+export trait BitXorAssign<Receiver, Rhs> {
+    proc bitxor_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait ShlAssign<Rhs> {
-    proc shl_assign(&mut self, rhs: Rhs);
+export trait ShlAssign<Receiver, Rhs> {
+    proc shl_assign(receiver: &mut Receiver, rhs: Rhs);
 }
-export trait ShrAssign<Rhs> {
-    proc shr_assign(&mut self, rhs: Rhs);
+export trait ShrAssign<Receiver, Rhs> {
+    proc shr_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 ```
 
@@ -3433,14 +3422,14 @@ export trait ShrAssign<Rhs> {
 Source: [`src/traits/callable.vit`](src/traits/callable.vit) · exports: 3
 
 ```vit
-export trait Callable<Arguments, Output> {
-    proc call(&self, arguments: Arguments) -> Output;
+export trait Callable<Receiver, Arguments, Output> {
+    proc call(receiver: &Receiver, arguments: Arguments) -> Output;
 }
-export trait CallableMut<Arguments, Output> {
-    proc call_mut(&mut self, arguments: Arguments) -> Output;
+export trait CallableMut<Receiver, Arguments, Output> {
+    proc call_mut(receiver: &mut Receiver, arguments: Arguments) -> Output;
 }
-export trait CallableOnce<Arguments, Output> {
-    proc call_once(self, arguments: Arguments) -> Output;
+export trait CallableOnce<Receiver, Arguments, Output> {
+    proc call_once(receiver: Receiver, arguments: Arguments) -> Output;
 }
 ```
 
@@ -3449,8 +3438,8 @@ export trait CallableOnce<Arguments, Output> {
 Source: [`src/traits/clone.vit`](src/traits/clone.vit) · exports: 1
 
 ```vit
-export trait Clone {
-    proc clone(&self) -> Self;
+export trait Clone<Receiver> {
+    proc clone(receiver: &Receiver) -> Receiver;
 }
 ```
 
@@ -3459,11 +3448,11 @@ export trait Clone {
 Source: [`src/traits/compare.vit`](src/traits/compare.vit) · exports: 2
 
 ```vit
-export trait PartialOrd<Rhs> {
-    proc partial_cmp(&self, other: &Rhs) -> PartialOrdering;
+export trait PartialOrd<Receiver, Rhs> {
+    proc partial_cmp(receiver: &Receiver, other: &Rhs) -> PartialOrdering;
 }
-export trait Ord<Rhs> {
-    proc cmp(&self, other: &Rhs) -> Ordering;
+export trait Ord<Receiver, Rhs> {
+    proc cmp(receiver: &Receiver, other: &Rhs) -> Ordering;
 }
 ```
 
@@ -3472,19 +3461,17 @@ export trait Ord<Rhs> {
 Source: [`src/traits/convert.vit`](src/traits/convert.vit) · exports: 4
 
 ```vit
-export trait From<T> {
-    proc from(value: T) -> Self;
+export trait From<T, Receiver> {
+    proc from(value: T) -> Receiver;
 }
-export trait Into<T> {
-    proc into(self) -> T;
+export trait Into<Receiver, T> {
+    proc into(receiver: Receiver) -> T;
 }
-export trait TryFrom<T> {
-    type Error;
-    proc try_from(value: T) -> Result[Self, Self::Error];
+export trait TryFrom<T, Receiver, Error> {
+    proc try_from(value: T) -> Result[Receiver, Error];
 }
-export trait TryInto<T> {
-    type Error;
-    proc try_into(self) -> Result[T, Self::Error];
+export trait TryInto<Receiver, T, Error> {
+    proc try_into(receiver: Receiver) -> Result[T, Error];
 }
 ```
 
@@ -3493,8 +3480,8 @@ export trait TryInto<T> {
 Source: [`src/traits/debug.vit`](src/traits/debug.vit) · exports: 1
 
 ```vit
-export trait Debug {
-    proc fmt(&self, formatter: &mut Formatter) -> bool;
+export trait Debug<Receiver> {
+    proc fmt(receiver: &Receiver, formatter: &mut Formatter) -> bool;
 }
 ```
 
@@ -3503,8 +3490,8 @@ export trait Debug {
 Source: [`src/traits/default.vit`](src/traits/default.vit) · exports: 1
 
 ```vit
-export trait Default {
-    proc default() -> Self;
+export trait Default<Receiver> {
+    proc default() -> Receiver;
 }
 ```
 
@@ -3513,13 +3500,11 @@ export trait Default {
 Source: [`src/traits/dereference.vit`](src/traits/dereference.vit) · exports: 2
 
 ```vit
-export trait Deref {
-    type Target;
-    proc deref(&self) -> &Self::Target;
+export trait Deref<Receiver, Target> {
+    proc deref(receiver: &Receiver) -> &Target;
 }
-export trait DerefMut {
-    type Target;
-    proc deref_mut(&mut self) -> &mut Self::Target;
+export trait DerefMut<Receiver, Target> {
+    proc deref_mut(receiver: &mut Receiver) -> &mut Target;
 }
 ```
 
@@ -3528,8 +3513,8 @@ export trait DerefMut {
 Source: [`src/traits/display.vit`](src/traits/display.vit) · exports: 1
 
 ```vit
-export trait Display {
-    proc fmt(&self, formatter: &mut Formatter) -> bool;
+export trait Display<Receiver> {
+    proc fmt(receiver: &Receiver, formatter: &mut Formatter) -> bool;
 }
 ```
 
@@ -3538,10 +3523,10 @@ export trait Display {
 Source: [`src/traits/equal.vit`](src/traits/equal.vit) · exports: 2
 
 ```vit
-export trait PartialEq<Rhs> {
-    proc eq(&self, other: &Rhs) -> bool;
+export trait PartialEq<Receiver, Rhs> {
+    proc eq(receiver: &Receiver, other: &Rhs) -> bool;
 }
-export trait Eq {}
+export trait Eq<Receiver> {}
 ```
 
 ## `core::traits::hash`
@@ -3549,8 +3534,8 @@ export trait Eq {}
 Source: [`src/traits/hash.vit`](src/traits/hash.vit) · exports: 1
 
 ```vit
-export trait Hash {
-    proc hash(&self, state: &mut u64);
+export trait Hash<Receiver> {
+    proc hash(receiver: &Receiver, state: &mut u64);
 }
 ```
 
@@ -3559,13 +3544,11 @@ export trait Hash {
 Source: [`src/traits/index.vit`](src/traits/index.vit) · exports: 2
 
 ```vit
-export trait Index<IndexType> {
-    type Output;
-    proc index(&self, index: IndexType) -> &Self::Output;
+export trait Index<Receiver, IndexType, Output> {
+    proc index(receiver: &Receiver, index: IndexType) -> &Output;
 }
-export trait IndexMut<IndexType> {
-    type Output;
-    proc index_mut(&mut self, index: IndexType) -> &mut Self::Output;
+export trait IndexMut<Receiver, IndexType, Output> {
+    proc index_mut(receiver: &mut Receiver, index: IndexType) -> &mut Output;
 }
 ```
 
@@ -3574,11 +3557,11 @@ export trait IndexMut<IndexType> {
 Source: [`src/traits/iterator.vit`](src/traits/iterator.vit) · exports: 2
 
 ```vit
-export trait Iterator<Item> {
-    proc next(&mut self) -> ?Item;
+export trait Iterator<Receiver, Item> {
+    proc next(iterator: &mut Receiver) -> ?Item;
 }
-export trait DoubleEndedIterator<Item> {
-    proc next_back(&mut self) -> ?Item;
+export trait DoubleEndedIterator<Receiver, Item> {
+    proc next_back(iterator: &mut Receiver) -> ?Item;
 }
 ```
 

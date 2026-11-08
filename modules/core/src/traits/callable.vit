@@ -1,14 +1,14 @@
 /// Contrat minimal pour une valeur appelable.
 space core::traits::callable;
 
-export trait Callable<Arguments, Output> {
-    proc call(&self, arguments: Arguments) -> Output;
+export trait Callable<Receiver, Arguments, Output> {
+    proc call(receiver: &Receiver, arguments: Arguments) -> Output;
 }
 
-export trait CallableMut<Arguments, Output> {
-    proc call_mut(&mut self, arguments: Arguments) -> Output;
+export trait CallableMut<Receiver, Arguments, Output> {
+    proc call_mut(receiver: &mut Receiver, arguments: Arguments) -> Output;
 }
 
-export trait CallableOnce<Arguments, Output> {
-    proc call_once(self, arguments: Arguments) -> Output;
+export trait CallableOnce<Receiver, Arguments, Output> {
+    proc call_once(receiver: Receiver, arguments: Arguments) -> Output;
 }

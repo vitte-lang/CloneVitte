@@ -1173,6 +1173,7 @@ test-runtime: $(TARGET_BIN)
 # source and native-frontend limits are recorded in modules/core/README.md.
 CORE_TESTS := $(sort $(wildcard modules/core/tests/*.vit))
 CORE_BOOTSTRAP_ONLY_TESTS := $(sort $(wildcard modules/core/tests/bootstrap_only/*.vit))
+CORE_TRAP_TESTS := $(sort $(wildcard modules/core/tests/runtime/*_trap_runtime.vit))
 
 .PHONY: test-core
 test-core: $(BOOTSTRAP_TARGET_BIN)
@@ -1194,6 +1195,12 @@ test-core: $(BOOTSTRAP_TARGET_BIN)
 		printf '[CORE-BOOTSTRAP] %s\n' "$$file"; \
 		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
 			$(BOOTSTRAP_TARGET_BIN) run "$$file" --quiet --no-color; \
+	done; \
+	for file in $(CORE_TRAP_TESTS); do \
+		printf '[CORE-TRAP-BOOTSTRAP] %s\n' "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
+			$(PYTHON) modules/core/tools/trap_runtime_test.py \
+			"$(BOOTSTRAP_TARGET_BIN)" "$$file"; \
 	done
 
 # The root-level Core suite contains tests that the native frontend supports;
@@ -1205,6 +1212,12 @@ test-core-native: $(TARGET_BIN)
 		printf '[CORE-NATIVE] %s\n' "$$file"; \
 		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
 			$(TARGET_BIN) run "$$file" --quiet --no-color; \
+	done; \
+	for file in $(CORE_TRAP_TESTS); do \
+		printf '[CORE-TRAP-NATIVE] %s\n' "$$file"; \
+		VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)" \
+			$(PYTHON) modules/core/tools/trap_runtime_test.py \
+			"$(TARGET_BIN)" "$$file"; \
 	done
 
 # Qualified imports must preserve same-named declarations through semantic

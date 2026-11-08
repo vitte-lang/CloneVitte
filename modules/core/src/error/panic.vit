@@ -1,7 +1,7 @@
 /// Données d'une demande de panique; le runtime décide de son affichage et de l'arrêt.
 space core::error::panic;
 
-use core::intrinsics::unreachable::{trap};
+use core::intrinsics::unreachable::{unreachable};
 
 export form PanicInfo {
     message: str,
@@ -23,7 +23,6 @@ export proc panic_has_location(value: &PanicInfo) -> bool {
 }
 
 /// Arrêt immédiat du processus via la primitive `trap` du compilateur.
-export proc panic(message: str) -> never {
-    trap();
-    unreachable;
+export proc panic(message: str) {
+    unreachable();
 }

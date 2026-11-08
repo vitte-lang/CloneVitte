@@ -1,6 +1,6 @@
 /// Contrat de duplication explicite d'une valeur.
 space core::traits::clone;
 
-export trait Clone {
-    proc clone(&self) -> Self;
+export trait Clone<Receiver> {
+    proc clone(receiver: &Receiver) -> Receiver;
 }

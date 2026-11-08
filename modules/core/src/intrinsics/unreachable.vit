@@ -3,6 +3,6 @@ space core::intrinsics::unreachable;
 
 export intrinsic trap();
 
-export proc unreachable() -> never {
-    unreachable;
+export proc unreachable() {
+    trap();
 }

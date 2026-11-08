@@ -4,6 +4,6 @@ space core::traits::debug;
 
 use core::fmt::formatter::{Formatter};
 
-export trait Debug {
-    proc fmt(&self, formatter: &mut Formatter) -> bool;
+export trait Debug<Receiver> {
+    proc fmt(receiver: &Receiver, formatter: &mut Formatter) -> bool;
 }

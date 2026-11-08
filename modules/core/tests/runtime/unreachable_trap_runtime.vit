@@ -1,0 +1,6 @@
+use core::intrinsics::unreachable::{unreachable};
+
+proc main() -> i32 {
+    unreachable();
+    return 0;
+}
