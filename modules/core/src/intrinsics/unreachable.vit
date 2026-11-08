@@ -1,8 +1,8 @@
 /// Déclare un chemin que le contrôle d'exécution ne doit jamais atteindre.
 space core::intrinsics::unreachable;
 
-export intrinsic trap();
+export intrinsic trap() -> never;
 
-export proc unreachable() {
+export proc unreachable() -> never {
     trap();
 }

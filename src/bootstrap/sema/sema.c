@@ -1372,6 +1372,15 @@ vitte_sema_create_builtin_types(
             VITTE_SCOPE_INVALID_SYMBOL_ID,
             false);
 
+    context->type_never =
+        vitte_sema_create_type_private(
+            context,
+            VITTE_SEMA_TYPE_NEVER,
+            VITTE_SEMA_INVALID_TYPE_ID,
+            0u,
+            VITTE_SCOPE_INVALID_SYMBOL_ID,
+            false);
+
     if (context->type_error ==
             VITTE_SEMA_INVALID_TYPE_ID ||
         context->type_void ==
@@ -1393,6 +1402,8 @@ vitte_sema_create_builtin_types(
         context->type_string ==
             VITTE_SEMA_INVALID_TYPE_ID ||
         context->type_null ==
+            VITTE_SEMA_INVALID_TYPE_ID ||
+        context->type_never ==
             VITTE_SEMA_INVALID_TYPE_ID) {
         return false;
     }
@@ -1909,6 +1920,12 @@ vitte_sema_type_conversion_private(
     if (destination_type == NULL ||
         source_type == NULL) {
         return VITTE_SEMA_TYPE_CONVERSION_INCOMPATIBLE;
+    }
+
+    /* `never` is the bottom type: a computation that cannot return can be
+     * used wherever a value is expected. */
+    if (source_type->kind == VITTE_SEMA_TYPE_NEVER) {
+        return VITTE_SEMA_TYPE_CONVERSION_SAFE;
     }
 
     /* A named procedure value may be passed where an anonymous structural
@@ -5712,6 +5729,8 @@ vitte_sema_analyze_type_node(
                 type_id = context->type_string;
             } else if (VITTE_SEMA_MATCH_BUILTIN("void")) {
                 type_id = context->type_void;
+            } else if (VITTE_SEMA_MATCH_BUILTIN("never")) {
+                type_id = context->type_never;
             } else {
                 symbol_id =
                     vitte_scope_lookup_n(
@@ -13874,6 +13893,8 @@ vitte_sema_type_kind_name(
             return "generic_parameter";
         case VITTE_SEMA_TYPE_TASK:
             return "task";
+        case VITTE_SEMA_TYPE_NEVER:
+            return "never";
         case VITTE_SEMA_TYPE_COUNT:
             return "count";
     }

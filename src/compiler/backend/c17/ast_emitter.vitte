@@ -3496,7 +3496,7 @@ proc ast_type_text(
     }
     let name = ast_token_text(emitter, ast_child(emitter, path, path.child_count - 1));
     if path.child_count == 1 {
-        if name == "void" or name == "unit" { return "void"; }
+        if name == "void" or name == "unit" or name == "never" { return "void"; }
         if name == "bool" { return "bool"; }
         if name == "i8" { return "int8_t"; }
         if name == "u8" { return "uint8_t"; }
@@ -7607,6 +7607,55 @@ proc ast_emit_block_contents(emitter: &mut C17AstEmitter, block: ?&ASTNode, name
     set emitter.local_count = saved_local_count;
 }
 
+proc ast_type_is_never(
+    emitter: &mut C17AstEmitter,
+    type_node: ?&ASTNode,
+    namespace: string
+) -> bool {
+    let resolved = ast_resolve_type_alias(emitter, type_node, namespace);
+    let node = resolved.node;
+    if node == null or node?.kind != ASTNodeKind.TypeExpr or node?.child_count != 1 {
+        return false;
+    }
+    let path = ast_child(emitter, node, 0);
+    return path != null and path?.kind == ASTNodeKind.Path and
+        path?.child_count == 1 and ast_path_text(emitter, path) == "never";
+}
+
+proc ast_expression_returns_never(
+    emitter: &mut C17AstEmitter,
+    expression: ?&ASTNode,
+    namespace: string
+) -> bool {
+    if expression == null { return false; }
+    if expression?.kind == ASTNodeKind.GroupExpr {
+        return ast_expression_returns_never(
+            emitter,
+            ast_child(emitter, expression, 0),
+            namespace
+        );
+    }
+    if expression?.kind != ASTNodeKind.CallExpr or expression?.child_count == 0 {
+        return false;
+    }
+    let procedure_index = ast_resolve_proc_path(
+        emitter,
+        ast_child(emitter, expression, 0),
+        namespace
+    );
+    if procedure_index == usize.MAX { return false; }
+    let procedure = ast_node(
+        emitter,
+        emitter.procedures[procedure_index].node_id
+    );
+    if procedure == null { return false; }
+    return ast_type_is_never(
+        emitter,
+        ast_function_return_type(emitter, procedure?),
+        namespace
+    );
+}
+
 proc ast_emit_statement(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace: string, depth: usize) {
     if emitter.failed { return; }
     if node == null {
@@ -7629,6 +7678,15 @@ proc ast_emit_statement(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
         case ASTNodeKind.LetStmt => ast_emit_let(emitter, node?, namespace, depth),
         case ASTNodeKind.ReturnStmt => {
             let return_type = emitter.current_return_type;
+            let return_expression = ast_child(emitter, node, 0);
+            if return_expression != null and
+               ast_expression_returns_never(emitter, return_expression, namespace) {
+                ast_emit_expression(emitter, return_expression, namespace, depth + 1);
+                ast_write(emitter, ";\n");
+                ast_emit_indent(emitter, depth);
+                ast_write(emitter, "abort();\n");
+                return;
+            }
             if emitter.return_void and node.child_count != 0 {
                 ast_emit_expression(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
                 ast_write(emitter, ";\n");
@@ -7652,7 +7710,6 @@ proc ast_emit_statement(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace:
                 ast_write(emitter, " ");
                 ast_write(emitter, return_name);
                 ast_write(emitter, " = ");
-                let return_expression = ast_child(emitter, node, 0);
                 if return_expression != null and
                    return_expression?.kind == ASTNodeKind.ArrayExpr and
                    (return_type?.kind == ASTNodeKind.ArrayType or
@@ -10063,7 +10120,9 @@ proc ast_emit_function_definition(emitter: &mut C17AstEmitter, function: &ASTNod
         set index += 1;
     }
     ast_emit_deferred_actions(emitter, 0, namespace, 1);
-    if returns_value { ast_write(emitter, "    abort();\n"); }
+    if returns_value or ast_type_is_never(emitter, return_type, namespace) {
+        ast_write(emitter, "    abort();\n");
+    }
     ast_write(emitter, "}\n\n");
     set emitter.local_count = saved_local_count;
     set emitter.return_void = saved_return_void;

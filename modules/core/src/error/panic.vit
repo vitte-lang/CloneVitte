@@ -23,6 +23,6 @@ export proc panic_has_location(value: &PanicInfo) -> bool {
 }
 
 /// Arrêt immédiat du processus via la primitive `trap` du compilateur.
-export proc panic(message: str) {
+export proc panic(message: str) -> never {
     unreachable();
 }

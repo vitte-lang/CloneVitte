@@ -384,6 +384,7 @@ form HIRLowerContext {
     hir: *mut HIR,
     parser: *const Parser,
     unit_type: HIRTypeId,
+    never_type: HIRTypeId,
     bool_type: HIRTypeId,
     i64_type: HIRTypeId,
     u64_type: HIRTypeId,
@@ -2025,6 +2026,8 @@ proc hir_lower_type_depth(context: *mut HIRLowerContext, id: ASTNodeId, depth: u
     }
     let name = hir_lower_node_text(context, node);
     if name == 0 { return (*context).i64_type; }
+    if hir_lower_name_equal(context, name, "never") { return (*context).never_type; }
+    if hir_lower_name_equal(context, name, "void") or hir_lower_name_equal(context, name, "unit") { return (*context).unit_type; }
     if hir_lower_name_equal(context, name, "bool") { return (*context).bool_type; }
     if hir_lower_name_equal(context, name, "u8") { return hir_lower_primitive(context, HIRTypeKind.U8); }
     if hir_lower_name_equal(context, name, "u16") { return hir_lower_primitive(context, HIRTypeKind.U16); }
@@ -3469,12 +3472,13 @@ export proc vitte_hir_lower_ast(hir: *mut HIR, parser: *const Parser) -> bool {
     let mut context: HIRLowerContext = HIRLowerContext {};
     set context.hir = hir; set context.parser = parser;
     set context.unit_type = hir_lower_primitive(&mut context, HIRTypeKind.Unit);
+    set context.never_type = hir_lower_primitive(&mut context, HIRTypeKind.Never);
     set context.bool_type = hir_lower_primitive(&mut context, HIRTypeKind.Bool);
     set context.i64_type = hir_lower_primitive(&mut context, HIRTypeKind.I64);
     set context.u64_type = hir_lower_primitive(&mut context, HIRTypeKind.U64);
     set context.f64_type = hir_lower_primitive(&mut context, HIRTypeKind.F64);
     set context.string_type = hir_lower_primitive(&mut context, HIRTypeKind.String);
-    if context.unit_type == 0 or context.bool_type == 0 or context.i64_type == 0 or context.u64_type == 0 or context.f64_type == 0 or context.string_type == 0 {
+    if context.unit_type == 0 or context.never_type == 0 or context.bool_type == 0 or context.i64_type == 0 or context.u64_type == 0 or context.f64_type == 0 or context.string_type == 0 {
         hir_lower_context_destroy(&mut context); return false;
     }
     let translation = hir_lower_get_node(&mut context, vitte_parser_root(parser));

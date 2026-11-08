@@ -1518,7 +1518,7 @@ export form PanicInfo {
 export proc panic_info(message: str, file: u64, line: usize, column: usize) -> PanicInfo;
 export proc panic_info_is_valid(value: &PanicInfo) -> bool;
 export proc panic_has_location(value: &PanicInfo) -> bool;
-export proc panic(message: str);
+export proc panic(message: str) -> never;
 ```
 
 ## `core::error::result`
@@ -1900,8 +1900,8 @@ export proc type_layout_is_valid(value: &TypeLayout) -> bool;
 Source: [`src/intrinsics/unreachable.vit`](src/intrinsics/unreachable.vit) · exports: 2
 
 ```vit
-export intrinsic trap();
-export proc unreachable();
+export intrinsic trap() -> never;
+export proc unreachable() -> never;
 ```
 
 ## `core::iter::chain`

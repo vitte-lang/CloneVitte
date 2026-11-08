@@ -2666,7 +2666,9 @@ vitte_c17_ast_emit_type(
                     path,
                     path->child_count - 1u);
                 if (path->child_count == 1u &&
-                    vitte_c17_ast_token_is(emitter, name, "void")) {
+                    (vitte_c17_ast_token_is(emitter, name, "void") ||
+                     vitte_c17_ast_token_is(emitter, name, "never") ||
+                     vitte_c17_ast_token_is(emitter, name, "unit"))) {
                     vitte_c17_ast_write(emitter, "void");
                 } else if (path->child_count == 1u &&
                            vitte_c17_ast_token_is(emitter, name, "bool")) {
@@ -6730,6 +6732,72 @@ vitte_c17_ast_type_is_named(
 }
 
 static bool
+vitte_c17_ast_type_is_never_recursive(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *type,
+    size_t depth)
+{
+    const vitte_ast_node_t *path;
+    const vitte_ast_node_t *name;
+    const vitte_ast_node_t *root;
+    const vitte_ast_node_t *alias_target;
+
+    if (type == NULL || depth >= 32u) {
+        return false;
+    }
+    if (vitte_c17_ast_type_is_named(emitter, type, "never")) {
+        return true;
+    }
+    if (type->kind != VITTE_AST_NODE_TYPE_EXPR || type->child_count == 0u) {
+        return false;
+    }
+    path = vitte_c17_ast_child(emitter, type, 0u);
+    if (path == NULL || path->kind != VITTE_AST_NODE_PATH ||
+        path->child_count == 0u) {
+        return false;
+    }
+    name = vitte_c17_ast_child(emitter, path, path->child_count - 1u);
+    root = vitte_c17_ast_node(
+        emitter, vitte_parser_root(emitter->parser));
+    alias_target = vitte_c17_ast_find_type_alias_target(
+        emitter, root, name);
+    return alias_target != NULL && alias_target != type &&
+           vitte_c17_ast_type_is_never_recursive(
+               emitter, alias_target, depth + 1u);
+}
+
+static bool
+vitte_c17_ast_type_is_never(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *type)
+{
+    return vitte_c17_ast_type_is_never_recursive(
+        emitter, type, 0u);
+}
+
+static bool
+vitte_c17_ast_expression_returns_never(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *expression)
+{
+    const vitte_ast_node_t *return_type;
+
+    if (expression == NULL) {
+        return false;
+    }
+    if (expression->kind == VITTE_AST_NODE_GROUP_EXPR) {
+        return vitte_c17_ast_expression_returns_never(
+            emitter,
+            vitte_c17_ast_child(emitter, expression, 0u));
+    }
+    if (expression->kind != VITTE_AST_NODE_CALL_EXPR) {
+        return false;
+    }
+    return_type = vitte_c17_ast_call_return_type(emitter, expression);
+    return vitte_c17_ast_type_is_never(emitter, return_type);
+}
+
+static bool
 vitte_c17_ast_is_character_parameter(
     const vitte_c17_ast_emitter_t *emitter,
     const vitte_ast_node_t *name)
@@ -10765,6 +10833,18 @@ vitte_c17_ast_emit_statement(
                           emitter,
                           emitter->function)
                     : NULL;
+                if (node->child_count != 0u &&
+                    vitte_c17_ast_expression_returns_never(
+                        emitter,
+                        vitte_c17_ast_child(emitter, node, 0u))) {
+                    vitte_c17_ast_emit_expression(
+                        emitter,
+                        vitte_c17_ast_child(emitter, node, 0u));
+                    vitte_c17_ast_write(emitter, ";\n");
+                    vitte_c17_ast_indent(emitter, indent);
+                    vitte_c17_ast_write(emitter, "abort();\n");
+                    return;
+                }
                 if (emitter->deferred_count != 0u &&
                     node->child_count != 0u &&
                     return_type != NULL &&
@@ -10772,6 +10852,8 @@ vitte_c17_ast_emit_statement(
                         emitter, return_type, "void") &&
                     !vitte_c17_ast_type_is_named(
                         emitter, return_type, "unit") &&
+                    !vitte_c17_ast_type_is_never(
+                        emitter, return_type) &&
                     !(return_type->kind == VITTE_AST_NODE_ARRAY_TYPE &&
                       return_type->child_count == 1u) &&
                     vitte_c17_ast_generic_alias_slice_element_recursive(
@@ -10804,7 +10886,9 @@ vitte_c17_ast_emit_statement(
                      vitte_c17_ast_type_is_named(
                          emitter, return_type, "void") ||
                      vitte_c17_ast_type_is_named(
-                         emitter, return_type, "unit"))) {
+                         emitter, return_type, "unit") ||
+                     vitte_c17_ast_type_is_never(
+                         emitter, return_type))) {
                     vitte_c17_ast_emit_expression(
                         emitter,
                         vitte_c17_ast_child(emitter, node, 0u));
@@ -11698,7 +11782,8 @@ vitte_c17_ast_async_result_is_void(
         vitte_c17_ast_function_return_type(emitter, function);
     return return_type == NULL ||
            vitte_c17_ast_type_is_named(emitter, return_type, "void") ||
-           vitte_c17_ast_type_is_named(emitter, return_type, "unit");
+           vitte_c17_ast_type_is_named(emitter, return_type, "unit") ||
+           vitte_c17_ast_type_is_never(emitter, return_type);
 }
 
 static void

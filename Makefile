@@ -936,6 +936,16 @@ check-ebnf-frontend-sync:
 .PHONY: test-sema
 test-sema: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 	$(TARGET_BIN) compile \
+		$(TEST_DIR)/sema_never_type_ok.vit \
+		--stop-after-sema \
+		--quiet
+
+	$(BOOTSTRAP_TARGET_BIN) compile \
+		$(TEST_DIR)/sema_never_type_ok.vit \
+		--stop-after-sema \
+		--quiet
+
+	$(TARGET_BIN) compile \
 		$(TEST_DIR)/sema_calls/local_param_ok.vit \
 		--stop-after-sema \
 		--quiet
@@ -1174,6 +1184,10 @@ test-runtime: $(TARGET_BIN)
 CORE_TESTS := $(sort $(wildcard modules/core/tests/*.vit))
 CORE_BOOTSTRAP_ONLY_TESTS := $(sort $(wildcard modules/core/tests/bootstrap_only/*.vit))
 CORE_TRAP_TESTS := $(sort $(wildcard modules/core/tests/runtime/*_trap_runtime.vit))
+
+.PHONY: check-core-sources
+check-core-sources: $(BOOTSTRAP_TARGET_BIN)
+	$(PYTHON) modules/core/tools/check_sources.py "$(BOOTSTRAP_TARGET_BIN)"
 
 .PHONY: test-core
 test-core: $(BOOTSTRAP_TARGET_BIN)

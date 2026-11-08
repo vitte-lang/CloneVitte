@@ -161,8 +161,9 @@ native complète.
 `core::primitive::Unit` est une forme vide constructible via `unit_value`; le
 langage ne fournit pas encore d'alias source pour son type unité interne.
 `core::intrinsics::unreachable::unreachable` et `core::error::panic::panic`
-appellent l'intrinsic `trap` et ne retournent pas à l'exécution. Leur type
-source reste toutefois `void` tant que le langage n'expose pas un type bottom.
+retournent `never`, le type bottom du compilateur. Les conversions depuis ce
+type sont acceptées vers tout type attendu; le backend C17 l'abaisse à `void`
+et protège les retours divergents par `abort()` si l'appel ne termine pas.
 
 Les opérations dépendant de la machine sont déclarées comme intrinsics Vitte,
 sans liaison C :
@@ -257,15 +258,15 @@ remplace le run précédent
 pour la révision Core actuelle.
 
 Ce résultat valide ce sous-ensemble sur le chemin bootstrap, pas toute la
-bibliothèque ni la compatibilité intégrale du module. Une vérification directe
-des 202 sources individuelles accepte maintenant 197 fichiers et en rejette 5
-par l'analyse sémantique bootstrap : `types/array.vit` attend les paramètres
+bibliothèque ni la compatibilité intégrale du module. `make check-core-sources`
+vérifie les 202 sources individuellement avec le bootstrap et en accepte 198
+à l'analyse sémantique. Les 4 rejets sont : `types/array.vit` attend les paramètres
 `const N`; `cell/lazycell.vit` et `cell/oncecell.vit` butent sur l'accès aux
 valeurs génériques optionnelles; `cell/refcell.vit` demande une mutabilité
-intérieure absente du langage; `types/never.vit` attend le type bottom.
-`error/panic.vit`, `intrinsics/unreachable.vit`, `primitive/unit.vit` et les
-14 fichiers de traits sont désormais acceptés. Les traits utilisent des
-récepteurs et types de sortie explicites, car `Self`, les types associés et le
+intérieure absente du langage. `types/never.vit`, `error/panic.vit` et
+`intrinsics/unreachable.vit` sont maintenant acceptés par les deux frontends;
+`primitive/unit.vit` et les 14 fichiers de traits le sont aussi. Les traits
+utilisent des récepteurs et types de sortie explicites, car `Self`, les types associés et le
 dispatch d'`impl` ne sont pas encore reliés dans le compilateur. `Unit` est une
 forme vide constructible; il ne s'agit pas encore d'un alias du type unité
 interne. Les deux wrappers de terminaison appellent maintenant `trap`, et les
@@ -274,19 +275,21 @@ tuples restent nommées (`Pair`, `Triple`, `Quad`), faute de syntaxe de tuples.
 Les wrappers atomiques, les intrinsics de synchronisation, certaines
 spécialisations génériques et les valeurs `?T` scalaires restent aussi limités
 à l'exécution. Les gates bootstrap et natifs macOS passent localement avec ces
-changements, y compris les probes de terminaison. La CI multiplateforme de ces
-changements a aussi réussi sur les 25 jobs du run lié ci-dessus.
+changements, y compris les probes de terminaison. Les 25 jobs Actions du run
+cité précédemment valident la révision `f43cbdc`; ils ne couvrent pas encore
+l'ajout actuel de `never` au compilateur.
 Le gate « core 100 % » n'est pas atteint.
 
 ## Suite du travail
 
 1. Étendre encore le gate natif aux formes génériques représentables, puis
    vérifier les consommateurs (`alloc`, `json`, compilateur) sur les trois OS.
-2. Ajouter au langage les paramètres `const`, un type bottom et l'extraction
-   sûre de `?T` pour traiter les cinq sources encore rejetées.
-3. Relier les déclarations de traits et leurs implémentations au dispatch
+2. Ajouter au langage les paramètres `const N` et l'extraction sûre de `?T`
+   pour les sources `array`, `lazycell` et `oncecell` encore rejetées.
+3. Ajouter une primitive de mutabilité intérieure et valider `refcell`.
+4. Relier les déclarations de traits et leurs implémentations au dispatch
    générique, puis ajouter la spécialisation native aux tests Core.
-4. Finir l'abaissement et la validation des intrinsics mémoire, atomiques,
+5. Finir l'abaissement et la validation des intrinsics mémoire, atomiques,
    piège et allocation sur chaque cible prise en charge; ensuite exécuter les
    consommateurs (`alloc`, `json`, compilateur) et les CI Linux, macOS et
    Windows.

@@ -1,5 +1,10 @@
 # 0.1.0
 
+- Ajout du type bottom `never` à l'analyse sémantique bootstrap et native, au
+  HIR et au backend C17; les appels divergents sont compatibles avec le type
+  attendu et les fonctions Core `panic`/`unreachable` exposent maintenant ce
+  type. Un test couvre aussi l'alias public `Never` et sa conversion vers
+  `usize`.
 - Ajout des comparaisons de tolérance testées, des algorithmes sur tranches
   empruntées et des tests runtime pour les limites arithmétiques, les décalages,
   la recherche de chaînes et les cellules inline.
