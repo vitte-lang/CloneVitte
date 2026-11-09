@@ -7,6 +7,23 @@ param(
 $ErrorActionPreference = "Stop"
 $vitteCommand = Get-Command $VitteBin -ErrorAction Stop
 $VitteBin = $vitteCommand.Source
+$installRoot = Split-Path -Parent (Split-Path -Parent $VitteBin)
+$integrationRoot = Join-Path $installRoot "share/vitte"
+foreach ($relative in @(
+  "editors/vim/syntax/vitte.vim",
+  "editors/emacs/vitte-mode.el",
+  "editors/nano/vitte.nanorc",
+  "editors/geany/filetypes.vitte.conf",
+  "completions/bash/vitte",
+  "completions/fish/vitte.fish",
+  "completions/zsh/_vitte"
+)) {
+  $integration = Join-Path $integrationRoot $relative
+  if (-not (Test-Path -LiteralPath $integration -PathType Leaf) -or
+      (Get-Item -LiteralPath $integration).Length -eq 0) {
+    throw "Missing installed integration: $integration"
+  }
+}
 $ccCommand = Get-Command $CCompiler -ErrorAction Stop
 $CCompiler = $ccCommand.Source
 $temporaryWorkDir = [string]::IsNullOrWhiteSpace($WorkDir)

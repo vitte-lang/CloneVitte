@@ -7,7 +7,6 @@ import argparse
 import hashlib
 import json
 import sys
-import tarfile
 from pathlib import Path
 
 
@@ -32,17 +31,13 @@ def required_artifacts(version: str) -> dict[str, tuple[str, str]]:
     }
 
 
-def integration_artifact(version: str) -> str:
-    return f"vitte-{version}-editors-completions.tar.gz"
-
-
 def validate_release_inventory(out: Path, version: str) -> None:
     if not out.is_dir():
         raise ValueError(f"installer output directory not found: {out}")
 
     artifacts = required_artifacts(version)
     expected = set(METADATA_FILES)
-    for name in (*artifacts, integration_artifact(version)):
+    for name in artifacts:
         expected.update(
             {
                 name,
@@ -77,7 +72,7 @@ def validate_release_inventory(out: Path, version: str) -> None:
         for entry in index.get("artifacts", [])
         if isinstance(entry, dict) and isinstance(entry.get("name"), str)
     }
-    if set(entries) != set(artifacts) | {integration_artifact(version)}:
+    if set(entries) != set(artifacts):
         raise ValueError(
             "INSTALLERS.json does not index the complete tested installer set"
         )
@@ -118,22 +113,6 @@ def validate_release_inventory(out: Path, version: str) -> None:
         if entry.get("os") != expected_os or entry.get("arch") != expected_arch:
             raise ValueError(f"INSTALLERS.json has the wrong target for {name}")
 
-    name = integration_artifact(version)
-    digest = hashlib.sha256((out / name).read_bytes()).hexdigest()
-    manifest = json.loads((out / f"{name}.MANIFEST.json").read_text(encoding="utf-8"))
-    if (manifest.get("name"), manifest.get("version"), manifest.get("os"),
-            manifest.get("arch"), manifest.get("sha256")) != (name, version, "any", "any", digest):
-        raise ValueError(f"{name} has invalid integration metadata")
-    if not {"editors", "system-completions"}.issubset(manifest.get("contents", [])):
-        raise ValueError(f"{name} lacks editor or completion contents")
-    if (out / f"{name}.sha256").read_text(encoding="utf-8").split() != [digest, name]:
-        raise ValueError(f"{name}.sha256 does not match {name}")
-    with tarfile.open(out / name, "r:gz") as archive:
-        members = {member.name for member in archive.getmembers() if member.isfile()}
-    if not any(path.startswith("editors/") for path in members) or not any(
-        path.startswith("completions/") for path in members
-    ):
-        raise ValueError(f"{name} lacks editor or completion files")
 
 
 def main() -> int:

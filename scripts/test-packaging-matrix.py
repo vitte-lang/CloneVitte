@@ -13,7 +13,6 @@ from pathlib import Path
 
 from verify_release_installer_inventory import (
     METADATA_FILES,
-    integration_artifact,
     required_artifacts,
     validate_release_inventory,
 )
@@ -106,17 +105,6 @@ def test_release_inventory() -> None:
                     "sha256": digest,
                 }
             )
-        run(
-            sys.executable,
-            str(ROOT / "scripts" / "build-release-integrations.py"),
-            "--out", str(out), "--version", version,
-            "--source-date-epoch", "0",
-        )
-        integration_name = integration_artifact(version)
-        integration_manifest = json.loads(
-            (out / f"{integration_name}.MANIFEST.json").read_text(encoding="utf-8")
-        )
-        index_entries.append(integration_manifest)
         (out / "INSTALLERS.json").write_text(
             json.dumps(
                 {

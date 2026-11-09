@@ -10,6 +10,32 @@ case "$VITTE_BIN" in
     ;;
 esac
 
+case "$VITTE_BIN" in
+  /*)
+    install_prefix=${VITTE_BIN%/bin/vitte}
+    integration_root=$install_prefix/share/vitte
+    for relative in \
+      editors/vim/syntax/vitte.vim \
+      editors/emacs/vitte-mode.el \
+      editors/nano/vitte.nanorc \
+      editors/geany/filetypes.vitte.conf \
+      completions/bash/vitte \
+      completions/fish/vitte.fish \
+      completions/zsh/_vitte
+    do
+      [ -s "$integration_root/$relative" ] || {
+        printf '[real-install-smoke][error] missing installed integration: %s\n' "$relative" >&2
+        exit 1
+      }
+    done
+    if command -v bash >/dev/null 2>&1; then
+      bash -n "$integration_root/completions/bash/vitte"
+      bash -c 'source "$1"; COMP_WORDS=(vitte ch); COMP_CWORD=1; _vitte_complete; [[ " ${COMPREPLY[*]} " == *" check "* ]]' \
+        _ "$integration_root/completions/bash/vitte"
+    fi
+    ;;
+esac
+
 if [ -n "${WORKDIR:-}" ]; then
   mkdir -p "$WORKDIR"
 else
