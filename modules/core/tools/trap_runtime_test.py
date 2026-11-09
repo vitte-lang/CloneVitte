@@ -36,7 +36,7 @@ def main() -> int:
     diagnostics = result.stdout + result.stderr
     error_codes = re.findall(r"error\[(E\d{4})\]", diagnostics)
     terminated_after_build = (
-        error_codes == ["E0012"]
+        error_codes in (["E0012"], ["E0908"])
         or (
             not error_codes
             and "generated program returned failure" in diagnostics

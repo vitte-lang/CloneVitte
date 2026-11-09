@@ -114,9 +114,9 @@ export proc array_compare<T>(
     return 0;
 }
 
-export proc array_compare_natural<T>(
-    left: &[T],
-    right: &[T]
+export proc array_compare_natural(
+    left: &[i64],
+    right: &[i64]
 ) -> i32 {
     let mut limit: usize = left.len();
 

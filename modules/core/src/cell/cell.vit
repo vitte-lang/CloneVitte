@@ -1,3 +1,158 @@
+space core::cell::cell;
+
+/// Conteneur générique pour une valeur modifiable.
+///
+/// Les lectures utilisent un emprunt partagé; chaque mutation exige un
+/// emprunt mutable explicite.
+export form Cell<T> {
+    value: T,
+}
+
+/// Construit une cellule contenant une valeur.
+export proc cell_new<T>(value: T) -> Cell[T] {
+    return Cell[T] {
+        value: value,
+    };
+}
+
+/// Retourne une copie de la valeur.
+/// T doit posséder une sémantique de copie.
+export proc cell_get<T>(cell: &Cell[T]) -> T {
+    return cell.value;
+}
+
+/// Remplace la valeur contenue dans la cellule.
+///
+/// La cellule est modifiée à travers un emprunt mutable.
+export proc cell_set<T>(
+    cell: &mut Cell[T],
+    value: T
+) {
+    set cell.value = value;
+}
+
+/// Remplace la valeur et retourne l'ancienne.
+///
+/// T doit être copiable.
+export proc cell_replace<T>(
+    cell: &mut Cell[T],
+    value: T
+) -> T {
+    let previous: T = cell.value;
+
+    set cell.value = value;
+
+    return previous;
+}
+
+/// Échange les valeurs de deux cellules.
+///
+/// T doit être copiable.
+export proc cell_swap<T>(
+    left: &mut Cell[T],
+    right: &mut Cell[T]
+) {
+    let temporary: T = left.value;
+
+    set left.value = right.value;
+    set right.value = temporary;
+}
+
+/// Applique une transformation à la valeur.
+export proc cell_update<T>(
+    cell: &mut Cell[T],
+    transform: proc(T) -> T
+) {
+    let updated: T = transform(cell.value);
+
+    set cell.value = updated;
+}
+
+/// Compare deux cellules.
+export proc cell_equal<T>(
+    left: &Cell[T],
+    right: &Cell[T]
+) -> bool {
+    return left.value == right.value;
+}
+
+/// Vérifie si la cellule contient une valeur donnée.
+export proc cell_contains<T>(
+    cell: &Cell[T],
+    value: T
+) -> bool {
+    return cell.value == value;
+}
+
+/// Retourne une référence en lecture seule.
+export proc cell_as_ref<T>(
+    cell: &Cell[T]
+) -> &T {
+    return &cell.value;
+}
+
+/// Retourne une référence mutable lorsque
+/// la cellule elle-même est mutable.
+export proc cell_as_mut<T>(
+    cell: &mut Cell[T]
+) -> &mut T {
+    return &mut cell.value;
+}
+
+/// Consomme une cellule et retourne sa valeur.
+export proc cell_into_inner<T>(
+    cell: Cell[T]
+) -> T {
+    return cell.value;
+}
+
+/// Copie la valeur d'une cellule dans une autre.
+export proc cell_copy_from<T>(
+    destination: &mut Cell[T],
+    source: &Cell[T]
+) {
+    set destination.value = source.value;
+}
+
+/// Réinitialise une cellule avec une valeur.
+export proc cell_reset<T>(
+    cell: &mut Cell[T],
+    value: T
+) {
+    set cell.value = value;
+}
+
+/// Modifie la cellule uniquement si une condition est vraie.
+export proc cell_set_if<T>(
+    cell: &mut Cell[T],
+    condition: bool,
+    value: T
+) -> bool {
+    if condition {
+        set cell.value = value;
+        return true;
+    } else {
+        return false;
+    }
+}
+
+/// Applique une transformation conditionnelle.
+export proc cell_update_if<T>(
+    cell: &mut Cell[T],
+    predicate: proc(&T) -> bool,
+    transform: proc(T) -> T
+) -> bool {
+    if predicate(&cell.value) {
+        let updated: T = transform(cell.value);
+
+        set cell.value = updated;
+
+        return true;
+    }
+
+    return false;
+}
+
 // ============================================================================
 // 17. CONSTRUCTION PAR DÉFAUT
 // ============================================================================

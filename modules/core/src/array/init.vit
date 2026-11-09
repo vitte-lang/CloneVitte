@@ -28,6 +28,10 @@ use core::num::checked::{
     checked_i64_mul
 };
 
+export type ArrayInitIndexPredicate = proc(usize) -> bool;
+export type ArrayInitValuePredicate<T> = proc(&T) -> bool;
+export type ArrayInitGenerator<T> = proc(usize) -> T;
+
 // ============================================================================
 // 1. INITIALISATION SIMPLE
 // ============================================================================
@@ -63,7 +67,7 @@ export proc array_init_zero<T>(
 /// Initialise les éléments à partir d'une fonction génératrice.
 export proc array_init_with<T>(
     array: &mut [T],
-    generator: proc(usize) -> T
+    generator: ArrayInitGenerator<T>
 ) {
     for i in 0 as usize..(array.len() as usize) {
         set array[i] = generator(i);
@@ -159,7 +163,7 @@ export proc array_init_copy_range<T>(
 /// Initialise les éléments dont l'indice satisfait un prédicat.
 export proc array_init_if<T>(
     array: &mut [T],
-    predicate: proc(usize) -> bool,
+    predicate: ArrayInitIndexPredicate,
     value: T
 ) {
     for i in 0 as usize..(array.len() as usize) {
@@ -172,7 +176,7 @@ export proc array_init_if<T>(
 /// Initialise les éléments satisfaisant un prédicat sur la valeur.
 export proc array_init_if_value<T>(
     array: &mut [T],
-    predicate: proc(&T) -> bool,
+    predicate: ArrayInitValuePredicate<T>,
     value: T
 ) {
     for i in 0 as usize..(array.len() as usize) {
@@ -185,8 +189,8 @@ export proc array_init_if_value<T>(
 /// Génère uniquement les éléments sélectionnés.
 export proc array_init_with_if<T>(
     array: &mut [T],
-    predicate: proc(usize) -> bool,
-    generator: proc(usize) -> T
+    predicate: ArrayInitIndexPredicate,
+    generator: ArrayInitGenerator<T>
 ) {
     for i in 0 as usize..(array.len() as usize) {
         if predicate(i) {
@@ -295,7 +299,7 @@ export proc array_init_range_with<T>(
     array: &mut [T],
     start: usize,
     end: usize,
-    generator: proc(usize) -> T
+    generator: ArrayInitGenerator<T>
 ) -> bool {
     let length: usize = array.len() as usize;
 
@@ -618,7 +622,7 @@ export proc array_init_bool_alternating(
 /// Initialise les valeurs booléennes à partir d'un prédicat.
 export proc array_init_bool_with(
     array: &mut [bool],
-    predicate: proc(usize) -> bool
+    predicate: ArrayInitIndexPredicate
 ) {
     for i in 0 as usize..(array.len() as usize) {
         set array[i] = predicate(i);
@@ -704,43 +708,43 @@ export proc array_init_f64(
 // ============================================================================
 
 export proc array_init_zero_i8(array: &mut [i8]) {
-    array_init_fill(array, 0);
+    array_init_fill(array, 0 as i8);
 }
 
 export proc array_init_zero_i16(array: &mut [i16]) {
-    array_init_fill(array, 0);
+    array_init_fill(array, 0 as i16);
 }
 
 export proc array_init_zero_i32(array: &mut [i32]) {
-    array_init_fill(array, 0);
+    array_init_fill(array, 0 as i32);
 }
 
 export proc array_init_zero_i64(array: &mut [i64]) {
-    array_init_fill(array, 0);
+    array_init_fill(array, 0 as i64);
 }
 
 export proc array_init_zero_u8(array: &mut [u8]) {
-    array_init_fill(array, 0);
+    array_init_fill(array, 0 as u8);
 }
 
 export proc array_init_zero_u16(array: &mut [u16]) {
-    array_init_fill(array, 0);
+    array_init_fill(array, 0 as u16);
 }
 
 export proc array_init_zero_u32(array: &mut [u32]) {
-    array_init_fill(array, 0);
+    array_init_fill(array, 0 as u32);
 }
 
 export proc array_init_zero_u64(array: &mut [u64]) {
-    array_init_fill(array, 0);
+    array_init_fill(array, 0 as u64);
 }
 
 export proc array_init_zero_f32(array: &mut [f32]) {
-    array_init_fill(array, 0.0);
+    array_init_fill(array, 0.0 as f32);
 }
 
 export proc array_init_zero_f64(array: &mut [f64]) {
-    array_init_fill(array, 0.0);
+    array_init_fill(array, 0.0 as f64);
 }
 
 // ============================================================================
