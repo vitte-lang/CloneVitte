@@ -114,6 +114,7 @@ def validate_release_inventory(out: Path, version: str) -> None:
             raise ValueError(f"INSTALLERS.json has the wrong target for {name}")
 
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path)

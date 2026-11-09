@@ -84,6 +84,9 @@ if [ ! -x "$VITTE_BIN" ]; then
   "$MAKE_CMD" -C "$ROOT_DIR" all
 fi
 
+"$PYTHON" "$ROOT_DIR/scripts/verify-installer-target.py" \
+  "$VITTE_BIN" "$PLATFORM" "$ARCH"
+
 verify_vitte "$VITTE_BIN" >/dev/null
 
 #

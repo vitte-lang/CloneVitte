@@ -743,6 +743,12 @@ verify_product_package() {
   test -s "$expanded/Resources/Welcome.txt" ||
     die "missing macOS welcome resource"
 
+  test -s "$expanded/Resources/License.txt" ||
+    die "missing macOS license resource"
+
+  test -s "$expanded/Resources/Conclusion.txt" ||
+    die "missing macOS conclusion resource"
+
   test -x "$expanded/vitte-editors.pkg/Scripts/postinstall" ||
     die "missing macOS editor postinstall script"
 
@@ -956,6 +962,14 @@ write_distribution() {
     file="Welcome.txt"
     mime-type="text/plain"/>
 
+  <license
+    file="License.txt"
+    mime-type="text/plain"/>
+
+  <conclusion
+    file="Conclusion.txt"
+    mime-type="text/plain"/>
+
   <options
     customize="never"
     require-scripts="false"
@@ -1014,8 +1028,17 @@ Vitte $VERSION
 Architecture: $architecture
 Minimum target system: Mac OS X $minimum_system
 
-This installer installs the complete Vitte systems programming language
-toolchain and native syntax highlighting for:
+This installer adds the Vitte compiler, runtime, standard library,
+diagnostic tools, editor support, and shell completions.
+
+What is included:
+
+- Compiler commands: vitte and vittec
+- Installation doctor for checking the installed toolchain
+- Runtime and standard library sources
+- Shell completions and editor integrations
+
+Editor support includes:
 
 - Vim
 - Emacs
@@ -1030,6 +1053,22 @@ Recognized file extensions:
 
 Editor files are installed in the directories actually read by each editor.
 They are not only stored in the Vitte documentation directory.
+EOF
+}
+
+write_conclusion() {
+  output=$1
+  cat > "$output" <<EOF
+Vitte $VERSION is ready.
+
+Open a new terminal and run:
+
+  vitte --version
+  vitte-installer-doctor
+
+The compiler, runtime, standard library, editor integrations, and shell
+completions are installed together. See the installation guide in the
+installed documentation for editor-specific setup.
 EOF
 }
 
@@ -1103,6 +1142,9 @@ build_one() {
     "$expected_archs" \
     "$minimum_system"
 
+  install -m 0644 "$ROOT_DIR/LICENSE" "$resources/License.txt"
+  write_conclusion "$resources/Conclusion.txt"
+
   require_file \
     "$distribution" \
     "macOS Distribution XML"
@@ -1110,6 +1152,9 @@ build_one() {
   require_file \
     "$resources/Welcome.txt" \
     "macOS welcome resource"
+
+  require_file "$resources/License.txt" "macOS license resource"
+  require_file "$resources/Conclusion.txt" "macOS conclusion resource"
 
   log "building final package: $package_file"
 

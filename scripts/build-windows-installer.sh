@@ -239,6 +239,9 @@ ${UnStrRep}
 
 Name "Vitte ${VERSION} (${ARCH})"
 OutFile "${OUT_FILE}"
+BrandingText "Vitte ${VERSION} | Compiler, runtime, editors and completions"
+ShowInstDetails show
+ShowUninstDetails show
 InstallDir "$PROGRAMFILES\Vitte"
 !if "${ARCH}" == "amd64"
   InstallDir "$PROGRAMFILES64\Vitte"
@@ -247,8 +250,15 @@ InstallDirRegKey HKLM "Software\Vitte" "InstallDir"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
+!define MUI_ABORTWARNING
+!define MUI_WELCOMEPAGE_TITLE "Install Vitte ${VERSION}"
+!define MUI_WELCOMEPAGE_TEXT "The Vitte installer sets up the compiler, runtime, standard library, editor integrations, and shell completions.$\r$\n$\r$\nThe next pages show the license, installation options, and destination."
+!define MUI_FINISHPAGE_TITLE "Vitte ${VERSION} is ready"
+!define MUI_FINISHPAGE_TEXT "Open a new terminal and run vitte --version, then vitte-installer-doctor to check the installation."
+
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "LICENSE"
+!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -311,8 +321,13 @@ Section "Vitte" SEC_VITTE
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Vitte" "UninstallString" '"$INSTDIR\uninstall.exe"'
 SectionEnd
 
+Section /o "Desktop shortcut" SEC_DESKTOP
+  CreateShortCut "$DESKTOP\Vitte shell.lnk" "$SYSDIR\cmd.exe" '/K ""$INSTDIR\bin\vitte.cmd" --help"'
+SectionEnd
+
 Section "Uninstall"
   Call un.RemoveFromPath
+  Delete "$DESKTOP\Vitte shell.lnk"
   RMDir /r "$SMPROGRAMS\Vitte"
   DeleteRegKey HKCR "Vitte.Source"
   DeleteRegKey HKCR ".vit"
@@ -320,6 +335,11 @@ Section "Uninstall"
   DeleteRegKey HKLM "Software\Vitte"
   RMDir /r "$INSTDIR"
 SectionEnd
+
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_VITTE} "Compiler, runtime, standard library, editor integrations, shell completions, and installation doctor."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_DESKTOP} "Add a shortcut that opens a Vitte command shell."
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 VIProductVersion "${VERSION}.0"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductName" "Vitte"
