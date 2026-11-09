@@ -21,6 +21,7 @@ from verify_release_installer_inventory import (
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "scripts" / "package-matrix.sh"
 BUILDER = ROOT / "scripts" / "build-all-installers.sh"
+TARGET_VERIFIER = ROOT / "scripts" / "verify-installer-target.py"
 
 
 def run(*command: str) -> str:
@@ -42,6 +43,23 @@ def script_path(path: Path) -> str:
     if result.returncode != 0:
         raise AssertionError(f"cygpath failed for {path}: {result.stderr}")
     return result.stdout.strip()
+
+
+def test_target_guard() -> None:
+    host = sys.platform
+    if host.startswith("darwin"):
+        claimed_os, wrong_os = "macos", "linux"
+    elif host.startswith("linux"):
+        claimed_os, wrong_os = "linux", "macos"
+    else:
+        claimed_os, wrong_os = "windows", "linux"
+    binary = ROOT / "VERSION"
+    result = subprocess.run(
+        [sys.executable, str(TARGET_VERIFIER), str(binary), wrong_os, "amd64"],
+        cwd=ROOT, text=True, capture_output=True, timeout=10,
+    )
+    if result.returncode == 0 or "requires a" not in result.stderr:
+        raise AssertionError("installer target guard accepted a foreign platform")
 
 
 def test_release_inventory() -> None:
@@ -125,6 +143,7 @@ def test_release_inventory() -> None:
 
 def main() -> int:
     test_release_inventory()
+    test_target_guard()
     matrix_script = script_path(MATRIX)
     builder_script = script_path(BUILDER)
     matrix = run("sh", matrix_script, "list")
@@ -168,7 +187,7 @@ def main() -> int:
 
     print(
         f"Package matrix passed: {len(rows)} unique targets, {len(aliases)} aliases, "
-        "and a complete current-release installer inventory."
+        "and the currently gated release installer inventory."
     )
     return 0
 
