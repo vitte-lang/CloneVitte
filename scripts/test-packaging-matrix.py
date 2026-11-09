@@ -3,10 +3,19 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import subprocess
 import sys
-import os
+import tempfile
 from pathlib import Path
+
+from verify_release_installer_inventory import (
+    METADATA_FILES,
+    required_artifacts,
+    validate_release_inventory,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +44,87 @@ def script_path(path: Path) -> str:
     return result.stdout.strip()
 
 
+def test_release_inventory() -> None:
+    version = "0.1.1"
+    artifacts = required_artifacts(version)
+    with tempfile.TemporaryDirectory(prefix="vitte-release-inventory-") as temporary:
+        out = Path(temporary)
+        index_entries = []
+        for name, (os_name, arch) in artifacts.items():
+            payload = f"fixture installer: {name}\n".encode()
+            digest = hashlib.sha256(payload).hexdigest()
+            (out / name).write_bytes(payload)
+            (out / f"{name}.sha256").write_text(f"{digest}  {name}\n")
+            (out / f"{name}.MANIFEST.json").write_text(
+                json.dumps(
+                    {
+                        "name": name,
+                        "version": version,
+                        "os": os_name,
+                        "arch": arch,
+                        "sha256": digest,
+                        "installed_commands": [
+                            "vitte",
+                            "vittec",
+                            "vitte-installer-doctor",
+                        ],
+                        "contents": [
+                            "compiler",
+                            "runtime",
+                            "stdlib",
+                            "editors",
+                            "system-completions",
+                        ],
+                    }
+                )
+            )
+            index_entries.append(
+                {
+                    "name": name,
+                    "version": version,
+                    "os": os_name,
+                    "arch": arch,
+                    "sha256": digest,
+                }
+            )
+        (out / "INSTALLERS.json").write_text(
+            json.dumps(
+                {
+                    "schema": "org.vitte.installer-index.v1",
+                    "version": version,
+                    "artifacts": index_entries,
+                }
+            )
+        )
+        for metadata_name in METADATA_FILES - {"INSTALLERS.json"}:
+            (out / metadata_name).write_text("fixture metadata\n")
+
+        validate_release_inventory(out, version)
+
+        missing_installer = next(iter(artifacts))
+        (out / missing_installer).unlink()
+        try:
+            validate_release_inventory(out, version)
+        except ValueError as error:
+            if "missing release files" not in str(error):
+                raise AssertionError(f"missing installer was misreported: {error}") from error
+        else:
+            raise AssertionError("release inventory accepted a missing installer")
+
+        (out / missing_installer).write_bytes(b"restored fixture\n")
+        stale = out / "vitte_0.1.0_amd64.deb"
+        stale.write_bytes(b"old release installer\n")
+        try:
+            validate_release_inventory(out, version)
+        except ValueError as error:
+            if "stale 0.1.0 files" not in str(error):
+                raise AssertionError(f"stale installer was misreported: {error}") from error
+        else:
+            raise AssertionError("release inventory accepted an old 0.1.0 installer")
+
+
 def main() -> int:
+    test_release_inventory()
     matrix_script = script_path(MATRIX)
     builder_script = script_path(BUILDER)
     matrix = run("sh", matrix_script, "list")
@@ -77,7 +166,10 @@ def main() -> int:
         if actual != expected:
             raise AssertionError(f"{operation} {value!r}: expected {expected!r}, got {actual!r}")
 
-    print(f"Package matrix passed: {len(rows)} unique targets and {len(aliases)} aliases.")
+    print(
+        f"Package matrix passed: {len(rows)} unique targets, {len(aliases)} aliases, "
+        "and a complete current-release installer inventory."
+    )
     return 0
 
 

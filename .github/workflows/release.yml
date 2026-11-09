@@ -237,6 +237,9 @@ jobs:
           sudo apt-get install --no-install-recommends -y file libarchive-tools
           VERSION="$version" OUT_DIR="$PWD/pkgout" VERIFY_METADATA=1 \
             scripts/verify-installers.sh
+          python3 scripts/verify_release_installer_inventory.py \
+            --out pkgout \
+            --version "$version"
 
       - name: Create or update the GitHub draft release
         env:
@@ -245,6 +248,14 @@ jobs:
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" pkgout/* --clobber
+            gh release edit "$RELEASE_TAG" --target "$GITHUB_SHA" --verify-tag
+            while IFS= read -r asset; do
+              case "$asset" in
+                *0.1.0*)
+                  gh release delete-asset "$RELEASE_TAG" "$asset" --yes
+                  ;;
+              esac
+            done < <(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
           else
             gh release create "$RELEASE_TAG" pkgout/* \
               --draft \
