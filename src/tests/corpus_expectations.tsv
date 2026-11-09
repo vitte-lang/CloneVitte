@@ -3,7 +3,8 @@ negative	src/tests/assignment_immutable.vit	E0513
 negative	src/tests/static_immutable_write_rejected.vit	E0513
 negative	src/tests/diagnostic_lexer_invalid.vit	E0102
 negative	src/tests/diagnostic_parser_invalid.vit	E0203
-negative	src/tests/contracts_type_error.vit	E0515
+negative	src/tests/contracts_false.vit	E0709
+negative	src/tests/contracts_type_error.vit	E0704
 negative	src/tests/export_forms/reexport_group_unsupported.vit	E0201
 negative	src/tests/import_visibility/ambiguous_symbol_form_main.vit	E0402
 negative	src/tests/import_visibility/direct_private.vit	E0404
