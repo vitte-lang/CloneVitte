@@ -1,154 +1,478 @@
-space core::cell::cell;
+// ============================================================================
+// 17. CONSTRUCTION PAR DÉFAUT
+// ============================================================================
 
-/// Conteneur générique pour une valeur modifiable.
-///
-/// Les lectures utilisent un emprunt partagé; chaque mutation exige un
-/// emprunt mutable explicite.
-export form Cell<T> {
-    value: T,
-}
-
-/// Construit une cellule contenant une valeur.
-export proc cell_new<T>(value: T) -> Cell[T] {
+/// Construit une cellule avec la valeur par défaut de T.
+/// Nécessite une implémentation de T::default().
+export proc cell_default<T>() -> Cell[T] {
     return Cell[T] {
-        value: value,
+        value: T::default(),
     };
 }
 
-/// Retourne une copie de la valeur.
-/// T doit posséder une sémantique de copie.
-export proc cell_get<T>(cell: &Cell[T]) -> T {
-    return cell.value;
+// ============================================================================
+// 18. CONSTRUCTION PAR GÉNÉRATEUR
+// ============================================================================
+
+/// Construit une cellule en appelant une fonction génératrice.
+export proc cell_from_fn<T>(
+    generator: proc() -> T
+) -> Cell[T] {
+    return Cell[T] {
+        value: generator(),
+    };
 }
 
-/// Remplace la valeur contenue dans la cellule.
-///
-/// La cellule est modifiée à travers un emprunt mutable.
-export proc cell_set<T>(
-    cell: &mut Cell[T],
-    value: T
-) {
-    set cell.value = value;
+// ============================================================================
+// 19. CONSTRUCTION À ZÉRO
+// ============================================================================
+
+/// Nécessite une implémentation de T::zero().
+export proc cell_zero<T>() -> Cell[T] {
+    return Cell[T] {
+        value: T::zero(),
+    };
 }
 
-/// Remplace la valeur et retourne l'ancienne.
+// ============================================================================
+// 20. COPIE DE CELLULE
+// ============================================================================
+
+/// Produit une nouvelle cellule contenant une copie de la valeur.
+/// Nécessite que T soit copiable.
+export proc cell_copy<T>(
+    cell: &Cell[T]
+) -> Cell[T] {
+    return Cell[T] {
+        value: cell.value,
+    };
+}
+
+// ============================================================================
+// 21. CLONAGE EXPLICITE
+// ============================================================================
+
+/// Construit une nouvelle cellule en utilisant un cloneur.
+/// Convient aux types nécessitant une duplication personnalisée.
+export proc cell_clone_with<T>(
+    cell: &Cell[T],
+    clone: proc(&T) -> T
+) -> Cell[T] {
+    return Cell[T] {
+        value: clone(&cell.value),
+    };
+}
+
+// ============================================================================
+// 22. LECTURE TRANSFORMÉE
+// ============================================================================
+
+/// Projette la valeur sans la modifier.
+export proc cell_map_ref<T, U>(
+    cell: &Cell[T],
+    transform: proc(&T) -> U
+) -> U {
+    return transform(&cell.value);
+}
+
+// ============================================================================
+// 23. TRANSFORMATION VERS UNE NOUVELLE CELLULE
+// ============================================================================
+
+/// Construit une Cell[U] à partir d'une Cell[T].
+export proc cell_map<T, U>(
+    cell: &Cell[T],
+    transform: proc(&T) -> U
+) -> Cell[U] {
+    return Cell[U] {
+        value: transform(&cell.value),
+    };
+}
+
+// ============================================================================
+// 24. TRANSFORMATION PAR CONSOMMATION
+// ============================================================================
+
+/// Consomme une cellule et transforme sa valeur.
+/// Ne nécessite pas que T soit copiable si Vitte autorise
+/// le déplacement du champ depuis une valeur possédée.
+export proc cell_map_owned<T, U>(
+    cell: Cell[T],
+    transform: proc(T) -> U
+) -> Cell[U] {
+    return Cell[U] {
+        value: transform(cell.value),
+    };
+}
+
+// ============================================================================
+// 25. LECTURE AVEC VALEUR PAR DÉFAUT CONDITIONNELLE
+// ============================================================================
+
+/// Retourne la valeur de la cellule si la condition est vraie,
+/// sinon une valeur alternative.
 ///
-/// T doit être copiable.
-export proc cell_replace<T>(
-    cell: &mut Cell[T],
-    value: T
+/// Nécessite que T soit copiable.
+export proc cell_get_if<T>(
+    cell: &Cell[T],
+    condition: bool,
+    fallback: T
 ) -> T {
-    let previous: T = cell.value;
+    if condition {
+        return cell.value;
+    }
 
-    set cell.value = value;
-
-    return previous;
+    return fallback;
 }
 
-/// Échange les valeurs de deux cellules.
-///
-/// T doit être copiable.
-export proc cell_swap<T>(
-    left: &mut Cell[T],
-    right: &mut Cell[T]
-) {
-    let temporary: T = left.value;
+// ============================================================================
+// 26. COMPARAISON PERSONNALISÉE
+// ============================================================================
 
-    set left.value = right.value;
-    set right.value = temporary;
+export proc cell_equal_by<T, U>(
+    left: &Cell[T],
+    right: &Cell[U],
+    compare: proc(&T, &U) -> bool
+) -> bool {
+    return compare(&left.value, &right.value);
 }
 
-/// Applique une transformation à la valeur.
-export proc cell_update<T>(
+// ============================================================================
+// 27. COMPARAISON LEXICOGRAPHIQUE
+// ============================================================================
+
+/// Retourne une valeur négative, nulle ou positive.
+export proc cell_compare<T>(
+    left: &Cell[T],
+    right: &Cell[T],
+    compare: proc(&T, &T) -> i32
+) -> i32 {
+    let result: i32 = compare(&left.value, &right.value);
+
+    if result < 0 {
+        return -1;
+    }
+
+    if result > 0 {
+        return 1;
+    }
+
+    return 0;
+}
+
+// ============================================================================
+// 28. TEST PAR PRÉDICAT
+// ============================================================================
+
+export proc cell_is<T>(
+    cell: &Cell[T],
+    predicate: proc(&T) -> bool
+) -> bool {
+    return predicate(&cell.value);
+}
+
+// ============================================================================
+// 29. TEST INVERSE
+// ============================================================================
+
+export proc cell_is_not<T>(
+    cell: &Cell[T],
+    predicate: proc(&T) -> bool
+) -> bool {
+    return not predicate(&cell.value);
+}
+
+// ============================================================================
+// 30. MISE À JOUR PAR RÉFÉRENCE
+// ============================================================================
+
+/// Transforme la valeur à partir d'une référence immuable.
+/// Évite de copier l'ancienne valeur en argument.
+export proc cell_update_ref<T>(
     cell: &mut Cell[T],
-    transform: proc(T) -> T
+    transform: proc(&T) -> T
 ) {
-    let updated: T = transform(cell.value);
-
+    let updated: T = transform(&cell.value);
     set cell.value = updated;
 }
 
-/// Compare deux cellules.
-export proc cell_equal<T>(
-    left: &Cell[T],
-    right: &Cell[T]
+// ============================================================================
+// 31. MISE À JOUR AVEC INDICATEUR
+// ============================================================================
+
+/// Retourne true lorsque la mise à jour est effectuée.
+export proc cell_update_checked<T>(
+    cell: &mut Cell[T],
+    predicate: proc(&T) -> bool,
+    transform: proc(&T) -> T
 ) -> bool {
-    return left.value == right.value;
+    if not predicate(&cell.value) {
+        return false;
+    }
+
+    let updated: T = transform(&cell.value);
+    set cell.value = updated;
+
+    return true;
 }
 
-/// Vérifie si la cellule contient une valeur donnée.
-export proc cell_contains<T>(
-    cell: &Cell[T],
+// ============================================================================
+// 32. MISE À JOUR MUTABLE
+// ============================================================================
+
+/// Permet à un callback de modifier directement la valeur.
+export proc cell_modify<T>(
+    cell: &mut Cell[T],
+    callback: proc(&mut T)
+) {
+    callback(&mut cell.value);
+}
+
+// ============================================================================
+// 33. MISE À JOUR MUTABLE CONDITIONNELLE
+// ============================================================================
+
+export proc cell_modify_if<T>(
+    cell: &mut Cell[T],
+    predicate: proc(&T) -> bool,
+    callback: proc(&mut T)
+) -> bool {
+    if not predicate(&cell.value) {
+        return false;
+    }
+
+    callback(&mut cell.value);
+    return true;
+}
+
+// ============================================================================
+// 34. REMPLACEMENT CONDITIONNEL
+// ============================================================================
+
+/// Remplace la valeur uniquement si le prédicat est satisfait.
+export proc cell_replace_if<T>(
+    cell: &mut Cell[T],
+    predicate: proc(&T) -> bool,
     value: T
 ) -> bool {
-    return cell.value == value;
+    if not predicate(&cell.value) {
+        return false;
+    }
+
+    set cell.value = value;
+    return true;
 }
 
-/// Retourne une référence en lecture seule.
-export proc cell_as_ref<T>(
-    cell: &Cell[T]
-) -> &T {
-    return &cell.value;
+// ============================================================================
+// 35. ÉCHANGE CONDITIONNEL
+// ============================================================================
+
+export proc cell_swap_if<T>(
+    left: &mut Cell[T],
+    right: &mut Cell[T],
+    condition: bool
+) -> bool {
+    if not condition {
+        return false;
+    }
+
+    cell_swap(left, right);
+    return true;
 }
 
-/// Retourne une référence mutable lorsque
-/// la cellule elle-même est mutable.
-export proc cell_as_mut<T>(
-    cell: &mut Cell[T]
-) -> &mut T {
-    return &mut cell.value;
+// ============================================================================
+// 36. ÉCHANGE AVEC COMPARATEUR
+// ============================================================================
+
+/// Échange les cellules si le prédicat appliqué aux valeurs
+/// retourne true.
+export proc cell_swap_by<T>(
+    left: &mut Cell[T],
+    right: &mut Cell[T],
+    predicate: proc(&T, &T) -> bool
+) -> bool {
+    if not predicate(&left.value, &right.value) {
+        return false;
+    }
+
+    cell_swap(left, right);
+    return true;
 }
 
-/// Consomme une cellule et retourne sa valeur.
-export proc cell_into_inner<T>(
-    cell: Cell[T]
-) -> T {
-    return cell.value;
-}
+// ============================================================================
+// 37. TRANSFERT PAR COPIE
+// ============================================================================
 
-/// Copie la valeur d'une cellule dans une autre.
-export proc cell_copy_from<T>(
+/// Copie une valeur source vers la cellule destination.
+/// Nécessite que T soit copiable.
+export proc cell_assign<T>(
     destination: &mut Cell[T],
     source: &Cell[T]
 ) {
     set destination.value = source.value;
 }
 
-/// Réinitialise une cellule avec une valeur.
-export proc cell_reset<T>(
+// ============================================================================
+// 38. REMPLACEMENT AVEC GÉNÉRATEUR
+// ============================================================================
+
+export proc cell_replace_with<T>(
     cell: &mut Cell[T],
-    value: T
+    generator: proc() -> T
 ) {
-    set cell.value = value;
+    let replacement: T = generator();
+    set cell.value = replacement;
 }
 
-/// Modifie la cellule uniquement si une condition est vraie.
-export proc cell_set_if<T>(
+// ============================================================================
+// 39. RÉINITIALISATION PAR DÉFAUT
+// ============================================================================
+
+export proc cell_reset_default<T>(
+    cell: &mut Cell[T]
+) {
+    set cell.value = T::default();
+}
+
+// ============================================================================
+// 40. RÉINITIALISATION À ZÉRO
+// ============================================================================
+
+export proc cell_reset_zero<T>(
+    cell: &mut Cell[T]
+) {
+    set cell.value = T::zero();
+}
+
+// ============================================================================
+// 41. LECTURE VIA CALLBACK
+// ============================================================================
+
+/// Fournit un emprunt partagé pendant l'appel.
+export proc cell_with<T>(
+    cell: &Cell[T],
+    callback: proc(&T)
+) {
+    callback(&cell.value);
+}
+
+// ============================================================================
+// 42. ACCÈS MUTABLE VIA CALLBACK
+// ============================================================================
+
+/// Fournit un emprunt mutable pendant l'appel.
+export proc cell_with_mut<T>(
     cell: &mut Cell[T],
-    condition: bool,
-    value: T
+    callback: proc(&mut T)
+) {
+    callback(&mut cell.value);
+}
+
+// ============================================================================
+// 43. PROJECTION DE DEUX CELLULES
+// ============================================================================
+
+export proc cell_zip_map<T, U, V>(
+    left: &Cell[T],
+    right: &Cell[U],
+    transform: proc(&T, &U) -> V
+) -> Cell[V] {
+    return Cell[V] {
+        value: transform(&left.value, &right.value),
+    };
+}
+
+// ============================================================================
+// 44. MISE À JOUR À PARTIR D'UNE AUTRE CELLULE
+// ============================================================================
+
+export proc cell_update_from<T, U>(
+    destination: &mut Cell[T],
+    source: &Cell[U],
+    transform: proc(&T, &U) -> T
+) {
+    let updated: T = transform(
+        &destination.value,
+        &source.value
+    );
+
+    set destination.value = updated;
+}
+
+// ============================================================================
+// 45. VALIDATION DE VALEUR
+// ============================================================================
+
+/// Vérifie que la valeur satisfait un contrat.
+export proc cell_validate<T>(
+    cell: &Cell[T],
+    validator: proc(&T) -> bool
 ) -> bool {
-    if condition {
-        set cell.value = value;
-        return true;
-    } else {
+    return validator(&cell.value);
+}
+
+// ============================================================================
+// 46. AFFECTATION VALIDÉE
+// ============================================================================
+
+/// Valide la nouvelle valeur avant de modifier la cellule.
+export proc cell_set_validated<T>(
+    cell: &mut Cell[T],
+    value: T,
+    validator: proc(&T) -> bool
+) -> bool {
+    if not validator(&value) {
         return false;
     }
+
+    set cell.value = value;
+    return true;
 }
 
-/// Applique une transformation conditionnelle.
-export proc cell_update_if<T>(
+// ============================================================================
+// 47. MISE À JOUR VALIDÉE
+// ============================================================================
+
+/// Calcule une nouvelle valeur, puis la valide avant affectation.
+export proc cell_update_validated<T>(
     cell: &mut Cell[T],
-    predicate: proc(&T) -> bool,
-    transform: proc(T) -> T
+    transform: proc(&T) -> T,
+    validator: proc(&T) -> bool
 ) -> bool {
-    if predicate(&cell.value) {
-        let updated: T = transform(cell.value);
+    let updated: T = transform(&cell.value);
 
-        set cell.value = updated;
-
-        return true;
+    if not validator(&updated) {
+        return false;
     }
 
-    return false;
+    set cell.value = updated;
+    return true;
 }
+
+// ============================================================================
+// 48. MISE À JOUR CONDITIONNELLE VALIDÉE
+// ============================================================================
+
+export proc cell_update_if_validated<T>(
+    cell: &mut Cell[T],
+    predicate: proc(&T) -> bool,
+    transform: proc(&T) -> T,
+    validator: proc(&T) -> bool
+) -> bool {
+    if not predicate(&cell.value) {
+        return false;
+    }
+
+    let updated: T = transform(&cell.value);
+
+    if not validator(&updated) {
+        return false;
+    }
+
+    set cell.value = updated;
+    return true;
+}
+
+// ============================================================================
+// END OF EXTENSIONS
+// ============================================================================

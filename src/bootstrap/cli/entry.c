@@ -720,7 +720,8 @@ vitte_main_import_register_edge(
             &description.span,
             "use declaration",
             module_name,
-            alias_name);
+            alias_name,
+            "import graph");
     }
     return false;
 }
@@ -902,7 +903,8 @@ vitte_main_import_graph_resolve(
                 &cycle_edge->span,
                 import_context,
                 module_name,
-                alias_name);
+                alias_name,
+                "import graph");
         } else {
             vitte_main_report_process_error(
                 "VITTE_IMPORT_E_CYCLE",
@@ -947,7 +949,8 @@ vitte_main_import_graph_resolve(
                     ? vitte_import_string_data(
                           &modules->import_graph,
                           edge->alias)
-                    : NULL);
+                    : NULL,
+                "import graph");
         } else {
             vitte_main_report_process_error(
                 "VITTE_IMPORT_E_CYCLE",
@@ -993,7 +996,8 @@ vitte_main_import_graph_resolve(
                     ? vitte_import_string_data(
                           &modules->import_graph,
                           edge->alias)
-                    : NULL);
+                    : NULL,
+                "import graph");
         } else {
             vitte_main_report_process_error(
                 "VITTE_IMPORT_E_MODULE_NOT_FOUND",
@@ -2332,7 +2336,8 @@ vitte_main_report_missing_module(
         span,
         "use declaration",
         requested,
-        NULL);
+        NULL,
+        "import graph");
 }
 
 bool
@@ -2960,12 +2965,23 @@ vitte_main_validate_utf8(
             &error_offset)) {
         char details[256];
         int details_length;
+        size_t error_end;
+        vitte_import_span_t span;
 
         details_length = snprintf(
             details,
             sizeof(details),
             "invalid UTF-8 sequence at byte %zu",
             error_offset);
+        error_end = error_offset < file->length
+            ? error_offset + 1u
+            : error_offset;
+        span = vitte_main_import_span_make(
+            0u,
+            file->data,
+            file->length,
+            error_offset,
+            error_end);
         if (details_length < 0 ||
             (size_t)details_length >= sizeof(details)) {
             vitte_main_report_process_error(
@@ -2973,11 +2989,16 @@ vitte_main_validate_utf8(
                 "source contains invalid UTF-8",
                 NULL);
         } else {
-            vitte_main_report_path_error(
+            vitte_main_report_process_error_span(
                 "VITTE_INFRA_E_ENCODING",
                 "source contains invalid UTF-8",
+                details,
                 options->input_path,
-                details);
+                &span,
+                "source encoding",
+                NULL,
+                NULL,
+                "source file");
         }
 
         return false;

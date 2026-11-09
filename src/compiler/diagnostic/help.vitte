@@ -681,17 +681,18 @@ proc help_detail(diagnostic_value: *const Diagnostic) -> string {
     return help_first_cause(diagnostic_value);
 }
 
-proc help_byte_is_space(value: char) -> bool {
-    return value == ' ' or value == '\t' or value == '\n' or value == '\r';
+proc help_byte_is_space(value: u8) -> bool {
+    return value == 32 as u8 or value == 9 as u8 or
+           value == 10 as u8 or value == 13 as u8;
 }
 
 proc help_trim(text: string) -> string {
     let mut begin: usize = 0;
     let mut end: usize = text.len();
-    while begin < end and help_byte_is_space(text[begin]) {
+    while begin < end and help_byte_is_space(text[begin] as u8) {
         set begin += 1;
     }
-    while end > begin and help_byte_is_space(text[end - 1]) {
+    while end > begin and help_byte_is_space(text[end - 1] as u8) {
         set end -= 1;
     }
     if begin == end {

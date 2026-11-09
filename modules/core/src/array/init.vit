@@ -1,113 +1,89 @@
+/// Initialisation de tableaux et de tranches empruntées.
+///
+/// Module: core::array::init
+///
+/// Fonctionnalités:
+/// - remplissage
+/// - initialisation par défaut
+/// - initialisation à zéro
+/// - génération par indice
+/// - copie
+/// - initialisation conditionnelle
+/// - plages et préfixes/suffixes
+/// - alternance et répétition
+/// - séquences arithmétiques et géométriques
+/// - initialisation booléenne
+///
+/// Les opérations génériques par copie exigent que T soit copiable.
+/// Les générateurs peuvent avoir des effets de bord.
+///
+/// Aucune allocation dynamique n'est effectuée.
+
 space core::array::init;
 
-use core::num::checked::{CheckedI64Result, checked_i64_add, checked_i64_sub, checked_i64_mul};
+use core::num::checked::{
+    CheckedI64Result,
+    checked_i64_add,
+    checked_i64_sub,
+    checked_i64_mul
+};
+
+// ============================================================================
+// 1. INITIALISATION SIMPLE
+// ============================================================================
 
 /// Initialise tous les éléments avec une valeur donnée.
 export proc array_init_fill<T>(
     array: &mut [T],
     value: T
 ) {
-    for i in 0..array.len() {
+    for i in 0 as usize..(array.len() as usize) {
         set array[i] = value;
     }
 }
 
 /// Initialise les éléments avec leur valeur par défaut.
-proc array_init_default<T>(
+export proc array_init_default<T>(
     array: &mut [T]
 ) {
-    for i in 0..array.len() {
+    for i in 0 as usize..(array.len() as usize) {
         set array[i] = T::default();
     }
 }
 
 /// Initialise tous les éléments à zéro.
-proc array_init_zero<T>(
+export proc array_init_zero<T>(
     array: &mut [T]
 ) {
-    for i in 0..array.len() {
+    for i in 0 as usize..(array.len() as usize) {
         set array[i] = T::zero();
     }
 }
 
 /// Initialise les éléments à partir d'une fonction génératrice.
-proc array_init_with<T>(
+export proc array_init_with<T>(
     array: &mut [T],
     generator: proc(usize) -> T
 ) {
-    for i in 0..array.len() {
+    for i in 0 as usize..(array.len() as usize) {
         set array[i] = generator(i);
     }
 }
 
-/// Initialise les éléments à partir de leur indice.
+/// Initialise chaque élément avec son indice.
 export proc array_init_indexed(
     array: &mut [usize]
 ) {
-    for i in 0..array.len() {
+    for i in 0 as usize..(array.len() as usize) {
         set array[i] = i;
     }
 }
 
-/// Initialise un tableau avec une séquence croissante.
-export proc array_init_sequence(
-    array: &mut [i64],
-    start: i64,
-    step: i64
-) -> bool {
-    let mut probe: i64 = start;
+// ============================================================================
+// 2. INITIALISATION PAR COPIE
+// ============================================================================
 
-    // Valider toute la séquence avant écriture évite un résultat partiel.
-    for i in 0..array.len() {
-        if i + 1 < array.len() {
-            let next: CheckedI64Result = checked_i64_add(probe, step);
-            if not next.success { return false; }
-            set probe = next.value;
-        }
-    }
-
-    let mut current: i64 = start;
-
-    for i in 0..array.len() {
-        set array[i] = current;
-        if i + 1 < array.len() {
-            set current = current + step;
-        }
-    }
-
-    return true;
-}
-
-/// Initialise un tableau avec une séquence décroissante.
-export proc array_init_reverse_sequence(
-    array: &mut [i64],
-    start: i64,
-    step: i64
-) -> bool {
-    let mut probe: i64 = start;
-
-    for i in 0..array.len() {
-        if i + 1 < array.len() {
-            let next: CheckedI64Result = checked_i64_sub(probe, step);
-            if not next.success { return false; }
-            set probe = next.value;
-        }
-    }
-
-    let mut current: i64 = start;
-
-    for i in 0..array.len() {
-        set array[i] = current;
-        if i + 1 < array.len() {
-            set current = current - step;
-        }
-    }
-
-    return true;
-}
-
-/// Copie les éléments d'un tableau source.
-/// Retourne le nombre d'éléments copiés.
+/// Copie autant d'éléments que possible.
 export proc array_init_copy<T>(
     source: &[T],
     destination: &mut [T]
@@ -119,57 +95,236 @@ export proc array_init_copy<T>(
     }
 
     for i in 0 as usize..count {
-        set destination[i as usize] = source[i as usize];
+        set destination[i] = source[i];
     }
 
     return count;
 }
 
-/// Initialise uniquement les éléments satisfaisant une condition.
-proc array_init_if<T>(
+/// Copie uniquement si les deux longueurs sont identiques.
+export proc array_init_copy_exact<T>(
+    source: &[T],
+    destination: &mut [T]
+) -> bool {
+    if (source.len() as usize) != (destination.len() as usize) {
+        return false;
+    }
+
+    for i in 0 as usize..(source.len() as usize) {
+        set destination[i] = source[i];
+    }
+
+    return true;
+}
+
+/// Copie une plage avec validation préalable.
+export proc array_init_copy_range<T>(
+    source: &[T],
+    source_start: usize,
+    destination: &mut [T],
+    destination_start: usize,
+    count: usize
+) -> bool {
+    let source_length: usize = source.len() as usize;
+    let destination_length: usize = destination.len() as usize;
+
+    if source_start > source_length {
+        return false;
+    }
+
+    if destination_start > destination_length {
+        return false;
+    }
+
+    if count > source_length - source_start {
+        return false;
+    }
+
+    if count > destination_length - destination_start {
+        return false;
+    }
+
+    for i in 0 as usize..count {
+        set destination[destination_start + i] =
+            source[source_start + i];
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 3. INITIALISATION CONDITIONNELLE
+// ============================================================================
+
+/// Initialise les éléments dont l'indice satisfait un prédicat.
+export proc array_init_if<T>(
     array: &mut [T],
     predicate: proc(usize) -> bool,
     value: T
 ) {
-    for i in 0..array.len() {
+    for i in 0 as usize..(array.len() as usize) {
         if predicate(i) {
             set array[i] = value;
         }
     }
 }
 
-/// Initialise les éléments d'une plage [start, end).
+/// Initialise les éléments satisfaisant un prédicat sur la valeur.
+export proc array_init_if_value<T>(
+    array: &mut [T],
+    predicate: proc(&T) -> bool,
+    value: T
+) {
+    for i in 0 as usize..(array.len() as usize) {
+        if predicate(&array[i]) {
+            set array[i] = value;
+        }
+    }
+}
+
+/// Génère uniquement les éléments sélectionnés.
+export proc array_init_with_if<T>(
+    array: &mut [T],
+    predicate: proc(usize) -> bool,
+    generator: proc(usize) -> T
+) {
+    for i in 0 as usize..(array.len() as usize) {
+        if predicate(i) {
+            set array[i] = generator(i);
+        }
+    }
+}
+
+// ============================================================================
+// 4. INITIALISATION PAR PLAGES
+// ============================================================================
+
+/// Initialise les éléments de [start, end).
+/// Les bornes sont limitées à la longueur du tableau.
 export proc array_init_range<T>(
     array: &mut [T],
     start: usize,
     end: usize,
     value: T
 ) {
-    let mut begin = start;
-    let mut limit = end;
+    let length: usize = array.len() as usize;
+    let mut begin: usize = start;
+    let mut limit: usize = end;
 
-    if begin > array.len() {
-        set begin = array.len();
+    if begin > length {
+        set begin = length;
     }
 
-    if limit > array.len() {
-        set limit = array.len();
+    if limit > length {
+        set limit = length;
     }
 
-    let mut index: usize = begin;
-    while index < limit {
-        set array[index] = value;
-        set index = index + 1;
+    for i in begin..limit {
+        set array[i] = value;
     }
 }
 
-/// Initialise les éléments d'un tableau avec une alternance de valeurs.
+/// Variante stricte : refuse une plage invalide.
+export proc array_init_range_checked<T>(
+    array: &mut [T],
+    start: usize,
+    end: usize,
+    value: T
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if start > end {
+        return false;
+    }
+
+    if end > length {
+        return false;
+    }
+
+    for i in start..end {
+        set array[i] = value;
+    }
+
+    return true;
+}
+
+/// Initialise les N premiers éléments.
+export proc array_init_prefix<T>(
+    array: &mut [T],
+    count: usize,
+    value: T
+) -> usize {
+    let length: usize = array.len() as usize;
+    let mut limit: usize = count;
+
+    if limit > length {
+        set limit = length;
+    }
+
+    for i in 0 as usize..limit {
+        set array[i] = value;
+    }
+
+    return limit;
+}
+
+/// Initialise les N derniers éléments.
+export proc array_init_suffix<T>(
+    array: &mut [T],
+    count: usize,
+    value: T
+) -> usize {
+    let length: usize = array.len() as usize;
+    let mut actual: usize = count;
+
+    if actual > length {
+        set actual = length;
+    }
+
+    let start: usize = length - actual;
+
+    for i in start..length {
+        set array[i] = value;
+    }
+
+    return actual;
+}
+
+/// Initialise une plage avec une fonction génératrice.
+export proc array_init_range_with<T>(
+    array: &mut [T],
+    start: usize,
+    end: usize,
+    generator: proc(usize) -> T
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if start > end {
+        return false;
+    }
+
+    if end > length {
+        return false;
+    }
+
+    for i in start..end {
+        set array[i] = generator(i);
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 5. ALTERNANCE ET MOTIFS
+// ============================================================================
+
+/// Alterne deux valeurs.
 export proc array_init_alternating<T>(
     array: &mut [T],
     first: T,
     second: T
 ) {
-    for i in 0..array.len() {
+    for i in 0 as usize..(array.len() as usize) {
         if i % 2 == 0 {
             set array[i] = first;
         } else {
@@ -178,27 +333,163 @@ export proc array_init_alternating<T>(
     }
 }
 
-/// Initialise les éléments selon une progression géométrique.
-export proc array_init_geometric(
+/// Répète trois valeurs.
+export proc array_init_triple<T>(
+    array: &mut [T],
+    first: T,
+    second: T,
+    third: T
+) {
+    for i in 0 as usize..(array.len() as usize) {
+        let position: usize = i % 3;
+
+        if position == 0 {
+            set array[i] = first;
+        } elif position == 1 {
+            set array[i] = second;
+        } else {
+            set array[i] = third;
+        }
+    }
+}
+
+/// Répète cycliquement un motif non vide.
+/// Retourne false si le motif est vide et le tableau non vide.
+export proc array_init_pattern<T>(
+    array: &mut [T],
+    pattern: &[T]
+) -> bool {
+    let length: usize = array.len() as usize;
+    let pattern_length: usize = pattern.len() as usize;
+
+    if length == 0 {
+        return true;
+    }
+
+    if pattern_length == 0 {
+        return false;
+    }
+
+    for i in 0 as usize..length {
+        let source_index: usize = i % pattern_length;
+        set array[i] = pattern[source_index];
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 6. SÉQUENCE ARITHMÉTIQUE CROISSANTE
+// ============================================================================
+
+/// Initialise start, start + step, start + 2*step, ...
+///
+/// Vérifie tous les calculs avant la première écriture.
+export proc array_init_sequence(
     array: &mut [i64],
     start: i64,
-    ratio: i64
+    step: i64
 ) -> bool {
+    let length: usize = array.len() as usize;
     let mut probe: i64 = start;
 
-    for i in 0..array.len() {
-        if i + 1 < array.len() {
-            let next: CheckedI64Result = checked_i64_mul(probe, ratio);
-            if not next.success { return false; }
+    for i in 0 as usize..length {
+        if i < length - 1 {
+            let next: CheckedI64Result =
+                checked_i64_add(probe, step);
+
+            if not next.success {
+                return false;
+            }
+
             set probe = next.value;
         }
     }
 
     let mut current: i64 = start;
 
-    for i in 0..array.len() {
+    for i in 0 as usize..length {
         set array[i] = current;
-        if i + 1 < array.len() {
+
+        if i < length - 1 {
+            set current = current + step;
+        }
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 7. SÉQUENCE ARITHMÉTIQUE DÉCROISSANTE
+// ============================================================================
+
+/// Initialise start, start - step, start - 2*step, ...
+export proc array_init_reverse_sequence(
+    array: &mut [i64],
+    start: i64,
+    step: i64
+) -> bool {
+    let length: usize = array.len() as usize;
+    let mut probe: i64 = start;
+
+    for i in 0 as usize..length {
+        if i < length - 1 {
+            let next: CheckedI64Result =
+                checked_i64_sub(probe, step);
+
+            if not next.success {
+                return false;
+            }
+
+            set probe = next.value;
+        }
+    }
+
+    let mut current: i64 = start;
+
+    for i in 0 as usize..length {
+        set array[i] = current;
+
+        if i < length - 1 {
+            set current = current - step;
+        }
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 8. PROGRESSION GÉOMÉTRIQUE
+// ============================================================================
+
+/// Initialise start, start*ratio, start*ratio², ...
+export proc array_init_geometric(
+    array: &mut [i64],
+    start: i64,
+    ratio: i64
+) -> bool {
+    let length: usize = array.len() as usize;
+    let mut probe: i64 = start;
+
+    for i in 0 as usize..length {
+        if i < length - 1 {
+            let next: CheckedI64Result =
+                checked_i64_mul(probe, ratio);
+
+            if not next.success {
+                return false;
+            }
+
+            set probe = next.value;
+        }
+    }
+
+    let mut current: i64 = start;
+
+    for i in 0 as usize..length {
+        set array[i] = current;
+
+        if i < length - 1 {
             set current = current * ratio;
         }
     }
@@ -206,30 +497,252 @@ export proc array_init_geometric(
     return true;
 }
 
-/// Initialise tous les éléments avec la même valeur booléenne.
+// ============================================================================
+// 9. SÉQUENCES NUMÉRIQUES SPÉCIALISÉES
+// ============================================================================
+
+/// Initialise un tableau avec les entiers consécutifs à partir de zéro.
+/// Retourne false si la longueur dépasse les valeurs représentables
+/// dans le type i64.
+export proc array_init_i64_indices(
+    array: &mut [i64]
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if length == 0 {
+        return true;
+    }
+
+    // Évite de convertir un indice usize trop grand en i64.
+    if (length - 1) as u64 > 9223372036854775807 {
+        return false;
+    }
+
+    for i in 0 as usize..length {
+        set array[i] = i as i64;
+    }
+
+    return true;
+}
+
+/// Initialise un tableau avec les carrés successifs.
+///
+/// La validation est réalisée avant écriture.
+export proc array_init_squares_i64(
+    array: &mut [i64]
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if length == 0 {
+        return true;
+    }
+
+    // sqrt(i64::MAX) = 3037000499.
+    if (length - 1) as u64 > 3037000499 {
+        return false;
+    }
+
+    for i in 0 as usize..length {
+        let value: i64 = i as i64;
+        set array[i] = value * value;
+    }
+
+    return true;
+}
+
+/// Initialise un tableau avec les puissances de deux.
+///
+/// Valeurs représentables:
+/// 2^0 ... 2^62.
+export proc array_init_powers_of_two_i64(
+    array: &mut [i64]
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if length > 63 {
+        return false;
+    }
+
+    let mut current: i64 = 1;
+
+    for i in 0 as usize..length {
+        set array[i] = current;
+
+        if i < length - 1 {
+            set current = current * 2;
+        }
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 10. INITIALISATION BOOLÉENNE
+// ============================================================================
+
 export proc array_init_bool(
     array: &mut [bool],
     value: bool
 ) {
-    for i in 0..array.len() {
+    for i in 0 as usize..(array.len() as usize) {
         set array[i] = value;
     }
 }
 
-/// Initialise un tableau de booléens à false.
 export proc array_init_false(
     array: &mut [bool]
 ) {
-    for i in 0..array.len() {
-        set array[i] = false;
-    }
+    array_init_bool(array, false);
 }
 
-/// Initialise un tableau de booléens à true.
 export proc array_init_true(
     array: &mut [bool]
 ) {
-    for i in 0..array.len() {
-        set array[i] = true;
+    array_init_bool(array, true);
+}
+
+/// Initialise un tableau booléen en alternant false et true.
+export proc array_init_bool_alternating(
+    array: &mut [bool],
+    first: bool
+) {
+    for i in 0 as usize..(array.len() as usize) {
+        if i % 2 == 0 {
+            set array[i] = first;
+        } else {
+            set array[i] = not first;
+        }
     }
 }
+
+/// Initialise les valeurs booléennes à partir d'un prédicat.
+export proc array_init_bool_with(
+    array: &mut [bool],
+    predicate: proc(usize) -> bool
+) {
+    for i in 0 as usize..(array.len() as usize) {
+        set array[i] = predicate(i);
+    }
+}
+
+// ============================================================================
+// 11. INITIALISATION DES TYPES NUMÉRIQUES
+// ============================================================================
+
+export proc array_init_i8(
+    array: &mut [i8],
+    value: i8
+) {
+    array_init_fill(array, value);
+}
+
+export proc array_init_i16(
+    array: &mut [i16],
+    value: i16
+) {
+    array_init_fill(array, value);
+}
+
+export proc array_init_i32(
+    array: &mut [i32],
+    value: i32
+) {
+    array_init_fill(array, value);
+}
+
+export proc array_init_i64(
+    array: &mut [i64],
+    value: i64
+) {
+    array_init_fill(array, value);
+}
+
+export proc array_init_u8(
+    array: &mut [u8],
+    value: u8
+) {
+    array_init_fill(array, value);
+}
+
+export proc array_init_u16(
+    array: &mut [u16],
+    value: u16
+) {
+    array_init_fill(array, value);
+}
+
+export proc array_init_u32(
+    array: &mut [u32],
+    value: u32
+) {
+    array_init_fill(array, value);
+}
+
+export proc array_init_u64(
+    array: &mut [u64],
+    value: u64
+) {
+    array_init_fill(array, value);
+}
+
+export proc array_init_f32(
+    array: &mut [f32],
+    value: f32
+) {
+    array_init_fill(array, value);
+}
+
+export proc array_init_f64(
+    array: &mut [f64],
+    value: f64
+) {
+    array_init_fill(array, value);
+}
+
+// ============================================================================
+// 12. INITIALISATION À ZÉRO DES TYPES NUMÉRIQUES
+// ============================================================================
+
+export proc array_init_zero_i8(array: &mut [i8]) {
+    array_init_fill(array, 0);
+}
+
+export proc array_init_zero_i16(array: &mut [i16]) {
+    array_init_fill(array, 0);
+}
+
+export proc array_init_zero_i32(array: &mut [i32]) {
+    array_init_fill(array, 0);
+}
+
+export proc array_init_zero_i64(array: &mut [i64]) {
+    array_init_fill(array, 0);
+}
+
+export proc array_init_zero_u8(array: &mut [u8]) {
+    array_init_fill(array, 0);
+}
+
+export proc array_init_zero_u16(array: &mut [u16]) {
+    array_init_fill(array, 0);
+}
+
+export proc array_init_zero_u32(array: &mut [u32]) {
+    array_init_fill(array, 0);
+}
+
+export proc array_init_zero_u64(array: &mut [u64]) {
+    array_init_fill(array, 0);
+}
+
+export proc array_init_zero_f32(array: &mut [f32]) {
+    array_init_fill(array, 0.0);
+}
+
+export proc array_init_zero_f64(array: &mut [f64]) {
+    array_init_fill(array, 0.0);
+}
+
+// ============================================================================
+// END OF MODULE
+// ============================================================================

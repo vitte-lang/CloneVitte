@@ -5994,6 +5994,39 @@ proc ast_parameter_is_pointer_representation(
     return false;
 }
 
+proc ast_call_argument_needs_unsigned_byte_pointer_cast(
+    emitter: &mut C17AstEmitter,
+    argument: ?&ASTNode,
+    parameter_type: ?&ASTNode,
+    namespace: string
+) -> bool {
+    if argument == null or parameter_type == null { return false; }
+    let mut expression = argument;
+    while expression != null and expression?.kind == ASTNodeKind.GroupExpr {
+        set expression = ast_child(emitter, expression, 0);
+    }
+    if expression == null or expression?.kind != ASTNodeKind.StringLiteral {
+        return false;
+    }
+    let parameter = ast_resolve_type_alias(emitter, parameter_type, namespace);
+    if parameter.node == null or parameter.node?.kind != ASTNodeKind.PointerType {
+        return false;
+    }
+    let pointee = ast_resolve_type_alias(
+        emitter,
+        ast_child(emitter, parameter.node, 0),
+        parameter.namespace
+    );
+    if pointee.node == null { return false; }
+    let pointee_text = ast_type_text(
+        emitter,
+        pointee.node,
+        pointee.namespace,
+        0
+    );
+    return pointee_text != null and pointee_text? == "uint8_t";
+}
+
 proc ast_expression_is_lvalue(
     emitter: &C17AstEmitter,
     node: ?&ASTNode
@@ -7187,7 +7220,26 @@ proc ast_emit_call(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: strin
         if index != 1 { ast_write(emitter, ", "); }
         let argument = ast_child(emitter, node, index);
         let parameter_type: ?&ASTNode = if proc_index == usize.MAX { null } else { ast_call_parameter_type(emitter, proc_index, index - 1) };
-        if ast_parameter_is_pointer_representation(
+        if ast_call_argument_needs_unsigned_byte_pointer_cast(
+            emitter,
+            argument,
+            parameter_type,
+            namespace
+        ) {
+            let parameter_text = ast_type_text(
+                emitter,
+                parameter_type,
+                namespace,
+                0
+            );
+            if parameter_text == null {
+                ast_fail(emitter, "string literal argument has an unrepresentable byte pointer type");
+                return;
+            }
+            ast_write(emitter, "(" + parameter_text? + ")(");
+            ast_emit_expression(emitter, argument, namespace, depth + 1);
+            ast_write(emitter, ")");
+        } elif ast_parameter_is_pointer_representation(
                emitter,
                parameter_type,
                namespace
@@ -8369,6 +8421,7 @@ proc ast_emit_generic_pick_match(
     }
     set emitter.type_substitution_count = saved_substitution_count + parameter_count;
 
+    let mut has_wildcard: bool = false;
     let mut arm_index: usize = 1;
     while arm_index < node.child_count and not emitter.failed {
         let arm = ast_child(emitter, node, arm_index);
@@ -8385,6 +8438,7 @@ proc ast_emit_generic_pick_match(
         let body = ast_child(emitter, arm, 1);
         ast_emit_indent(emitter, depth + 1);
         if ast_pattern_is_wildcard(emitter, pattern) {
+            set has_wildcard = true;
             ast_write(emitter, "default: {\n");
         } else {
             let pattern_head: ?&ASTNode = if pattern != null and
@@ -8507,6 +8561,10 @@ proc ast_emit_generic_pick_match(
         ast_write(emitter, "}\n");
         set arm_index += 1;
     }
+    if not has_wildcard and not emitter.failed {
+        ast_emit_indent(emitter, depth + 1);
+        ast_write(emitter, "default: break;\n");
+    }
     ast_emit_indent(emitter, depth);
     ast_write(emitter, "}\n");
     set emitter.type_substitution_count = saved_substitution_count;
@@ -8534,6 +8592,7 @@ proc ast_emit_match(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: stri
     ast_write(emitter, "switch (");
     ast_emit_expression(emitter, ast_child(emitter, node, 0), namespace, depth + 1);
     ast_write(emitter, ") {\n");
+    let mut has_wildcard: bool = false;
     let mut index: usize = 1;
     while index < node.child_count and not emitter.failed {
         let arm = ast_child(emitter, node, index);
@@ -8563,6 +8622,7 @@ proc ast_emit_match(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: stri
                 set alternative_index += 1;
             }
         } elif ast_pattern_is_wildcard(emitter, pattern) {
+            set has_wildcard = true;
             ast_write(emitter, "default:\n");
         } else {
             ast_write(emitter, "case ");
@@ -8685,6 +8745,10 @@ proc ast_emit_match(emitter: &mut C17AstEmitter, node: &ASTNode, namespace: stri
             }
         }
         set index += 1;
+    }
+    if not has_wildcard and not emitter.failed {
+        ast_emit_indent(emitter, depth + 1);
+        ast_write(emitter, "default: break;\n");
     }
     ast_emit_indent(emitter, depth);
     ast_write(emitter, "}\n");
@@ -9883,7 +9947,13 @@ proc ast_emit_globals(emitter: &mut C17AstEmitter, scope: &ASTNode, namespace: s
                 } else {
                     ast_write(emitter, "NULL, ");
                 }
-                ast_write(emitter, initializer?.child_count.to_string() + " };\n");
+                let element_count = initializer?.child_count;
+                ast_write(
+                    emitter,
+                    element_count.to_string() + ", " +
+                    element_count.to_string() + ", sizeof(" +
+                    element_type? + ") };\n"
+                );
                 set emitter.inline_static_initializer = false;
                 set index += 1;
                 continue;
@@ -10353,7 +10423,7 @@ proc ast_emit_runtime(emitter: &mut C17AstEmitter) {
         "    if (left == NULL || right == NULL) return left == right;\n" +
         "    return strcmp(left, right) == 0;\n" +
         "}\n" +
-        "static inline void vitte_builtin_print(const char *text) {\n" +
+        "static inline VITTE_C17_AST_UNUSED void vitte_builtin_print(const char *text) {\n" +
         "    if (text != NULL) (void)fputs(text, stdout);\n" +
         "}\n" +
         "static inline char *vitte_string_slice(const char *text, size_t begin, size_t end) {\n" +
@@ -10368,7 +10438,7 @@ proc ast_emit_runtime(emitter: &mut C17AstEmitter) {
         "    char *result = (char *)malloc((size_t)count + 1); if (result == NULL) abort();\n" +
         "    memcpy(result, buffer, (size_t)count + 1); return result;\n" +
         "}\n" +
-        "static inline char *vitte_signed_to_string(int64_t value) {\n" +
+        "static inline VITTE_C17_AST_UNUSED char *vitte_signed_to_string(int64_t value) {\n" +
         "    char buffer[32]; int count = snprintf(buffer, sizeof(buffer), \"%lld\", (long long)value);\n" +
         "    if (count < 0 || (size_t)count >= sizeof(buffer)) abort();\n" +
         "    char *result = (char *)malloc((size_t)count + 1); if (result == NULL) abort();\n" +
@@ -10390,7 +10460,7 @@ proc ast_emit_runtime(emitter: &mut C17AstEmitter) {
         "static inline bool vitte_string_is_space(unsigned char value) {\n" +
         "    return value == (unsigned char)' ' || (value >= 9u && value <= 13u);\n" +
         "}\n" +
-        "static inline const char *vitte_string_trim(const char *value) {\n" +
+        "static inline VITTE_C17_AST_UNUSED const char *vitte_string_trim(const char *value) {\n" +
         "    if (value == NULL) return \"\";\n" +
         "    const char *begin = value; const char *end = value + strlen(value);\n" +
         "    while (*begin != '\\0' && vitte_string_is_space((unsigned char)*begin)) ++begin;\n" +
@@ -10398,11 +10468,11 @@ proc ast_emit_runtime(emitter: &mut C17AstEmitter) {
         "    size_t length = (size_t)(end - begin); char *copy = (char *)malloc(length + 1);\n" +
         "    if (copy == NULL) return \"\"; memcpy(copy, begin, length); copy[length] = '\\0'; return copy;\n" +
         "}\n" +
-        "static inline bool vitte_string_starts_with(const char *value, const char *prefix) {\n" +
+        "static inline VITTE_C17_AST_UNUSED bool vitte_string_starts_with(const char *value, const char *prefix) {\n" +
         "    if (value == NULL || prefix == NULL) return false; size_t length = strlen(prefix);\n" +
         "    return strlen(value) >= length && memcmp(value, prefix, length) == 0;\n" +
         "}\n" +
-        "static inline bool vitte_string_ends_with(const char *value, const char *suffix) {\n" +
+        "static inline VITTE_C17_AST_UNUSED bool vitte_string_ends_with(const char *value, const char *suffix) {\n" +
         "    if (value == NULL || suffix == NULL) return false;\n" +
         "    size_t value_length = strlen(value); size_t suffix_length = strlen(suffix);\n" +
         "    return value_length >= suffix_length && memcmp(value + value_length - suffix_length, suffix, suffix_length) == 0;\n" +

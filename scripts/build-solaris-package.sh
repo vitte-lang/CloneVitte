@@ -142,6 +142,10 @@ verify_payload() {
     "$data_root/usr/local/share/vitte/completions" \
     "packaged shell completions"
 
+  require_file \
+    "$data_root/usr/local/share/vitte/tools/install-unix-integrations.sh" \
+    "editor and shell integration installer"
+
   verify_license \
     "$data_root/usr/local/share/licenses/$PACKAGE_NAME/LICENSE"
 
@@ -217,6 +221,11 @@ do
     chmod 0755 "$command"
   fi
 done
+
+integration_helper=/usr/local/share/vitte/tools/install-unix-integrations.sh
+if [ -x "$integration_helper" ]; then
+  PREFIX=/usr/local "$integration_helper"
+fi
 
 printf '%s\n' 'Vitte installation completed.'
 printf '%s\n' 'Run: /usr/local/bin/vitte --help'
@@ -338,6 +347,9 @@ else
   mkdir -p "$target_root$PREFIX"
   tar -cf - -C "$(dirname "$0")/root/usr/local" . | tar -xf - -C "$target_root$PREFIX"
 fi
+integration_helper=$target_root$PREFIX/share/vitte/tools/install-unix-integrations.sh
+[ -x "$integration_helper" ] || { echo "Vitte integration installer is missing: $integration_helper" >&2; exit 1; }
+PREFIX=$PREFIX DESTDIR=$DESTDIR "$integration_helper"
 echo "Vitte installed in $DESTDIR$PREFIX."
 SH
   chmod 0755 "$spool/install.sh"
@@ -350,6 +362,8 @@ case "$PREFIX" in /*) ;; *) echo "PREFIX must be absolute: $PREFIX" >&2; exit 1 
 [ "$(id -u)" -eq 0 ] || [ -n "$DESTDIR" ] || [ -w "$PREFIX" ] || { echo "Solaris portable uninstall requires root unless DESTDIR is set or PREFIX is writable" >&2; exit 1; }
 root=${DESTDIR:-/}
 rm -f "$root$PREFIX/bin/vitte" "$root$PREFIX/bin/vittec" "$root$PREFIX/bin/vitte"
+integration_helper=$root$PREFIX/share/vitte/tools/install-unix-integrations.sh
+if [ -x "$integration_helper" ]; then PREFIX=$PREFIX DESTDIR=$DESTDIR "$integration_helper" uninstall; fi
 rm -rf "$root$PREFIX/libexec/vitte" "$root$PREFIX/share/vitte"
 echo "Vitte removed from $DESTDIR$PREFIX."
 SH

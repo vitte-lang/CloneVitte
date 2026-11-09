@@ -1,0 +1,239 @@
+name: Vitte release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version from VERSION to build as a draft release
+        required: true
+        default: '0.1.1'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vitte-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    name: Linux installers (amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Install package tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            file \
+            libarchive-tools
+
+      - name: Build compiler
+        run: make MODE=release -j2
+
+      - name: Build Linux installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d ' \t\r\n' < VERSION)"
+          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
+            requested="${{ inputs.version }}"
+          else
+            requested="${GITHUB_REF_NAME#v}"
+          fi
+          [[ "$version" == "$requested" ]] || {
+            echo "VERSION is $version but release requested $requested" >&2
+            exit 1
+          }
+          out="$RUNNER_TEMP/vitte-packages"
+          mkdir -p "$out"
+          VERSION="$version" ARCH=amd64 OUT_DIR="$out" \
+            VITTE_BIN="$PWD/build/bin/vitte" \
+            scripts/build-linux-debs.sh
+          VERSION="$version" PLATFORM=linux ARCH=amd64 OUT_DIR="$out" \
+            VITTE_BIN="$PWD/build/bin/vitte" \
+            scripts/build-portable-tarball.sh
+          VERSION="$version" OUT_DIR="$out" \
+            scripts/verify-installers.sh
+
+      - name: Upload Linux installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-installers
+          path: |
+            ${{ runner.temp }}/vitte-packages/vitte_*.deb*
+            ${{ runner.temp }}/vitte-packages/vitte-*-portable-linux-amd64.tar.gz*
+          if-no-files-found: error
+          retention-days: 7
+
+  macos:
+    name: macOS installers (arm64)
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Build compiler
+        run: make MODE=release -j2
+
+      - name: Build and verify macOS installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d ' \t\r\n' < VERSION)"
+          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
+            requested="${{ inputs.version }}"
+          else
+            requested="${GITHUB_REF_NAME#v}"
+          fi
+          [[ "$version" == "$requested" ]] || {
+            echo "VERSION is $version but release requested $requested" >&2
+            exit 1
+          }
+          out="$RUNNER_TEMP/vitte-packages"
+          mkdir -p "$out"
+          VERSION="$version" ARCH=arm64 STRICT_DMG=1 OUT_DIR="$out" \
+            VITTE_BIN="$PWD/target/macos-arm64/vitte" \
+            scripts/build-macos-installers.sh
+          VERSION="$version" OUT_DIR="$out" \
+            scripts/verify-installers.sh
+          python3 scripts/verify-package-manifest.py \
+            "$out/vitte-$version-macos-arm64.pkg" "$version" macos arm64 "Mac OS X 11.0"
+          python3 scripts/verify-package-manifest.py \
+            "$out/vitte-$version-macos-arm64.dmg" "$version" macos arm64 "Mac OS X 11.0"
+
+      - name: Upload macOS installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installers
+          path: ${{ runner.temp }}/vitte-packages/vitte-*-macos-arm64.*
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Windows installers (amd64)
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Windows build tools
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-nsis
+            tar
+            gzip
+            curl
+            git
+
+      - name: Build compiler
+        run: make MODE=release -j2
+
+      - name: Build and verify Windows installers
+        run: |
+          set -euo pipefail
+          version="$(tr -d ' \t\r\n' < VERSION)"
+          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
+            requested="${{ inputs.version }}"
+          else
+            requested="${GITHUB_REF_NAME#v}"
+          fi
+          [[ "$version" == "$requested" ]] || {
+            echo "VERSION is $version but release requested $requested" >&2
+            exit 1
+          }
+          out="$(cygpath -u "$RUNNER_TEMP")/vitte-packages"
+          mkdir -p "$out"
+          VERSION="$version" ARCH=amd64 WINDOWS_TARGETS=11 \
+            WINDOWS_MINIMUM_VERSION="Windows 11" STRICT_NATIVE=1 \
+            OUT_DIR="$out" VITTE_BIN="$PWD/build/bin/vitte.exe" \
+            WINDOWS_VITTE_EXE="$PWD/build/bin/vitte.exe" \
+            scripts/build-windows-installer.sh
+          VERSION="$version" OUT_DIR="$out" \
+            scripts/verify-installers.sh
+          python3 scripts/verify-package-manifest.py \
+            "$out/vitte-$version-windows-amd64-nsis.tar.gz" \
+            "$version" windows amd64 "Windows 11"
+          python3 scripts/verify-package-manifest.py \
+            "$out/vitte-$version-windows-amd64-installer.exe" \
+            "$version" windows amd64 "Windows 11"
+
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: ${{ runner.temp }}/vitte-packages/vitte-*-windows-amd64-*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-draft:
+    name: Verify release assets and create draft
+    needs:
+      - linux
+      - macos
+      - windows
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Download all native installer assets
+        uses: actions/download-artifact@v4
+        with:
+          path: pkgout
+          merge-multiple: true
+
+      - name: Generate release index, checksums and SBOMs
+        run: |
+          version="$(tr -d ' \t\r\n' < VERSION)"
+          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
+            requested="${{ inputs.version }}"
+          else
+            requested="${GITHUB_REF_NAME#v}"
+          fi
+          [[ "$version" == "$requested" ]]
+          python3 tools/release_installer_metadata.py \
+            --out pkgout \
+            --version "$version" \
+            --source-date-epoch "$(git log -1 --format=%ct)" \
+            --sbom
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y file libarchive-tools
+          VERSION="$version" OUT_DIR="$PWD/pkgout" VERIFY_METADATA=1 \
+            scripts/verify-installers.sh
+
+      - name: Create or update the GitHub draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" pkgout/* --clobber
+          else
+            gh release create "$RELEASE_TAG" pkgout/* \
+              --draft \
+              --generate-notes \
+              --target "$GITHUB_SHA" \
+              --title "Vitte $RELEASE_TAG"
+          fi

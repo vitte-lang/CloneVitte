@@ -1,69 +1,143 @@
+/// Transformations de tableaux et de tranches empruntées.
+///
+/// Module: core::array::map
+///
+/// Contrats:
+/// - aucune allocation dynamique
+/// - destination fournie par l'appelant
+/// - bornes contrôlées avant écriture
+/// - parcours déterministe
+/// - ordre des callbacks préservé
+/// - tableaux vides acceptés
+///
+/// Les opérations en place nécessitent une sémantique
+/// de remplacement compatible avec le borrow checker.
+///
+/// Les fonctions retournant usize indiquent le nombre
+/// d'éléments écrits, sauf mention contraire.
+
 space core::array::map;
 
-/// Transforme les éléments d'un tableau source.
-/// Retourne le nombre d'éléments transformés.
-proc array_map<T, U>(
+// ============================================================================
+// 1. UTILITAIRES INTERNES
+// ============================================================================
+
+proc map_min_length<T, U>(
+    source: &[T],
+    destination: &[U]
+) -> usize {
+    let source_length: usize = source.len() as usize;
+    let destination_length: usize = destination.len() as usize;
+
+    if source_length < destination_length {
+        return source_length;
+    }
+
+    return destination_length;
+}
+
+// ============================================================================
+// 2. TRANSFORMATION SIMPLE
+// ============================================================================
+
+export proc array_map<T, U>(
     source: &[T],
     destination: &mut [U],
     transform: proc(&T) -> U
 ) -> usize {
-    let mut limit: usize = source.len();
+    let limit: usize = map_min_length(source, destination);
 
-    if destination.len() < limit {
-        set limit = destination.len();
-    }
-
-    for i in 0..limit {
+    for i in 0 as usize..limit {
         set destination[i] = transform(&source[i]);
     }
 
     return limit;
 }
 
-/// Transforme les éléments en transmettant leur indice.
-proc array_map_indexed<T, U>(
+export proc array_map_indexed<T, U>(
     source: &[T],
     destination: &mut [U],
     transform: proc(usize, &T) -> U
 ) -> usize {
-    let mut limit: usize = source.len();
+    let limit: usize = map_min_length(source, destination);
 
-    if destination.len() < limit {
-        set limit = destination.len();
-    }
-
-    for i in 0..limit {
+    for i in 0 as usize..limit {
         set destination[i] = transform(i, &source[i]);
     }
 
     return limit;
 }
 
-/// Transforme directement les éléments du tableau.
-proc array_map_in_place<T>(
+export proc array_map_in_place<T>(
     array: &mut [T],
     transform: proc(&T) -> T
 ) {
-    for i in 0..array.len() {
+    for i in 0 as usize..(array.len() as usize) {
         let value: T = transform(&array[i]);
         set array[i] = value;
     }
 }
 
-/// Transforme uniquement une plage d'éléments.
-proc array_map_range<T, U>(
+export proc array_map_in_place_indexed<T>(
+    array: &mut [T],
+    transform: proc(usize, &T) -> T
+) {
+    for i in 0 as usize..(array.len() as usize) {
+        let value: T = transform(i, &array[i]);
+        set array[i] = value;
+    }
+}
+
+// ============================================================================
+// 3. TRANSFORMATIONS STRICTES
+// ============================================================================
+
+/// Refuse une destination plus petite que la source.
+/// Aucune écriture si la capacité est insuffisante.
+export proc array_map_exact<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T) -> U
+) -> bool {
+    if (destination.len() as usize) < (source.len() as usize) {
+        return false;
+    }
+
+    for i in 0 as usize..(source.len() as usize) {
+        set destination[i] = transform(&source[i]);
+    }
+
+    return true;
+}
+
+/// Exige des longueurs identiques.
+export proc array_map_same_length<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T) -> U
+) -> bool {
+    if (source.len() as usize) != (destination.len() as usize) {
+        return false;
+    }
+
+    array_map(source, destination, transform);
+    return true;
+}
+
+// ============================================================================
+// 4. TRANSFORMATIONS PAR PLAGES
+// ============================================================================
+
+/// Les indices sont conservés entre source et destination.
+/// Les bornes sont limitées à la capacité commune.
+export proc array_map_range<T, U>(
     source: &[T],
     destination: &mut [U],
     start: usize,
     end: usize,
     transform: proc(&T) -> U
 ) -> usize {
-    let mut limit: usize = source.len();
-
-    if destination.len() < limit {
-        set limit = destination.len();
-    }
-
+    let limit: usize = map_min_length(source, destination);
     let mut begin: usize = start;
     let mut finish: usize = end;
 
@@ -86,43 +160,151 @@ proc array_map_range<T, U>(
     return finish - begin;
 }
 
-/// Transforme les éléments dans l'ordre inverse.
-/// Le résultat est également inversé.
-proc array_map_reverse<T, U>(
+/// Refuse les bornes invalides avant toute écriture.
+export proc array_map_range_checked<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    start: usize,
+    end: usize,
+    transform: proc(&T) -> U
+) -> bool {
+    let limit: usize = map_min_length(source, destination);
+
+    if start > end {
+        return false;
+    }
+
+    if end > limit {
+        return false;
+    }
+
+    for i in start..end {
+        set destination[i] = transform(&source[i]);
+    }
+
+    return true;
+}
+
+/// Transforme les N premiers éléments.
+export proc array_map_take<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    count: usize,
+    transform: proc(&T) -> U
+) -> usize {
+    let mut limit: usize = map_min_length(source, destination);
+
+    if count < limit {
+        set limit = count;
+    }
+
+    for i in 0 as usize..limit {
+        set destination[i] = transform(&source[i]);
+    }
+
+    return limit;
+}
+
+/// Ignore les N premiers éléments de la source.
+/// La destination est remplie à partir de l'indice zéro.
+export proc array_map_skip<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    count: usize,
+    transform: proc(&T) -> U
+) -> usize {
+    let source_length: usize = source.len() as usize;
+    let destination_length: usize = destination.len() as usize;
+
+    if count >= source_length {
+        return 0;
+    }
+
+    let mut limit: usize = source_length - count;
+
+    if destination_length < limit {
+        set limit = destination_length;
+    }
+
+    for i in 0 as usize..limit {
+        set destination[i] = transform(&source[count + i]);
+    }
+
+    return limit;
+}
+
+// ============================================================================
+// 5. TRANSFORMATIONS INVERSÉES
+// ============================================================================
+
+/// Lit depuis la fin de la source et écrit depuis le début.
+export proc array_map_reverse<T, U>(
     source: &[T],
     destination: &mut [U],
     transform: proc(&T) -> U
 ) -> usize {
-    let mut limit: usize = source.len();
+    let limit: usize = map_min_length(source, destination);
+    let source_length: usize = source.len() as usize;
 
-    if destination.len() < limit {
-        set limit = destination.len();
-    }
-
-    for i in 0..limit {
-        let source_index: usize = source.len() - 1 - i;
+    for i in 0 as usize..limit {
+        let source_index: usize = source_length - 1 - i;
         set destination[i] = transform(&source[source_index]);
     }
 
     return limit;
 }
 
-/// Transforme les éléments satisfaisant un prédicat.
-/// Les autres positions de destination restent inchangées.
-proc array_map_if<T, U>(
+/// Parcourt les positions communes de droite à gauche,
+/// sans inverser leur emplacement dans la destination.
+export proc array_map_backward<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T) -> U
+) -> usize {
+    let limit: usize = map_min_length(source, destination);
+    let mut i: usize = limit;
+
+    while i > 0 {
+        set i = i - 1;
+        set destination[i] = transform(&source[i]);
+    }
+
+    return limit;
+}
+
+export proc array_map_reverse_indexed<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(usize, &T) -> U
+) -> usize {
+    let limit: usize = map_min_length(source, destination);
+    let source_length: usize = source.len() as usize;
+
+    for i in 0 as usize..limit {
+        let source_index: usize = source_length - 1 - i;
+
+        set destination[i] =
+            transform(source_index, &source[source_index]);
+    }
+
+    return limit;
+}
+
+// ============================================================================
+// 6. TRANSFORMATIONS CONDITIONNELLES
+// ============================================================================
+
+/// Conserve les positions de destination non sélectionnées.
+export proc array_map_if<T, U>(
     source: &[T],
     destination: &mut [U],
     predicate: proc(&T) -> bool,
     transform: proc(&T) -> U
 ) -> usize {
-    let mut limit: usize = source.len();
+    let limit: usize = map_min_length(source, destination);
     let mut count: usize = 0;
 
-    if destination.len() < limit {
-        set limit = destination.len();
-    }
-
-    for i in 0..limit {
+    for i in 0 as usize..limit {
         if predicate(&source[i]) {
             set destination[i] = transform(&source[i]);
             set count = count + 1;
@@ -132,98 +314,83 @@ proc array_map_if<T, U>(
     return count;
 }
 
-/// Transforme deux tableaux simultanément.
-proc array_map_zip<T, U, V>(
-    left: &[T],
-    right: &[U],
-    destination: &mut [V],
-    transform: proc(&T, &U) -> V
+export proc array_map_if_indexed<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    predicate: proc(usize, &T) -> bool,
+    transform: proc(usize, &T) -> U
 ) -> usize {
-    let mut limit: usize = left.len();
+    let limit: usize = map_min_length(source, destination);
+    let mut count: usize = 0;
 
-    if right.len() < limit {
-        set limit = right.len();
+    for i in 0 as usize..limit {
+        if predicate(i, &source[i]) {
+            set destination[i] = transform(i, &source[i]);
+            set count = count + 1;
+        }
     }
 
-    if destination.len() < limit {
-        set limit = destination.len();
+    return count;
+}
+
+/// Transforme les éléments sélectionnés en place.
+export proc array_map_in_place_if<T>(
+    array: &mut [T],
+    predicate: proc(&T) -> bool,
+    transform: proc(&T) -> T
+) -> usize {
+    let mut changed: usize = 0;
+
+    for i in 0 as usize..(array.len() as usize) {
+        if predicate(&array[i]) {
+            let value: T = transform(&array[i]);
+            set array[i] = value;
+            set changed = changed + 1;
+        }
     }
 
-    for i in 0..limit {
-        set destination[i] = transform(&left[i], &right[i]);
+    return changed;
+}
+
+/// Deux transformations possibles selon un prédicat.
+export proc array_map_select<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    predicate: proc(&T) -> bool,
+    when_true: proc(&T) -> U,
+    when_false: proc(&T) -> U
+) -> usize {
+    let limit: usize = map_min_length(source, destination);
+
+    for i in 0 as usize..limit {
+        if predicate(&source[i]) {
+            set destination[i] = when_true(&source[i]);
+        } else {
+            set destination[i] = when_false(&source[i]);
+        }
     }
 
     return limit;
 }
 
-/// Transforme un tableau en utilisant un accumulateur.
-proc array_map_accumulate<T, U, A>(
-    source: &[T],
-    destination: &mut [U],
-    initial: A,
-    transform: proc(A, &T) -> A,
-    project: proc(&A) -> U
-) -> A {
-    let mut accumulator: A = initial;
-    let mut limit: usize = source.len();
+// ============================================================================
+// 7. FILTER MAP
+// ============================================================================
 
-    if destination.len() < limit {
-        set limit = destination.len();
-    }
-
-    for i in 0..limit {
-        set accumulator = transform(accumulator, &source[i]);
-        set destination[i] = project(&accumulator);
-    }
-
-    return accumulator;
-}
-
-/// Transforme un tableau avec un pas fixe.
-proc array_map_step<T, U>(
-    source: &[T],
-    destination: &mut [U],
-    step: usize,
-    transform: proc(&T) -> U
-) -> usize {
-    if step == 0 {
-        return 0;
-    }
-
-    let mut read: usize = 0;
-    let mut written: usize = 0;
-
-    while read < source.len() {
-        if written >= destination.len() {
-            return written;
-        }
-
-        set destination[written] = transform(&source[read]);
-        set written = written + 1;
-
-        if step >= source.len() - read {
-            return written;
-        }
-
-        set read = read + step;
-    }
-
-    return written;
-}
-
-/// Transforme les éléments et supprime les résultats
-/// refusés par un prédicat.
-proc array_filter_map<T, U>(
+/// Écrit uniquement les résultats acceptés.
+/// Les résultats sont compactés dans la destination.
+export proc array_filter_map<T, U>(
     source: &[T],
     destination: &mut [U],
     predicate: proc(&T) -> bool,
     transform: proc(&T) -> U
 ) -> usize {
+    let capacity: usize = destination.len() as usize;
     let mut written: usize = 0;
 
-    for i in 0..source.len() {
+    for i in 0 as usize..(source.len() as usize) {
         if predicate(&source[i]) {
-            if written >= destination.len() {
+            if written >= capacity {
                 return written;
             }
 
@@ -235,19 +402,281 @@ proc array_filter_map<T, U>(
     return written;
 }
 
-/// Transforme chaque élément avec son voisin précédent.
-/// Le premier élément est traité séparément.
-proc array_map_adjacent<T, U>(
+export proc array_filter_map_indexed<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    predicate: proc(usize, &T) -> bool,
+    transform: proc(usize, &T) -> U
+) -> usize {
+    let capacity: usize = destination.len() as usize;
+    let mut written: usize = 0;
+
+    for i in 0 as usize..(source.len() as usize) {
+        if predicate(i, &source[i]) {
+            if written >= capacity {
+                return written;
+            }
+
+            set destination[written] = transform(i, &source[i]);
+            set written = written + 1;
+        }
+    }
+
+    return written;
+}
+
+export proc array_filter_map_reverse<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    predicate: proc(&T) -> bool,
+    transform: proc(&T) -> U
+) -> usize {
+    let capacity: usize = destination.len() as usize;
+    let mut written: usize = 0;
+    let mut i: usize = source.len() as usize;
+
+    while i > 0 {
+        set i = i - 1;
+
+        if predicate(&source[i]) {
+            if written >= capacity {
+                return written;
+            }
+
+            set destination[written] = transform(&source[i]);
+            set written = written + 1;
+        }
+    }
+
+    return written;
+}
+
+// ============================================================================
+// 8. MAP ZIP
+// ============================================================================
+
+export proc array_map_zip<T, U, V>(
+    left: &[T],
+    right: &[U],
+    destination: &mut [V],
+    transform: proc(&T, &U) -> V
+) -> usize {
+    let mut limit: usize = left.len() as usize;
+
+    if (right.len() as usize) < limit {
+        set limit = right.len() as usize;
+    }
+
+    if (destination.len() as usize) < limit {
+        set limit = destination.len() as usize;
+    }
+
+    for i in 0 as usize..limit {
+        set destination[i] = transform(&left[i], &right[i]);
+    }
+
+    return limit;
+}
+
+export proc array_map_zip_indexed<T, U, V>(
+    left: &[T],
+    right: &[U],
+    destination: &mut [V],
+    transform: proc(usize, &T, &U) -> V
+) -> usize {
+    let mut limit: usize = left.len() as usize;
+
+    if (right.len() as usize) < limit {
+        set limit = right.len() as usize;
+    }
+
+    if (destination.len() as usize) < limit {
+        set limit = destination.len() as usize;
+    }
+
+    for i in 0 as usize..limit {
+        set destination[i] = transform(i, &left[i], &right[i]);
+    }
+
+    return limit;
+}
+
+/// Transformation simultanée de trois tableaux.
+export proc array_map_zip3<T, U, V, W>(
+    first: &[T],
+    second: &[U],
+    third: &[V],
+    destination: &mut [W],
+    transform: proc(&T, &U, &V) -> W
+) -> usize {
+    let mut limit: usize = first.len() as usize;
+
+    if (second.len() as usize) < limit {
+        set limit = second.len() as usize;
+    }
+
+    if (third.len() as usize) < limit {
+        set limit = third.len() as usize;
+    }
+
+    if (destination.len() as usize) < limit {
+        set limit = destination.len() as usize;
+    }
+
+    for i in 0 as usize..limit {
+        set destination[i] = transform(
+            &first[i],
+            &second[i],
+            &third[i]
+        );
+    }
+
+    return limit;
+}
+
+// ============================================================================
+// 9. MAP AVEC ACCUMULATEUR
+// ============================================================================
+
+export proc array_map_accumulate<T, U, A>(
+    source: &[T],
+    destination: &mut [U],
+    initial: A,
+    transform: proc(A, &T) -> A,
+    project: proc(&A) -> U
+) -> A {
+    let mut accumulator: A = initial;
+    let limit: usize = map_min_length(source, destination);
+
+    for i in 0 as usize..limit {
+        set accumulator = transform(accumulator, &source[i]);
+        set destination[i] = project(&accumulator);
+    }
+
+    return accumulator;
+}
+
+export proc array_map_accumulate_indexed<T, U, A>(
+    source: &[T],
+    destination: &mut [U],
+    initial: A,
+    transform: proc(A, usize, &T) -> A,
+    project: proc(&A) -> U
+) -> A {
+    let mut accumulator: A = initial;
+    let limit: usize = map_min_length(source, destination);
+
+    for i in 0 as usize..limit {
+        set accumulator = transform(accumulator, i, &source[i]);
+        set destination[i] = project(&accumulator);
+    }
+
+    return accumulator;
+}
+
+/// Accumulation en partant de la fin.
+/// Les résultats sont écrits aux positions d'origine.
+export proc array_map_accumulate_backward<T, U, A>(
+    source: &[T],
+    destination: &mut [U],
+    initial: A,
+    transform: proc(A, &T) -> A,
+    project: proc(&A) -> U
+) -> A {
+    let mut accumulator: A = initial;
+    let mut i: usize = map_min_length(source, destination);
+
+    while i > 0 {
+        set i = i - 1;
+        set accumulator = transform(accumulator, &source[i]);
+        set destination[i] = project(&accumulator);
+    }
+
+    return accumulator;
+}
+
+// ============================================================================
+// 10. TRANSFORMATIONS PAR PAS
+// ============================================================================
+
+export proc array_map_step<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    step: usize,
+    transform: proc(&T) -> U
+) -> usize {
+    if step == 0 {
+        return 0;
+    }
+
+    let source_length: usize = source.len() as usize;
+    let capacity: usize = destination.len() as usize;
+    let mut read: usize = 0;
+    let mut written: usize = 0;
+
+    while read < source_length {
+        if written >= capacity {
+            return written;
+        }
+
+        set destination[written] = transform(&source[read]);
+        set written = written + 1;
+
+        if step >= source_length - read {
+            return written;
+        }
+
+        set read = read + step;
+    }
+
+    return written;
+}
+
+/// Parcourt la source à rebours avec un pas fixe.
+export proc array_map_step_reverse<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    step: usize,
+    transform: proc(&T) -> U
+) -> usize {
+    if step == 0 {
+        return 0;
+    }
+
+    let capacity: usize = destination.len() as usize;
+    let mut remaining: usize = source.len() as usize;
+    let mut written: usize = 0;
+
+    while remaining > 0 {
+        if written >= capacity {
+            return written;
+        }
+
+        let index: usize = remaining - 1;
+        set destination[written] = transform(&source[index]);
+        set written = written + 1;
+
+        if step >= remaining {
+            return written;
+        }
+
+        set remaining = remaining - step;
+    }
+
+    return written;
+}
+
+// ============================================================================
+// 11. TRANSFORMATIONS ADJACENTES
+// ============================================================================
+
+export proc array_map_adjacent<T, U>(
     source: &[T],
     destination: &mut [U],
     first_transform: proc(&T) -> U,
     transform: proc(&T, &T) -> U
 ) -> usize {
-    let mut limit: usize = source.len();
-
-    if destination.len() < limit {
-        set limit = destination.len();
-    }
+    let limit: usize = map_min_length(source, destination);
 
     if limit == 0 {
         return 0;
@@ -255,7 +684,7 @@ proc array_map_adjacent<T, U>(
 
     set destination[0] = first_transform(&source[0]);
 
-    for i in 1..limit {
+    for i in 1 as usize..limit {
         set destination[i] = transform(
             &source[i - 1],
             &source[i]
@@ -265,21 +694,78 @@ proc array_map_adjacent<T, U>(
     return limit;
 }
 
-/// Transforme un tableau en conservant son ordre,
-/// mais en utilisant une fonction différente selon l'indice.
-proc array_map_alternating<T, U>(
+/// Transforme uniquement les paires adjacentes.
+/// Pour N éléments source, produit au maximum N - 1 résultats.
+export proc array_map_pairs<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T, &T) -> U
+) -> usize {
+    let source_length: usize = source.len() as usize;
+
+    if source_length < 2 {
+        return 0;
+    }
+
+    let mut limit: usize = source_length - 1;
+
+    if (destination.len() as usize) < limit {
+        set limit = destination.len() as usize;
+    }
+
+    for i in 0 as usize..limit {
+        set destination[i] = transform(
+            &source[i],
+            &source[i + 1]
+        );
+    }
+
+    return limit;
+}
+
+/// Transforme chaque triplet adjacent.
+/// Pour N éléments source, produit au maximum N - 2 résultats.
+export proc array_map_triplets<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T, &T, &T) -> U
+) -> usize {
+    let source_length: usize = source.len() as usize;
+
+    if source_length < 3 {
+        return 0;
+    }
+
+    let mut limit: usize = source_length - 2;
+
+    if (destination.len() as usize) < limit {
+        set limit = destination.len() as usize;
+    }
+
+    for i in 0 as usize..limit {
+        set destination[i] = transform(
+            &source[i],
+            &source[i + 1],
+            &source[i + 2]
+        );
+    }
+
+    return limit;
+}
+
+// ============================================================================
+// 12. ALTERNANCE ET CLASSIFICATION
+// ============================================================================
+
+export proc array_map_alternating<T, U>(
     source: &[T],
     destination: &mut [U],
     even_transform: proc(&T) -> U,
     odd_transform: proc(&T) -> U
 ) -> usize {
-    let mut limit: usize = source.len();
+    let limit: usize = map_min_length(source, destination);
 
-    if destination.len() < limit {
-        set limit = destination.len();
-    }
-
-    for i in 0..limit {
+    for i in 0 as usize..limit {
         if i % 2 == 0 {
             set destination[i] = even_transform(&source[i]);
         } else {
@@ -290,8 +776,7 @@ proc array_map_alternating<T, U>(
     return limit;
 }
 
-/// Transforme les éléments en fonction de trois catégories.
-proc array_map_classified<T, U>(
+export proc array_map_classified<T, U>(
     source: &[T],
     destination: &mut [U],
     classifier: proc(&T) -> i32,
@@ -299,13 +784,9 @@ proc array_map_classified<T, U>(
     zero_transform: proc(&T) -> U,
     positive_transform: proc(&T) -> U
 ) -> usize {
-    let mut limit: usize = source.len();
+    let limit: usize = map_min_length(source, destination);
 
-    if destination.len() < limit {
-        set limit = destination.len();
-    }
-
-    for i in 0..limit {
+    for i in 0 as usize..limit {
         let category: i32 = classifier(&source[i]);
 
         if category < 0 {
@@ -320,39 +801,84 @@ proc array_map_classified<T, U>(
     return limit;
 }
 
-/// Applique plusieurs fois une transformation à chaque élément.
-proc array_map_repeat<T>(
+// ============================================================================
+// 13. TRANSFORMATIONS RÉPÉTÉES
+// ============================================================================
+
+export proc array_map_repeat<T>(
     array: &mut [T],
     repetitions: usize,
     transform: proc(&T) -> T
 ) {
-    for i in 0..array.len() {
-        for j in 0..repetitions {
+    for i in 0 as usize..(array.len() as usize) {
+        for j in 0 as usize..repetitions {
             let value: T = transform(&array[i]);
             set array[i] = value;
         }
     }
 }
 
-/// Transforme les éléments d'un tableau de droite à gauche,
-/// en conservant leur position dans la destination.
-proc array_map_backward<T, U>(
+/// Applique une transformation répétée à chaque élément source
+/// avant de produire un résultat de destination.
+export proc array_map_repeat_to<T, U>(
     source: &[T],
     destination: &mut [U],
-    transform: proc(&T) -> U
+    repetitions: usize,
+    transform: proc(&T) -> T,
+    project: proc(&T) -> U
 ) -> usize {
-    let mut limit: usize = source.len();
+    let limit: usize = map_min_length(source, destination);
 
-    if destination.len() < limit {
-        set limit = destination.len();
-    }
+    for i in 0 as usize..limit {
+        let mut current: T = source[i];
 
-    let mut i: usize = limit;
+        for j in 0 as usize..repetitions {
+            set current = transform(&current);
+        }
 
-    while i > 0 {
-        set i = i - 1;
-        set destination[i] = transform(&source[i]);
+        set destination[i] = project(&current);
     }
 
     return limit;
 }
+
+// ============================================================================
+// 14. GÉNÉRATION
+// ============================================================================
+
+/// Génère directement les valeurs à partir de leur indice.
+export proc array_map_generate<T>(
+    destination: &mut [T],
+    generator: proc(usize) -> T
+) -> usize {
+    let length: usize = destination.len() as usize;
+
+    for i in 0 as usize..length {
+        set destination[i] = generator(i);
+    }
+
+    return length;
+}
+
+/// Génération conditionnelle.
+/// Les positions non sélectionnées restent inchangées.
+export proc array_map_generate_if<T>(
+    destination: &mut [T],
+    predicate: proc(usize) -> bool,
+    generator: proc(usize) -> T
+) -> usize {
+    let mut written: usize = 0;
+
+    for i in 0 as usize..(destination.len() as usize) {
+        if predicate(i) {
+            set destination[i] = generator(i);
+            set written = written + 1;
+        }
+    }
+
+    return written;
+}
+
+// ============================================================================
+// END OF MODULE
+// ============================================================================

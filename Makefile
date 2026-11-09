@@ -644,6 +644,10 @@ test-diagnostic-help: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 test-diagnostic-parity: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 	$(PYTHON) $(TEST_DIR)/diagnostic_parity_test.py $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 
+.PHONY: test-diagnostic-contract
+test-diagnostic-contract: $(BOOTSTRAP_TARGET_BIN)
+	$(PYTHON) $(TEST_DIR)/diagnostic_contract_test.py $(BOOTSTRAP_TARGET_BIN)
+
 .PHONY: test-native-bootstrap-parity
 NATIVE_BOOTSTRAP_PARITY_TEST_BIN := $(BIN_DIR)/native_bootstrap_parity_test
 
@@ -664,13 +668,17 @@ test-native-frontend-subset: $(TARGET_BIN)
 	$(PYTHON) $(TEST_DIR)/native_frontend_subset_test.py $(TARGET_BIN)
 
 # Targeted bootstrap import and diagnostic regressions.
+.PHONY: test-bootstrap-semantics
+test-bootstrap-semantics: $(BOOTSTRAP_TARGET_BIN)
+	$(PYTHON) $(TEST_DIR)/bootstrap_semantic_diagnostics_test.py $(BOOTSTRAP_TARGET_BIN)
+
 .PHONY: test-bootstrap-regressions
 test-bootstrap-regressions: $(BOOTSTRAP_TARGET_BIN)
 	$(PYTHON) $(TEST_DIR)/bootstrap_regression_test.py $(BOOTSTRAP_TARGET_BIN)
 
 # Check the seed directly without first building the native frontend.
 .PHONY: bootstrap-check
-bootstrap-check: $(BOOTSTRAP_TARGET_BIN)
+bootstrap-check: $(BOOTSTRAP_TARGET_BIN) test-diagnostic-contract test-bootstrap-semantics
 	$(BOOTSTRAP_TARGET_BIN) --version
 	$(PYTHON) $(TEST_DIR)/bootstrap_regression_test.py $(BOOTSTRAP_TARGET_BIN)
 	$(BOOTSTRAP_TARGET_BIN) run examples/hello.vit --quiet --no-color
@@ -1315,7 +1323,9 @@ compiler-power-gate: \
 	test-diagnostic-formats \
 	test-diagnostic-help \
 	test-diagnostic-parity \
+	test-diagnostic-contract \
 	test-bootstrap-regressions \
+	test-bootstrap-semantics \
 	test-grammar \
 	test-sema \
 	test-import-collisions \
@@ -1544,7 +1554,9 @@ test: \
 	test-diagnostic-formats \
 	test-diagnostic-help \
 	test-diagnostic-parity \
+	test-diagnostic-contract \
 	test-bootstrap-regressions \
+	test-bootstrap-semantics \
 	test-source-map \
 	test-grammar \
 	test-frontend-tokens \
@@ -1843,6 +1855,7 @@ help:
 		'  make test-scale              Compile large Vitte source stress cases' \
 		'  make test-runtime            Build runtime test programs' \
 		'  make test-diagnostic-parity  Compare diagnostic output formats and explain codes' \
+		'  make test-diagnostic-contract Check exact bootstrap error codes, phases and byte spans' \
 		'  make test-build-invalidation Check incremental rebuild dependencies' \
 		'  make test-packaging-matrix     Check cross-platform package targets' \
 		'  make compiler-release-criteria Require diagnostic and compiler-path ownership' \

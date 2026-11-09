@@ -22,6 +22,7 @@
 #endif
 
 #include "../../platform/platform.h"
+#include "../../constant_fold/constant.h"
 
 #define VITTE_C17_AST_GENERIC_FORM_ARGUMENT_NAME_MAX 512u
 #define VITTE_C17_AST_GENERIC_FORM_TYPE_DEPTH_MAX 512u
@@ -153,8 +154,14 @@ typedef struct vitte_c17_ast_emitter {
         size_t length;
     } debug_scalar_names[128];
     size_t debug_scalar_name_count;
+    bool in_contract;
+    const char *contract_result_name;
     bool failed;
 } vitte_c17_ast_emitter_t;
+
+static bool
+vitte_c17_ast_contract_identifier(vitte_c17_ast_emitter_t *emitter,
+                                  const vitte_ast_node_t *node);
 
 static bool
 vitte_c17_ast_is_intrinsic(
@@ -181,6 +188,18 @@ vitte_c17_ast_child(
     const vitte_c17_ast_emitter_t *emitter,
     const vitte_ast_node_t *node,
     size_t index);
+
+static bool
+vitte_c17_ast_token_is(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *node,
+    const char *text);
+
+static size_t
+vitte_c17_ast_generic_form_parameter_count(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *declaration,
+    bool *has_where);
 
 static bool
 vitte_c17_ast_generic_impl_bindings(
@@ -573,22 +592,39 @@ vitte_c17_ast_build_parent_index(
 static bool
 vitte_c17_ast_contains_unlowered_declaration(
     const vitte_c17_ast_emitter_t *emitter,
-    const vitte_ast_node_t *node)
+    const vitte_ast_node_t *node,
+    bool in_impl)
 {
+    bool has_where;
+    bool nested_in_impl;
     size_t index;
 
     if (node == NULL) {
         return false;
     }
-    if (node->kind == VITTE_AST_NODE_MACRO_DECL ||
-        (vitte_ast_node_kind_is_declaration(node->kind) &&
-         (node->flags & VITTE_AST_FLAG_COMPTIME) != 0u)) {
+    nested_in_impl = in_impl || node->kind == VITTE_AST_NODE_IMPL_DECL ||
+                     node->kind == VITTE_AST_NODE_TRAIT_DECL;
+    if (node->kind == VITTE_AST_NODE_MACRO_DECL) {
         return true;
+    }
+    if ((node->flags & VITTE_AST_FLAG_COMPTIME) != 0u) {
+        const vitte_ast_node_t *name =
+            vitte_c17_ast_child(emitter, node, 0u);
+        if (node->kind != VITTE_AST_NODE_PROC_DECL ||
+            nested_in_impl ||
+            (node->flags & (VITTE_AST_FLAG_ASYNC | VITTE_AST_FLAG_UNSAFE)) != 0u ||
+            vitte_c17_ast_generic_form_parameter_count(
+                emitter, node, &has_where) != 0u ||
+            has_where ||
+            vitte_c17_ast_token_is(emitter, name, "main")) {
+            return true;
+        }
     }
     for (index = 0u; index < node->child_count; ++index) {
         if (vitte_c17_ast_contains_unlowered_declaration(
                 emitter,
-                vitte_c17_ast_child(emitter, node, index))) {
+                vitte_c17_ast_child(emitter, node, index),
+                nested_in_impl)) {
             return true;
         }
     }
@@ -634,6 +670,86 @@ vitte_c17_ast_attribute_is_thread_local(
 }
 
 static bool
+vitte_c17_ast_type_is_named(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *type,
+    const char *name);
+
+static bool
+vitte_c17_ast_attribute_is_named(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_attribute_t *attribute,
+    const char *expected)
+{
+    const vitte_token_t *name;
+    size_t length;
+    if (attribute == NULL || attribute->inner || attribute->name_count != 1u ||
+        attribute->name_start >= emitter->parser->token_count || expected == NULL)
+        return false;
+    name = &emitter->parser->tokens[attribute->name_start];
+    length = strlen(expected);
+    return name->length == length && memcmp(name->lexeme, expected, length) == 0;
+}
+
+static bool
+vitte_c17_ast_attribute_is_string_argument(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_attribute_t *attribute)
+{
+    return attribute != NULL && attribute->argument_count == 1u &&
+        attribute->argument_start < emitter->parser->token_count &&
+        emitter->parser->tokens[attribute->argument_start].kind == VITTE_TOKEN_STRING_LITERAL;
+}
+
+static bool
+vitte_c17_ast_attribute_is_doc(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_attribute_t *attribute)
+{
+    return vitte_c17_ast_attribute_is_named(emitter, attribute, "doc") &&
+        vitte_c17_ast_attribute_is_string_argument(emitter, attribute);
+}
+
+static bool
+vitte_c17_ast_attribute_is_deprecated(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_attribute_t *attribute)
+{
+    return vitte_c17_ast_attribute_is_named(emitter, attribute, "deprecated") &&
+        (attribute->argument_count == 0u ||
+         vitte_c17_ast_attribute_is_string_argument(emitter, attribute));
+}
+
+static bool
+vitte_c17_ast_attribute_is_no_argument(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_attribute_t *attribute,
+    const char *name)
+{
+    return vitte_c17_ast_attribute_is_named(emitter, attribute, name) &&
+        attribute->argument_count == 0u;
+}
+
+static bool
+vitte_c17_ast_function_returns_value(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *function)
+{
+    size_t index;
+    for (index = 1u; index < function->child_count; ++index) {
+        const vitte_ast_node_t *child = vitte_c17_ast_child(emitter, function, index);
+        if (child != NULL && (child->kind == VITTE_AST_NODE_TYPE_EXPR ||
+            child->kind == VITTE_AST_NODE_ARRAY_TYPE ||
+            child->kind == VITTE_AST_NODE_POINTER_TYPE ||
+            child->kind == VITTE_AST_NODE_REFERENCE_TYPE ||
+            child->kind == VITTE_AST_NODE_OPTIONAL_TYPE))
+            return !vitte_c17_ast_type_is_named(emitter, child, "void") &&
+                   !vitte_c17_ast_type_is_named(emitter, child, "unit");
+    }
+    return false;
+}
+
+static bool
 vitte_c17_ast_contains_unsupported_attributes(
     const vitte_c17_ast_emitter_t *emitter,
     const vitte_ast_node_t *node)
@@ -646,6 +762,8 @@ vitte_c17_ast_contains_unsupported_attributes(
     if (node->attribute_count != 0u) {
         bool procedure;
         bool static_declaration;
+        bool cold = false;
+        bool hot = false;
 
         procedure =
             node->kind == VITTE_AST_NODE_PROC_DECL ||
@@ -653,27 +771,40 @@ vitte_c17_ast_contains_unsupported_attributes(
         static_declaration =
             node->kind == VITTE_AST_NODE_STATIC_DECL;
         if (!procedure && !static_declaration) {
-            return true;
-        }
-        for (index = 0u; index < node->attribute_count; ++index) {
-            const vitte_ast_attribute_t *attribute;
+            for (index = 0u; index < node->attribute_count; ++index) {
+                const vitte_ast_attribute_t *attribute = vitte_parser_get_attribute(
+                    emitter->parser, node->id, index);
+                if (!vitte_c17_ast_attribute_is_doc(emitter, attribute)) return true;
+            }
+        } else {
+            for (index = 0u; index < node->attribute_count; ++index) {
+                const vitte_ast_attribute_t *attribute;
 
-            attribute =
-                vitte_parser_get_attribute(
-                    emitter->parser,
-                    node->id,
-                    index);
-            if (!(procedure
-                      ? vitte_c17_ast_attribute_is_cold(
-                            emitter,
-                            attribute)
-                      : vitte_c17_ast_attribute_is_thread_local(
-                            emitter,
-                            attribute)) ||
-                attribute->argument_count != 0u) {
-                return true;
+                attribute = vitte_parser_get_attribute(
+                    emitter->parser, node->id, index);
+                if (vitte_c17_ast_attribute_is_doc(emitter, attribute)) continue;
+                if (procedure) {
+                    bool supported =
+                        (vitte_c17_ast_attribute_is_cold(emitter, attribute) ||
+                         vitte_c17_ast_attribute_is_no_argument(emitter, attribute, "hot") ||
+                         vitte_c17_ast_attribute_is_no_argument(emitter, attribute, "noinline") ||
+                         vitte_c17_ast_attribute_is_deprecated(emitter, attribute) ||
+                         vitte_c17_ast_attribute_is_no_argument(emitter, attribute, "must_use"));
+                    if (!supported ||
+                        (vitte_c17_ast_attribute_is_cold(emitter, attribute) &&
+                         attribute->argument_count != 0u) ||
+                        (vitte_c17_ast_attribute_is_no_argument(emitter, attribute, "must_use") &&
+                         !vitte_c17_ast_function_returns_value(emitter, node)))
+                        return true;
+                    cold |= vitte_c17_ast_attribute_is_cold(emitter, attribute);
+                    hot |= vitte_c17_ast_attribute_is_no_argument(emitter, attribute, "hot");
+                } else if (!vitte_c17_ast_attribute_is_thread_local(emitter, attribute) ||
+                           attribute->argument_count != 0u) {
+                    return true;
+                }
             }
         }
+        if (cold && hot) return true;
     }
     for (index = 0u; index < node->child_count; ++index) {
         if (vitte_c17_ast_contains_unsupported_attributes(
@@ -737,6 +868,45 @@ vitte_c17_ast_node_has_cold_attribute(
         }
     }
     return false;
+}
+
+static void
+vitte_c17_ast_write(vitte_c17_ast_emitter_t *emitter, const char *text);
+
+static void
+vitte_c17_ast_emit_function_attributes(
+    vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *function)
+{
+    size_t index;
+    if (vitte_c17_ast_node_has_cold_attribute(emitter, function))
+        vitte_c17_ast_write(emitter, "VITTE_C17_AST_COLD ");
+    for (index = 0u; index < function->attribute_count; ++index) {
+        const vitte_ast_attribute_t *attribute = vitte_parser_get_attribute(
+            emitter->parser, function->id, index);
+        if (attribute == NULL) continue;
+        if (vitte_c17_ast_attribute_is_no_argument(emitter, attribute, "hot")) {
+            vitte_c17_ast_write(emitter, "VITTE_C17_AST_HOT ");
+        } else if (vitte_c17_ast_attribute_is_no_argument(emitter, attribute, "noinline")) {
+            vitte_c17_ast_write(emitter, "VITTE_C17_AST_NOINLINE ");
+        } else if (vitte_c17_ast_attribute_is_deprecated(emitter, attribute)) {
+            const char *message = "\"deprecated procedure\"";
+            size_t length = strlen(message);
+            if (attribute->argument_count == 1u &&
+                attribute->argument_start < emitter->parser->token_count) {
+                const vitte_token_t *argument =
+                    &emitter->parser->tokens[attribute->argument_start];
+                message = argument->lexeme;
+                length = argument->length;
+            }
+            vitte_c17_ast_write(emitter, "VITTE_C17_AST_DEPRECATED(");
+            if (length != 0u && fwrite(message, 1u, length, emitter->output) != length)
+                emitter->failed = true;
+            vitte_c17_ast_write(emitter, ") ");
+        } else if (vitte_c17_ast_attribute_is_no_argument(emitter, attribute, "must_use")) {
+            vitte_c17_ast_write(emitter, "VITTE_C17_AST_WARN_UNUSED_RESULT ");
+        }
+    }
 }
 
 static const vitte_token_t *
@@ -7240,6 +7410,528 @@ vitte_c17_ast_emit_impl_method_name(
     }
 }
 
+#define VITTE_C17_COMPTIME_BINDING_LIMIT 128u
+#define VITTE_C17_COMPTIME_STEP_LIMIT 4096u
+#define VITTE_C17_COMPTIME_DEPTH_LIMIT 64u
+
+typedef struct vitte_c17_comptime_binding {
+    const vitte_token_t *name;
+    vitte_constant_t value;
+} vitte_c17_comptime_binding_t;
+
+typedef struct vitte_c17_comptime_state {
+    vitte_c17_ast_emitter_t *emitter;
+    const vitte_ast_node_t *owner;
+    vitte_c17_comptime_binding_t bindings[VITTE_C17_COMPTIME_BINDING_LIMIT];
+    size_t binding_count;
+    size_t *steps;
+    size_t depth;
+} vitte_c17_comptime_state_t;
+
+typedef enum vitte_c17_comptime_status {
+    VITTE_C17_COMPTIME_NOT_APPLICABLE = 0,
+    VITTE_C17_COMPTIME_SUCCESS,
+    VITTE_C17_COMPTIME_FAILURE
+} vitte_c17_comptime_status_t;
+
+static vitte_constant_binary_operator_t
+vitte_c17_comptime_binary_operator(vitte_token_kind_t token)
+{
+    switch (token) {
+        case VITTE_TOKEN_PLUS: return VITTE_CONSTANT_BINARY_ADD;
+        case VITTE_TOKEN_MINUS: return VITTE_CONSTANT_BINARY_SUBTRACT;
+        case VITTE_TOKEN_STAR: return VITTE_CONSTANT_BINARY_MULTIPLY;
+        case VITTE_TOKEN_SLASH: return VITTE_CONSTANT_BINARY_DIVIDE;
+        case VITTE_TOKEN_PERCENT: return VITTE_CONSTANT_BINARY_REMAINDER;
+        case VITTE_TOKEN_AMP: return VITTE_CONSTANT_BINARY_BIT_AND;
+        case VITTE_TOKEN_PIPE: return VITTE_CONSTANT_BINARY_BIT_OR;
+        case VITTE_TOKEN_CARET: return VITTE_CONSTANT_BINARY_BIT_XOR;
+        case VITTE_TOKEN_SHIFT_LEFT: return VITTE_CONSTANT_BINARY_SHIFT_LEFT;
+        case VITTE_TOKEN_SHIFT_RIGHT: return VITTE_CONSTANT_BINARY_SHIFT_RIGHT;
+        case VITTE_TOKEN_AMP_AMP:
+        case VITTE_TOKEN_KW_AND: return VITTE_CONSTANT_BINARY_LOGICAL_AND;
+        case VITTE_TOKEN_PIPE_PIPE:
+        case VITTE_TOKEN_KW_OR: return VITTE_CONSTANT_BINARY_LOGICAL_OR;
+        case VITTE_TOKEN_EQUAL_EQUAL: return VITTE_CONSTANT_BINARY_EQUAL;
+        case VITTE_TOKEN_BANG_EQUAL: return VITTE_CONSTANT_BINARY_NOT_EQUAL;
+        case VITTE_TOKEN_LESS: return VITTE_CONSTANT_BINARY_LESS;
+        case VITTE_TOKEN_LESS_EQUAL: return VITTE_CONSTANT_BINARY_LESS_EQUAL;
+        case VITTE_TOKEN_GREATER: return VITTE_CONSTANT_BINARY_GREATER;
+        case VITTE_TOKEN_GREATER_EQUAL: return VITTE_CONSTANT_BINARY_GREATER_EQUAL;
+        default: return VITTE_CONSTANT_BINARY_INVALID;
+    }
+}
+
+static const vitte_token_t *
+vitte_c17_comptime_name_token(
+    const vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *node)
+{
+    if (node != NULL && node->kind == VITTE_AST_NODE_PATH &&
+        node->child_count == 1u) {
+        node = vitte_c17_ast_child(emitter, node, 0u);
+    }
+    if (node == NULL || node->kind != VITTE_AST_NODE_IDENTIFIER) {
+        return NULL;
+    }
+    return vitte_c17_ast_token(emitter, node);
+}
+
+static bool
+vitte_c17_comptime_parse_integer(
+    const vitte_token_t *token,
+    vitte_constant_t *value)
+{
+    unsigned int base = 10u;
+    size_t index = 0u;
+    uint64_t parsed = UINT64_C(0);
+    bool has_digit = false;
+
+    if (token == NULL || token->lexeme == NULL || token->length == 0u ||
+        value == NULL) {
+        return false;
+    }
+    if (token->length >= 2u && token->lexeme[0] == '0') {
+        switch (token->lexeme[1]) {
+            case 'x': case 'X': base = 16u; index = 2u; break;
+            case 'b': case 'B': base = 2u; index = 2u; break;
+            case 'o': case 'O': base = 8u; index = 2u; break;
+            default: break;
+        }
+    }
+    for (; index < token->length; ++index) {
+        unsigned int digit;
+        unsigned char character = (unsigned char)token->lexeme[index];
+        if (character == (unsigned char)'_') continue;
+        if (character >= (unsigned char)'0' && character <= (unsigned char)'9') {
+            digit = (unsigned int)(character - (unsigned char)'0');
+        } else if (character >= (unsigned char)'a' && character <= (unsigned char)'f') {
+            digit = (unsigned int)(character - (unsigned char)'a') + 10u;
+        } else if (character >= (unsigned char)'A' && character <= (unsigned char)'F') {
+            digit = (unsigned int)(character - (unsigned char)'A') + 10u;
+        } else {
+            return false;
+        }
+        if (digit >= base ||
+            parsed > (UINT64_MAX - (uint64_t)digit) / (uint64_t)base) {
+            return false;
+        }
+        parsed = parsed * (uint64_t)base + (uint64_t)digit;
+        has_digit = true;
+    }
+    if (!has_digit) return false;
+    *value = parsed <= (uint64_t)INT64_MAX
+        ? vitte_constant_make_i64((int64_t)parsed)
+        : vitte_constant_make_u64(parsed);
+    return true;
+}
+
+static vitte_constant_t
+vitte_c17_comptime_eval_expression(
+    vitte_c17_comptime_state_t *state,
+    const vitte_ast_node_t *node);
+
+static bool
+vitte_c17_comptime_coerce(
+    vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *type,
+    vitte_constant_t input,
+    vitte_constant_t *output)
+{
+    vitte_constant_kind_t target;
+    vitte_constant_result_t converted;
+
+    if (type == NULL || output == NULL) return false;
+    if (vitte_c17_ast_type_is_named(emitter, type, "i64")) {
+        target = VITTE_CONSTANT_KIND_I64;
+    } else if (vitte_c17_ast_type_is_named(emitter, type, "u64")) {
+        target = VITTE_CONSTANT_KIND_U64;
+    } else if (vitte_c17_ast_type_is_named(emitter, type, "bool")) {
+        target = VITTE_CONSTANT_KIND_BOOL;
+    } else {
+        return false;
+    }
+    converted = vitte_constant_cast(&input, target);
+    if (converted.status != VITTE_CONSTANT_FOLD_SUCCESS) return false;
+    *output = converted.value;
+    return true;
+}
+
+static bool
+vitte_c17_comptime_bind(
+    vitte_c17_comptime_state_t *state,
+    const vitte_token_t *name,
+    vitte_constant_t value)
+{
+    if (state == NULL || name == NULL || name->lexeme == NULL ||
+        name->length == 0u ||
+        state->binding_count >= VITTE_C17_COMPTIME_BINDING_LIMIT) {
+        return false;
+    }
+    state->bindings[state->binding_count].name = name;
+    state->bindings[state->binding_count].value = value;
+    ++state->binding_count;
+    return true;
+}
+
+static vitte_constant_t
+vitte_c17_comptime_lookup(
+    const vitte_c17_comptime_state_t *state,
+    const vitte_token_t *name)
+{
+    size_t index;
+    if (state == NULL || name == NULL || name->lexeme == NULL) {
+        return vitte_constant_make_invalid();
+    }
+    for (index = state->binding_count; index != 0u; --index) {
+        const vitte_token_t *bound = state->bindings[index - 1u].name;
+        if (bound != NULL && bound->length == name->length &&
+            memcmp(bound->lexeme, name->lexeme, name->length) == 0) {
+            return state->bindings[index - 1u].value;
+        }
+    }
+    return vitte_constant_make_invalid();
+}
+
+static const vitte_ast_node_t *
+vitte_c17_comptime_resolve_path(
+    vitte_c17_comptime_state_t *state,
+    const vitte_ast_node_t *path)
+{
+    vitte_c17_ast_emitter_t *emitter = state->emitter;
+    const vitte_ast_node_t *spaces[128];
+    const vitte_ast_node_t *previous_spaces[128];
+    const vitte_ast_node_t *current;
+    const vitte_ast_node_t *found;
+    size_t space_count = 0u;
+    size_t previous_depth = emitter->space_depth;
+
+    if (previous_depth > sizeof(previous_spaces) / sizeof(previous_spaces[0])) {
+        return NULL;
+    }
+    if (previous_depth != 0u) {
+        memcpy(previous_spaces, emitter->space_stack,
+               previous_depth * sizeof(previous_spaces[0]));
+    }
+
+    if (state->owner != NULL) {
+        vitte_ast_node_id_t parent_id = state->owner->id < emitter->parent_id_count
+            ? emitter->parent_ids[(size_t)state->owner->id]
+            : VITTE_AST_INVALID_ID;
+        while (parent_id != VITTE_AST_INVALID_ID &&
+               space_count < sizeof(spaces) / sizeof(spaces[0])) {
+            current = vitte_c17_ast_node(emitter, parent_id);
+            if (current == NULL) break;
+            if (current->kind == VITTE_AST_NODE_SPACE_DECL) {
+                spaces[space_count++] = current;
+            }
+            if (parent_id >= emitter->parent_id_count) break;
+            parent_id = emitter->parent_ids[(size_t)parent_id];
+        }
+        emitter->space_depth = 0u;
+        while (space_count != 0u) {
+            if (emitter->space_depth >=
+                sizeof(emitter->space_stack) / sizeof(emitter->space_stack[0])) {
+                if (previous_depth != 0u) {
+                    memcpy(emitter->space_stack, previous_spaces,
+                           previous_depth * sizeof(previous_spaces[0]));
+                }
+                emitter->space_depth = previous_depth;
+                return NULL;
+            }
+            emitter->space_stack[emitter->space_depth++] = spaces[--space_count];
+        }
+    }
+    found = vitte_c17_ast_find_path_declaration(
+        emitter, path, VITTE_AST_NODE_PROC_DECL,
+        VITTE_AST_NODE_EXTERN_PROC_DECL);
+    if (previous_depth != 0u) {
+        memcpy(emitter->space_stack, previous_spaces,
+               previous_depth * sizeof(previous_spaces[0]));
+    }
+    emitter->space_depth = previous_depth;
+    return found;
+}
+
+static vitte_c17_comptime_status_t
+vitte_c17_comptime_eval_call(
+    vitte_c17_comptime_state_t *caller,
+    const vitte_ast_node_t *call,
+    vitte_constant_t *result)
+{
+    vitte_c17_ast_emitter_t *emitter = caller->emitter;
+    const vitte_ast_node_t *callee = vitte_c17_ast_child(emitter, call, 0u);
+    const vitte_ast_node_t *procedure;
+    const vitte_ast_node_t *body = NULL;
+    const vitte_ast_node_t *return_type;
+    vitte_c17_comptime_state_t frame;
+    size_t parameter_count = 0u;
+    size_t index;
+    const vitte_ast_node_t *return_statement = NULL;
+
+    procedure = vitte_c17_comptime_resolve_path(caller, callee);
+    if (procedure == NULL || procedure->kind != VITTE_AST_NODE_PROC_DECL ||
+        (procedure->flags & VITTE_AST_FLAG_COMPTIME) == 0u) {
+        return VITTE_C17_COMPTIME_NOT_APPLICABLE;
+    }
+    if ((procedure->flags & (VITTE_AST_FLAG_ASYNC | VITTE_AST_FLAG_UNSAFE)) != 0u ||
+        vitte_c17_ast_generic_form_parameter_count(emitter, procedure, NULL) != 0u ||
+        caller->depth >= VITTE_C17_COMPTIME_DEPTH_LIMIT ||
+        call->child_count == 0u || result == NULL) {
+        return VITTE_C17_COMPTIME_FAILURE;
+    }
+    for (index = 1u; index < procedure->child_count; ++index) {
+        const vitte_ast_node_t *child = vitte_c17_ast_child(emitter, procedure, index);
+        if (child != NULL &&
+            (child->flags & (VITTE_AST_FLAG_CONTRACT_REQUIRES |
+                             VITTE_AST_FLAG_CONTRACT_ENSURES)) != 0u) {
+            return VITTE_C17_COMPTIME_FAILURE;
+        }
+    }
+
+    memset(&frame, 0, sizeof(frame));
+    frame.emitter = emitter;
+    frame.owner = procedure;
+    frame.steps = caller->steps;
+    frame.depth = caller->depth + 1u;
+    for (index = 1u; index < procedure->child_count; ++index) {
+        const vitte_ast_node_t *child = vitte_c17_ast_child(emitter, procedure, index);
+        if (child != NULL && child->kind == VITTE_AST_NODE_PARAMETER) {
+            const vitte_ast_node_t *parameter_name = vitte_c17_ast_child(emitter, child, 0u);
+            const vitte_ast_node_t *parameter_type = vitte_c17_ast_child(emitter, child, 1u);
+            const vitte_token_t *name = vitte_c17_comptime_name_token(
+                emitter, parameter_name);
+            vitte_constant_t argument;
+            if ((child->flags & VITTE_AST_FLAG_MUTABLE) != 0u ||
+                name == NULL || index >= call->child_count ||
+                (!vitte_c17_ast_type_is_named(emitter, parameter_type, "i64") &&
+                 !vitte_c17_ast_type_is_named(emitter, parameter_type, "u64") &&
+                 !vitte_c17_ast_type_is_named(emitter, parameter_type, "bool"))) {
+                return VITTE_C17_COMPTIME_FAILURE;
+            }
+            argument = vitte_c17_comptime_eval_expression(
+                caller, vitte_c17_ast_child(emitter, call, parameter_count + 1u));
+            if (argument.kind == VITTE_CONSTANT_KIND_INVALID ||
+                !vitte_c17_comptime_coerce(
+                    emitter, parameter_type, argument, &argument) ||
+                !vitte_c17_comptime_bind(&frame, name, argument)) {
+                return VITTE_C17_COMPTIME_FAILURE;
+            }
+            ++parameter_count;
+        }
+        if (child != NULL && child->kind == VITTE_AST_NODE_BLOCK) body = child;
+    }
+    if (call->child_count != parameter_count + 1u || body == NULL) {
+        return VITTE_C17_COMPTIME_FAILURE;
+    }
+
+    for (index = 0u; index < body->child_count; ++index) {
+        const vitte_ast_node_t *statement = vitte_c17_ast_child(emitter, body, index);
+        if (statement == NULL) return VITTE_C17_COMPTIME_FAILURE;
+        if (statement->kind == VITTE_AST_NODE_LET_STMT) {
+            const vitte_ast_node_t *name_node;
+            const vitte_ast_node_t *initializer = NULL;
+            const vitte_ast_node_t *local_type = NULL;
+            const vitte_token_t *name;
+            size_t child_index;
+            vitte_constant_t value;
+            if ((statement->flags & VITTE_AST_FLAG_MUTABLE) != 0u ||
+                statement->child_count < 2u) return VITTE_C17_COMPTIME_FAILURE;
+            name_node = vitte_c17_ast_child(emitter, statement, 0u);
+            name = vitte_c17_comptime_name_token(emitter, name_node);
+            for (child_index = 1u; child_index < statement->child_count; ++child_index) {
+                const vitte_ast_node_t *part = vitte_c17_ast_child(emitter, statement, child_index);
+                if (part != NULL && part->kind != VITTE_AST_NODE_TYPE_EXPR &&
+                    part->kind != VITTE_AST_NODE_POINTER_TYPE &&
+                    part->kind != VITTE_AST_NODE_REFERENCE_TYPE &&
+                    part->kind != VITTE_AST_NODE_ARRAY_TYPE &&
+                    part->kind != VITTE_AST_NODE_OPTIONAL_TYPE) {
+                    initializer = part;
+                } else if (part != NULL) {
+                    local_type = part;
+                }
+            }
+            if (name == NULL || initializer == NULL) return VITTE_C17_COMPTIME_FAILURE;
+            value = vitte_c17_comptime_eval_expression(&frame, initializer);
+            if (value.kind != VITTE_CONSTANT_KIND_INVALID && local_type != NULL &&
+                !vitte_c17_comptime_coerce(emitter, local_type, value, &value)) {
+                return VITTE_C17_COMPTIME_FAILURE;
+            }
+            if (value.kind == VITTE_CONSTANT_KIND_INVALID ||
+                !vitte_c17_comptime_bind(&frame, name, value)) {
+                return VITTE_C17_COMPTIME_FAILURE;
+            }
+            continue;
+        }
+        if (statement->kind == VITTE_AST_NODE_RETURN_STMT &&
+            statement->child_count == 1u && index + 1u == body->child_count) {
+            return_statement = statement;
+            break;
+        }
+        return VITTE_C17_COMPTIME_FAILURE;
+    }
+    if (return_statement == NULL) return VITTE_C17_COMPTIME_FAILURE;
+    *result = vitte_c17_comptime_eval_expression(
+        &frame, vitte_c17_ast_child(emitter, return_statement, 0u));
+    return_type = vitte_c17_ast_function_return_type(emitter, procedure);
+    if (result->kind == VITTE_CONSTANT_KIND_INVALID || return_type == NULL ||
+        !vitte_c17_comptime_coerce(emitter, return_type, *result, result)) {
+        return VITTE_C17_COMPTIME_FAILURE;
+    }
+    return VITTE_C17_COMPTIME_SUCCESS;
+}
+
+static vitte_constant_t
+vitte_c17_comptime_eval_expression(
+    vitte_c17_comptime_state_t *state,
+    const vitte_ast_node_t *node)
+{
+    vitte_c17_ast_emitter_t *emitter;
+    const vitte_token_t *token;
+    vitte_constant_t value = vitte_constant_make_invalid();
+    if (state == NULL || node == NULL || state->steps == NULL ||
+        (*state->steps)++ >= VITTE_C17_COMPTIME_STEP_LIMIT) {
+        return value;
+    }
+    emitter = state->emitter;
+    token = vitte_c17_ast_token(emitter, node);
+    switch (node->kind) {
+        case VITTE_AST_NODE_INTEGER_LITERAL:
+            (void)vitte_c17_comptime_parse_integer(token, &value);
+            return value;
+        case VITTE_AST_NODE_BOOL_LITERAL:
+            if (token != NULL) return vitte_constant_make_bool(token->kind == VITTE_TOKEN_KW_TRUE);
+            return value;
+        case VITTE_AST_NODE_IDENTIFIER:
+        case VITTE_AST_NODE_PATH:
+            return vitte_c17_comptime_lookup(
+                state, vitte_c17_comptime_name_token(emitter, node));
+        case VITTE_AST_NODE_GROUP_EXPR:
+            return node->child_count == 1u
+                ? vitte_c17_comptime_eval_expression(
+                    state, vitte_c17_ast_child(emitter, node, 0u))
+                : value;
+        case VITTE_AST_NODE_UNARY_EXPR: {
+            const vitte_ast_node_t *operand_node;
+            vitte_constant_unary_operator_t operation;
+            vitte_constant_result_t folded;
+            vitte_constant_t operand;
+            if (node->child_count != 1u) return value;
+            operand_node = vitte_c17_ast_child(emitter, node, 0u);
+            operand = vitte_c17_comptime_eval_expression(state, operand_node);
+            if (operand.kind == VITTE_CONSTANT_KIND_INVALID) return value;
+            if (node->operator_kind == VITTE_TOKEN_MINUS &&
+                operand.kind == VITTE_CONSTANT_KIND_U64 &&
+                operand.as.u64 == (uint64_t)INT64_MAX + UINT64_C(1)) {
+                return vitte_constant_make_i64(INT64_MIN);
+            }
+            switch (node->operator_kind) {
+                case VITTE_TOKEN_PLUS: operation = VITTE_CONSTANT_UNARY_PLUS; break;
+                case VITTE_TOKEN_MINUS: operation = VITTE_CONSTANT_UNARY_NEGATE; break;
+                case VITTE_TOKEN_BANG:
+                case VITTE_TOKEN_KW_NOT: operation = VITTE_CONSTANT_UNARY_LOGICAL_NOT; break;
+                case VITTE_TOKEN_TILDE: operation = VITTE_CONSTANT_UNARY_BITWISE_NOT; break;
+                default: return value;
+            }
+            folded = vitte_constant_fold_unary(operation, &operand);
+            return folded.status == VITTE_CONSTANT_FOLD_SUCCESS
+                ? folded.value : value;
+        }
+        case VITTE_AST_NODE_BINARY_EXPR: {
+            vitte_constant_t left;
+            vitte_constant_t right;
+            vitte_constant_binary_operator_t operation =
+                vitte_c17_comptime_binary_operator(node->operator_kind);
+            vitte_constant_result_t folded;
+            if (node->child_count != 2u || operation == VITTE_CONSTANT_BINARY_INVALID) return value;
+            left = vitte_c17_comptime_eval_expression(state, vitte_c17_ast_child(emitter, node, 0u));
+            if (left.kind == VITTE_CONSTANT_KIND_BOOL &&
+                ((operation == VITTE_CONSTANT_BINARY_LOGICAL_AND && !left.as.boolean) ||
+                 (operation == VITTE_CONSTANT_BINARY_LOGICAL_OR && left.as.boolean))) {
+                return left;
+            }
+            right = vitte_c17_comptime_eval_expression(state, vitte_c17_ast_child(emitter, node, 1u));
+            if (left.kind == VITTE_CONSTANT_KIND_INVALID ||
+                right.kind == VITTE_CONSTANT_KIND_INVALID) return value;
+            if (left.kind == VITTE_CONSTANT_KIND_U64 && right.kind == VITTE_CONSTANT_KIND_I64 &&
+                right.as.i64 >= 0) {
+                right = vitte_constant_make_u64((uint64_t)right.as.i64);
+            } else if (right.kind == VITTE_CONSTANT_KIND_U64 && left.kind == VITTE_CONSTANT_KIND_I64 &&
+                       left.as.i64 >= 0) {
+                left = vitte_constant_make_u64((uint64_t)left.as.i64);
+            }
+            folded = vitte_constant_fold_binary(operation, &left, &right);
+            return folded.status == VITTE_CONSTANT_FOLD_SUCCESS
+                ? folded.value : value;
+        }
+        case VITTE_AST_NODE_CALL_EXPR: {
+            vitte_c17_comptime_status_t status =
+                vitte_c17_comptime_eval_call(state, node, &value);
+            return status == VITTE_C17_COMPTIME_SUCCESS ? value
+                                                        : vitte_constant_make_invalid();
+        }
+        default:
+            return value;
+    }
+}
+
+static void
+vitte_c17_ast_emit_comptime_value(
+    vitte_c17_ast_emitter_t *emitter,
+    vitte_constant_t value)
+{
+    switch (value.kind) {
+        case VITTE_CONSTANT_KIND_BOOL:
+            vitte_c17_ast_write(emitter, value.as.boolean ? "true" : "false");
+            break;
+        case VITTE_CONSTANT_KIND_I64:
+            if (value.as.i64 == INT64_MIN) {
+                vitte_c17_ast_write(emitter, "(-INT64_C(9223372036854775807) - INT64_C(1))");
+            } else if (fprintf(emitter->output, "%lldLL", (long long)value.as.i64) < 0) {
+                emitter->failed = true;
+            }
+            break;
+        case VITTE_CONSTANT_KIND_U64:
+            if (fprintf(emitter->output, "%lluULL", (unsigned long long)value.as.u64) < 0) {
+                emitter->failed = true;
+            }
+            break;
+        default:
+            emitter->failed = true;
+            break;
+    }
+}
+
+static vitte_c17_comptime_status_t
+vitte_c17_ast_emit_comptime_call(
+    vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *call)
+{
+    const vitte_ast_node_t *callee = vitte_c17_ast_child(emitter, call, 0u);
+    const vitte_ast_node_t *procedure = vitte_c17_ast_find_path_declaration(
+        emitter, callee, VITTE_AST_NODE_PROC_DECL,
+        VITTE_AST_NODE_EXTERN_PROC_DECL);
+    vitte_c17_comptime_state_t state;
+    vitte_constant_t result;
+    size_t steps = 0u;
+    vitte_c17_comptime_status_t status;
+
+    if (procedure == NULL || procedure->kind != VITTE_AST_NODE_PROC_DECL ||
+        (procedure->flags & VITTE_AST_FLAG_COMPTIME) == 0u) {
+        return VITTE_C17_COMPTIME_NOT_APPLICABLE;
+    }
+    memset(&state, 0, sizeof(state));
+    state.emitter = emitter;
+    state.steps = &steps;
+    status = vitte_c17_comptime_eval_call(&state, call, &result);
+    if (status == VITTE_C17_COMPTIME_SUCCESS) {
+        vitte_c17_ast_emit_comptime_value(emitter, result);
+        return status;
+    }
+    emitter->failed = true;
+    return VITTE_C17_COMPTIME_FAILURE;
+}
+
 static void
 vitte_c17_ast_emit_expression(
     vitte_c17_ast_emitter_t *emitter,
@@ -7253,6 +7945,39 @@ vitte_c17_ast_emit_expression(
         emitter->failed = true;
         return;
     }
+
+    if (node->kind == VITTE_AST_NODE_CALL_EXPR) {
+        vitte_c17_comptime_status_t comptime_status =
+            vitte_c17_ast_emit_comptime_call(emitter, node);
+        if (comptime_status != VITTE_C17_COMPTIME_NOT_APPLICABLE) {
+            return;
+        }
+    }
+    if (node->kind == VITTE_AST_NODE_PATH &&
+        node->id < emitter->parent_id_count) {
+        const vitte_ast_node_t *declaration =
+            vitte_c17_ast_find_path_declaration(
+                emitter,
+                node,
+                VITTE_AST_NODE_PROC_DECL,
+                VITTE_AST_NODE_EXTERN_PROC_DECL);
+        if (declaration != NULL &&
+            declaration->kind == VITTE_AST_NODE_PROC_DECL &&
+            (declaration->flags & VITTE_AST_FLAG_COMPTIME) != 0u) {
+            vitte_ast_node_id_t parent_id =
+                emitter->parent_ids[(size_t)node->id];
+            const vitte_ast_node_t *parent =
+                vitte_c17_ast_node(emitter, parent_id);
+            if (parent == NULL ||
+                parent->kind != VITTE_AST_NODE_CALL_EXPR ||
+                vitte_c17_ast_child(emitter, parent, 0u) != node) {
+                emitter->failed = true;
+                return;
+            }
+        }
+    }
+
+    if (vitte_c17_ast_contract_identifier(emitter, node)) return;
 
     switch (node->kind) {
         case VITTE_AST_NODE_SIZEOF_EXPR:
@@ -7764,6 +8489,12 @@ vitte_c17_ast_emit_expression(
             return;
 
         case VITTE_AST_NODE_UNARY_EXPR:
+            if (node->operator_kind == VITTE_TOKEN_KW_MOVE) {
+                vitte_c17_ast_emit_expression(
+                    emitter,
+                    vitte_c17_ast_child(emitter, node, 0u));
+                return;
+            }
             if (node->operator_kind == VITTE_TOKEN_AMP &&
                 vitte_c17_ast_emit_address_of_rvalue(
                     emitter,
@@ -9474,6 +10205,8 @@ vitte_c17_ast_generated_name_is_used(
     return false;
 }
 
+#include "contracts.inc"
+
 static bool
 vitte_c17_ast_make_for_temporary_name(
     const vitte_c17_ast_emitter_t *emitter,
@@ -10827,6 +11560,7 @@ vitte_c17_ast_emit_statement(
         case VITTE_AST_NODE_RETURN_STMT:
             if (node->kind == VITTE_AST_NODE_RETURN_STMT) {
                 const vitte_ast_node_t *return_type;
+                if (vitte_c17_ast_emit_contract_return(emitter, node, indent)) return;
 
                 return_type = emitter->function != NULL
                     ? vitte_c17_ast_function_return_type(
@@ -11319,33 +12053,13 @@ vitte_c17_ast_emit_statement(
                         emitter,
                         guard != NULL ? indent + 3u : indent + 2u);
                     {
-                        const vitte_ast_node_t *return_type =
-                            emitter->function != NULL
-                                ? vitte_c17_ast_function_return_type(
-                                      emitter,
-                                      emitter->function)
-                                : NULL;
-                        bool returns_void =
-                            return_type == NULL ||
-                            vitte_c17_ast_type_is_named(
-                                emitter, return_type, "void") ||
-                            vitte_c17_ast_type_is_named(
-                                emitter, return_type, "unit");
-
-                        if (returns_void) {
-                            vitte_c17_ast_emit_expression(emitter, body);
-                            vitte_c17_ast_write(emitter, ";\n");
-                            vitte_c17_ast_indent(
-                                emitter,
-                                guard != NULL
-                                    ? indent + 3u
-                                    : indent + 2u);
-                            vitte_c17_ast_write(emitter, "return;\n");
-                        } else {
-                            vitte_c17_ast_write(emitter, "return ");
-                            vitte_c17_ast_emit_expression(emitter, body);
-                            vitte_c17_ast_write(emitter, ";\n");
-                        }
+                        vitte_ast_node_t implicit_return = *body;
+                        vitte_ast_node_id_t value_id = body->id;
+                        implicit_return.kind = VITTE_AST_NODE_RETURN_STMT;
+                        implicit_return.children = &value_id;
+                        implicit_return.child_count = 1u;
+                        vitte_c17_ast_emit_statement(emitter, &implicit_return,
+                            guard != NULL ? indent + 3u : indent + 2u);
                     }
                 }
                 if (guard != NULL) {
@@ -11885,6 +12599,11 @@ vitte_c17_ast_emit_function_signature(
     const vitte_ast_node_t *name;
     size_t index;
 
+    if (function != NULL &&
+        (function->flags & VITTE_AST_FLAG_COMPTIME) != 0u) {
+        return;
+    }
+
     name = vitte_c17_ast_child(emitter, function, 0u);
     if (function->kind == VITTE_AST_NODE_EXTERN_PROC_DECL &&
         (vitte_c17_ast_token_is(emitter, name, "fopen") ||
@@ -11950,9 +12669,7 @@ vitte_c17_ast_emit_function_signature(
     if (emitter->async_signature_mode != 0u) {
         vitte_c17_ast_write(emitter, "static ");
     }
-    if (vitte_c17_ast_node_has_cold_attribute(emitter, function)) {
-        vitte_c17_ast_write(emitter, "VITTE_C17_AST_COLD ");
-    }
+    vitte_c17_ast_emit_function_attributes(emitter, function);
     if (emitter->async_signature_mode == 1u) {
         vitte_c17_ast_write_async_task_type_name(emitter, function);
         vitte_c17_ast_write(emitter, " ");
@@ -13781,6 +14498,11 @@ vitte_c17_ast_emit_function(
     const vitte_ast_node_t *return_type;
     unsigned int previous_async_signature_mode;
 
+    if (function != NULL &&
+        (function->flags & VITTE_AST_FLAG_COMPTIME) != 0u) {
+        return true;
+    }
+
     body =
         vitte_c17_ast_find_child_kind(
             emitter,
@@ -13803,14 +14525,24 @@ vitte_c17_ast_emit_function(
         function,
         false);
     emitter->async_signature_mode = previous_async_signature_mode;
+    vitte_c17_ast_emit_contract_entry(emitter);
     vitte_c17_ast_emit_coalesce_temporaries(
         emitter,
         body,
         0u);
+    /* Vitte gives the body a scope inside the parameter scope. Preserve it
+     * in C as well, including legal local shadowing of a parameter. */
+    vitte_c17_ast_write(emitter, "    {\n");
     vitte_c17_ast_emit_block_contents(
         emitter,
         body,
-        1u);
+        2u);
+    vitte_c17_ast_write(emitter, "    }\n");
+    if (return_type == NULL ||
+        vitte_c17_ast_type_is_named(emitter, return_type, "void") ||
+        vitte_c17_ast_type_is_named(emitter, return_type, "unit")) {
+        vitte_c17_ast_emit_contracts(emitter, VITTE_AST_FLAG_CONTRACT_ENSURES, NULL, 1u);
+    }
     if (return_type != NULL &&
         !vitte_c17_ast_type_is_named(emitter, return_type, "void") &&
         !vitte_c17_ast_type_is_named(emitter, return_type, "unit")) {
@@ -14695,7 +15427,8 @@ vitte_c17_emit_ast_with_options(
     }
     if (vitte_c17_ast_contains_unlowered_declaration(
             &emitter,
-            root)) {
+            root,
+            false)) {
         return false;
     }
     if (vitte_c17_ast_contains_unsupported_attributes(
@@ -14761,9 +15494,17 @@ vitte_c17_emit_ast_with_options(
         "#if defined(__GNUC__) || defined(__clang__)\n"
         "#define VITTE_C17_AST_UNUSED __attribute__((__unused__))\n"
         "#define VITTE_C17_AST_COLD __attribute__((__cold__))\n"
+        "#define VITTE_C17_AST_HOT __attribute__((__hot__))\n"
+        "#define VITTE_C17_AST_NOINLINE __attribute__((__noinline__))\n"
+        "#define VITTE_C17_AST_DEPRECATED(message) __attribute__((__deprecated__(message)))\n"
+        "#define VITTE_C17_AST_WARN_UNUSED_RESULT __attribute__((__warn_unused_result__))\n"
         "#else\n"
         "#define VITTE_C17_AST_UNUSED\n"
         "#define VITTE_C17_AST_COLD\n"
+        "#define VITTE_C17_AST_HOT\n"
+        "#define VITTE_C17_AST_NOINLINE\n"
+        "#define VITTE_C17_AST_DEPRECATED(message)\n"
+        "#define VITTE_C17_AST_WARN_UNUSED_RESULT\n"
         "#endif\n"
         "\n"
         "typedef struct VitteArray {\n"

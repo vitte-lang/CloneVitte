@@ -1,57 +1,1152 @@
-/// Algorithmes d'égalité et d'ordre sur des tranches empruntées.
+/// Algorithmes d'égalité, d'ordre et de comparaison sur des tranches.
+/// Module: core::array::compare
+///
+/// Convention des comparateurs:
+///   resultat < 0 : gauche < droite
+///   resultat = 0 : gauche == droite
+///   resultat > 0 : gauche > droite
+///
+/// Les fonctions génériques utilisant ==, !=, < ou >
+/// exigent que T prenne en charge ces opérateurs.
+
 space core::array::compare;
 
+// ============================================================================
+// 1. ÉGALITÉ
+// ============================================================================
+
 export proc array_equal<T>(left: &[T], right: &[T]) -> bool {
-    if left.len() != right.len() { return false; }
+    if left.len() != right.len() {
+        return false;
+    }
+
     let mut index: usize = 0;
+
     while index < left.len() {
         let position: i64 = index as i64;
-        if left[position] != right[position] { return false; }
-        set index = index + 1;
-    }
-    return true;
-}
 
-export proc array_compare<T>(left: &[T], right: &[T], compare: proc(&T, &T) -> i8) -> i32 {
-    let mut limit: usize = left.len();
-    if right.len() < limit { set limit = right.len(); }
-    let mut index: usize = 0;
-    while index < limit {
-        let position: i64 = index as i64;
-        let ordering: i8 = compare(&left[position], &right[position]);
-        if ordering < 0 { return -1; }
-        if ordering > 0 { return 1; }
+        if left[position] != right[position] {
+            return false;
+        }
+
         set index = index + 1;
     }
-    if left.len() < right.len() { return -1; }
-    if left.len() > right.len() { return 1; }
-    return 0;
+
+    return true;
 }
 
 export proc array_not_equal<T>(left: &[T], right: &[T]) -> bool {
     return not array_equal(left, right);
 }
 
-export proc array_starts_with<T>(array: &[T], prefix: &[T]) -> bool {
-    if prefix.len() > array.len() { return false; }
+export proc array_equal_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+
     let mut index: usize = 0;
-    while index < prefix.len() {
+
+    while index < left.len() {
         let position: i64 = index as i64;
-        if array[position] != prefix[position] { return false; }
+
+        if not equal(&left[position], &right[position]) {
+            return false;
+        }
+
         set index = index + 1;
     }
+
     return true;
 }
 
-export proc array_ends_with<T>(array: &[T], suffix: &[T]) -> bool {
-    if suffix.len() > array.len() { return false; }
+export proc array_not_equal_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    return not array_equal_by(left, right, equal);
+}
+
+// ============================================================================
+// 2. COMPARAISON LEXICOGRAPHIQUE
+// ============================================================================
+
+export proc array_compare<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> i32 {
+    let mut limit: usize = left.len();
+
+    if right.len() < limit {
+        set limit = right.len();
+    }
+
+    let mut index: usize = 0;
+
+    while index < limit {
+        let position: i64 = index as i64;
+        let ordering: i8 = compare(&left[position], &right[position]);
+
+        if ordering < 0 {
+            return -1;
+        }
+
+        if ordering > 0 {
+            return 1;
+        }
+
+        set index = index + 1;
+    }
+
+    if left.len() < right.len() {
+        return -1;
+    }
+
+    if left.len() > right.len() {
+        return 1;
+    }
+
+    return 0;
+}
+
+export proc array_compare_natural<T>(
+    left: &[T],
+    right: &[T]
+) -> i32 {
+    let mut limit: usize = left.len();
+
+    if right.len() < limit {
+        set limit = right.len();
+    }
+
+    let mut index: usize = 0;
+
+    while index < limit {
+        let position: i64 = index as i64;
+
+        if left[position] < right[position] {
+            return -1;
+        }
+
+        if left[position] > right[position] {
+            return 1;
+        }
+
+        set index = index + 1;
+    }
+
+    if left.len() < right.len() {
+        return -1;
+    }
+
+    if left.len() > right.len() {
+        return 1;
+    }
+
+    return 0;
+}
+
+export proc array_less<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    return array_compare(left, right, compare) < 0;
+}
+
+export proc array_less_equal<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    return array_compare(left, right, compare) <= 0;
+}
+
+export proc array_greater<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    return array_compare(left, right, compare) > 0;
+}
+
+export proc array_greater_equal<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    return array_compare(left, right, compare) >= 0;
+}
+
+// ============================================================================
+// 3. PRÉFIXES
+// ============================================================================
+
+export proc array_starts_with<T>(
+    array: &[T],
+    prefix: &[T]
+) -> bool {
+    if prefix.len() > array.len() {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < prefix.len() {
+        let position: i64 = index as i64;
+
+        if array[position] != prefix[position] {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+export proc array_starts_with_by<T>(
+    array: &[T],
+    prefix: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    if prefix.len() > array.len() {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < prefix.len() {
+        let position: i64 = index as i64;
+
+        if not equal(&array[position], &prefix[position]) {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 4. SUFFIXES
+// ============================================================================
+
+export proc array_ends_with<T>(
+    array: &[T],
+    suffix: &[T]
+) -> bool {
+    if suffix.len() > array.len() {
+        return false;
+    }
+
     let offset: usize = array.len() - suffix.len();
     let mut index: usize = 0;
+
     while index < suffix.len() {
         let source_position: i64 = (offset + index) as i64;
         let suffix_position: i64 = index as i64;
-        if array[source_position] != suffix[suffix_position] { return false; }
+
+        if array[source_position] != suffix[suffix_position] {
+            return false;
+        }
+
         set index = index + 1;
     }
+
     return true;
 }
+
+export proc array_ends_with_by<T>(
+    array: &[T],
+    suffix: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    if suffix.len() > array.len() {
+        return false;
+    }
+
+    let offset: usize = array.len() - suffix.len();
+    let mut index: usize = 0;
+
+    while index < suffix.len() {
+        let source_position: i64 = (offset + index) as i64;
+        let suffix_position: i64 = index as i64;
+
+        if not equal(
+            &array[source_position],
+            &suffix[suffix_position]
+        ) {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 5. PRÉFIXE COMMUN
+// ============================================================================
+
+export proc array_common_prefix_length<T>(
+    left: &[T],
+    right: &[T]
+) -> usize {
+    let mut limit: usize = left.len();
+
+    if right.len() < limit {
+        set limit = right.len();
+    }
+
+    let mut index: usize = 0;
+
+    while index < limit {
+        let position: i64 = index as i64;
+
+        if left[position] != right[position] {
+            return index;
+        }
+
+        set index = index + 1;
+    }
+
+    return limit;
+}
+
+export proc array_common_prefix_length_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> usize {
+    let mut limit: usize = left.len();
+
+    if right.len() < limit {
+        set limit = right.len();
+    }
+
+    let mut index: usize = 0;
+
+    while index < limit {
+        let position: i64 = index as i64;
+
+        if not equal(&left[position], &right[position]) {
+            return index;
+        }
+
+        set index = index + 1;
+    }
+
+    return limit;
+}
+
+// ============================================================================
+// 6. SUFFIXE COMMUN
+// ============================================================================
+
+export proc array_common_suffix_length<T>(
+    left: &[T],
+    right: &[T]
+) -> usize {
+    let mut limit: usize = left.len();
+
+    if right.len() < limit {
+        set limit = right.len();
+    }
+
+    let mut count: usize = 0;
+
+    while count < limit {
+        let left_index: i64 = (left.len() - count - 1) as i64;
+        let right_index: i64 = (right.len() - count - 1) as i64;
+
+        if left[left_index] != right[right_index] {
+            return count;
+        }
+
+        set count = count + 1;
+    }
+
+    return count;
+}
+
+export proc array_common_suffix_length_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> usize {
+    let mut limit: usize = left.len();
+
+    if right.len() < limit {
+        set limit = right.len();
+    }
+
+    let mut count: usize = 0;
+
+    while count < limit {
+        let left_index: i64 = (left.len() - count - 1) as i64;
+        let right_index: i64 = (right.len() - count - 1) as i64;
+
+        if not equal(&left[left_index], &right[right_index]) {
+            return count;
+        }
+
+        set count = count + 1;
+    }
+
+    return count;
+}
+
+// ============================================================================
+// 7. RECHERCHE D'UN ÉLÉMENT
+// ============================================================================
+
+export proc array_contains<T>(
+    array: &[T],
+    value: &T
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < array.len() {
+        let position: i64 = index as i64;
+
+        if array[position] == *value {
+            return true;
+        }
+
+        set index = index + 1;
+    }
+
+    return false;
+}
+
+export proc array_contains_by<T>(
+    array: &[T],
+    value: &T,
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < array.len() {
+        let position: i64 = index as i64;
+
+        if equal(&array[position], value) {
+            return true;
+        }
+
+        set index = index + 1;
+    }
+
+    return false;
+}
+
+// ============================================================================
+// 8. RECHERCHE D'UNE SOUS-TRANCHE
+// ============================================================================
+
+export proc array_contains_slice<T>(
+    array: &[T],
+    needle: &[T]
+) -> bool {
+    if needle.len() == 0 {
+        return true;
+    }
+
+    if needle.len() > array.len() {
+        return false;
+    }
+
+    let last_start: usize = array.len() - needle.len();
+    let mut start: usize = 0;
+
+    while start <= last_start {
+        let mut index: usize = 0;
+        let mut matched: bool = true;
+
+        while index < needle.len() {
+            let source_position: i64 = (start + index) as i64;
+            let needle_position: i64 = index as i64;
+
+            if array[source_position] != needle[needle_position] {
+                set matched = false;
+                break;
+            }
+
+            set index = index + 1;
+        }
+
+        if matched {
+            return true;
+        }
+
+        set start = start + 1;
+    }
+
+    return false;
+}
+
+export proc array_contains_slice_by<T>(
+    array: &[T],
+    needle: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    if needle.len() == 0 {
+        return true;
+    }
+
+    if needle.len() > array.len() {
+        return false;
+    }
+
+    let last_start: usize = array.len() - needle.len();
+    let mut start: usize = 0;
+
+    while start <= last_start {
+        let mut index: usize = 0;
+        let mut matched: bool = true;
+
+        while index < needle.len() {
+            let source_position: i64 = (start + index) as i64;
+            let needle_position: i64 = index as i64;
+
+            if not equal(
+                &array[source_position],
+                &needle[needle_position]
+            ) {
+                set matched = false;
+                break;
+            }
+
+            set index = index + 1;
+        }
+
+        if matched {
+            return true;
+        }
+
+        set start = start + 1;
+    }
+
+    return false;
+}
+
+// ============================================================================
+// 9. COMPARAISON SUR UNE LONGUEUR LIMITÉE
+// ============================================================================
+
+export proc array_equal_n<T>(
+    left: &[T],
+    right: &[T],
+    count: usize
+) -> bool {
+    if count > left.len() {
+        return false;
+    }
+
+    if count > right.len() {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < count {
+        let position: i64 = index as i64;
+
+        if left[position] != right[position] {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+export proc array_compare_n<T>(
+    left: &[T],
+    right: &[T],
+    count: usize,
+    compare: proc(&T, &T) -> i8
+) -> i32 {
+    let mut limit: usize = count;
+
+    if left.len() < limit {
+        set limit = left.len();
+    }
+
+    if right.len() < limit {
+        set limit = right.len();
+    }
+
+    let mut index: usize = 0;
+
+    while index < limit {
+        let position: i64 = index as i64;
+        let ordering: i8 = compare(&left[position], &right[position]);
+
+        if ordering < 0 {
+            return -1;
+        }
+
+        if ordering > 0 {
+            return 1;
+        }
+
+        set index = index + 1;
+    }
+
+    if limit == count {
+        return 0;
+    }
+
+    if left.len() < right.len() {
+        return -1;
+    }
+
+    if left.len() > right.len() {
+        return 1;
+    }
+
+    return 0;
+}
+
+// ============================================================================
+// 10. COMPARAISON INVERSÉE
+// ============================================================================
+
+export proc array_equal_reverse<T>(
+    left: &[T],
+    right: &[T]
+) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < left.len() {
+        let left_position: i64 = index as i64;
+        let right_position: i64 = (right.len() - index - 1) as i64;
+
+        if left[left_position] != right[right_position] {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+export proc array_is_palindrome<T>(array: &[T]) -> bool {
+    let mut index: usize = 0;
+    let half: usize = array.len() / 2;
+
+    while index < half {
+        let left_position: i64 = index as i64;
+        let right_position: i64 = (array.len() - index - 1) as i64;
+
+        if array[left_position] != array[right_position] {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+export proc array_is_palindrome_by<T>(
+    array: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    let mut index: usize = 0;
+    let half: usize = array.len() / 2;
+
+    while index < half {
+        let left_position: i64 = index as i64;
+        let right_position: i64 = (array.len() - index - 1) as i64;
+
+        if not equal(
+            &array[left_position],
+            &array[right_position]
+        ) {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 11. COMPARAISON DE CONTENU
+// ============================================================================
+
+export proc array_all_equal<T>(array: &[T]) -> bool {
+    if array.len() <= 1 {
+        return true;
+    }
+
+    let mut index: usize = 1;
+
+    while index < array.len() {
+        let position: i64 = index as i64;
+        let previous: i64 = (index - 1) as i64;
+
+        if array[position] != array[previous] {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+export proc array_all_equal_by<T>(
+    array: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    if array.len() <= 1 {
+        return true;
+    }
+
+    let mut index: usize = 1;
+
+    while index < array.len() {
+        let position: i64 = index as i64;
+        let previous: i64 = (index - 1) as i64;
+
+        if not equal(&array[position], &array[previous]) {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+export proc array_all_distinct<T>(array: &[T]) -> bool {
+    let mut i: usize = 0;
+
+    while i < array.len() {
+        let mut j: usize = i + 1;
+
+        while j < array.len() {
+            let left_position: i64 = i as i64;
+            let right_position: i64 = j as i64;
+
+            if array[left_position] == array[right_position] {
+                return false;
+            }
+
+            set j = j + 1;
+        }
+
+        set i = i + 1;
+    }
+
+    return true;
+}
+
+export proc array_all_distinct_by<T>(
+    array: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    let mut i: usize = 0;
+
+    while i < array.len() {
+        let mut j: usize = i + 1;
+
+        while j < array.len() {
+            let left_position: i64 = i as i64;
+            let right_position: i64 = j as i64;
+
+            if equal(&array[left_position], &array[right_position]) {
+                return false;
+            }
+
+            set j = j + 1;
+        }
+
+        set i = i + 1;
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 12. VÉRIFICATION D'ORDRE
+// ============================================================================
+
+export proc array_is_sorted<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    if array.len() <= 1 {
+        return true;
+    }
+
+    let mut index: usize = 1;
+
+    while index < array.len() {
+        let previous: i64 = (index - 1) as i64;
+        let current: i64 = index as i64;
+
+        if compare(&array[previous], &array[current]) > 0 {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+export proc array_is_sorted_strict<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    if array.len() <= 1 {
+        return true;
+    }
+
+    let mut index: usize = 1;
+
+    while index < array.len() {
+        let previous: i64 = (index - 1) as i64;
+        let current: i64 = index as i64;
+
+        if compare(&array[previous], &array[current]) >= 0 {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+export proc array_is_sorted_descending<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    if array.len() <= 1 {
+        return true;
+    }
+
+    let mut index: usize = 1;
+
+    while index < array.len() {
+        let previous: i64 = (index - 1) as i64;
+        let current: i64 = index as i64;
+
+        if compare(&array[previous], &array[current]) < 0 {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+export proc array_is_sorted_descending_strict<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    if array.len() <= 1 {
+        return true;
+    }
+
+    let mut index: usize = 1;
+
+    while index < array.len() {
+        let previous: i64 = (index - 1) as i64;
+        let current: i64 = index as i64;
+
+        if compare(&array[previous], &array[current]) <= 0 {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 13. COMPARAISON PAR PRÉDICAT
+// ============================================================================
+
+export proc array_all_match<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < array.len() {
+        let position: i64 = index as i64;
+
+        if not predicate(&array[position]) {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+export proc array_any_match<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < array.len() {
+        let position: i64 = index as i64;
+
+        if predicate(&array[position]) {
+            return true;
+        }
+
+        set index = index + 1;
+    }
+
+    return false;
+}
+
+export proc array_none_match<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool {
+    return not array_any_match(array, predicate);
+}
+
+// ============================================================================
+// 14. COMPTAGE DES DIFFÉRENCES
+// ============================================================================
+
+export proc array_mismatch_count<T>(
+    left: &[T],
+    right: &[T]
+) -> usize {
+    let mut limit: usize = left.len();
+
+    if right.len() < limit {
+        set limit = right.len();
+    }
+
+    let mut count: usize = 0;
+    let mut index: usize = 0;
+
+    while index < limit {
+        let position: i64 = index as i64;
+
+        if left[position] != right[position] {
+            set count = count + 1;
+        }
+
+        set index = index + 1;
+    }
+
+    // Les éléments sans correspondant comptent comme différences.
+    if left.len() > right.len() {
+        set count = count + (left.len() - right.len());
+    } else {
+        set count = count + (right.len() - left.len());
+    }
+
+    return count;
+}
+
+export proc array_mismatch_count_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> usize {
+    let mut limit: usize = left.len();
+
+    if right.len() < limit {
+        set limit = right.len();
+    }
+
+    let mut count: usize = 0;
+    let mut index: usize = 0;
+
+    while index < limit {
+        let position: i64 = index as i64;
+
+        if not equal(&left[position], &right[position]) {
+            set count = count + 1;
+        }
+
+        set index = index + 1;
+    }
+
+    if left.len() > right.len() {
+        set count = count + (left.len() - right.len());
+    } else {
+        set count = count + (right.len() - left.len());
+    }
+
+    return count;
+}
+
+// ============================================================================
+// 15. COMPARAISON PAR BLOCS
+// ============================================================================
+
+export proc array_equal_range<T>(
+    left: &[T],
+    left_start: usize,
+    right: &[T],
+    right_start: usize,
+    count: usize
+) -> bool {
+    if left_start > left.len() {
+        return false;
+    }
+
+    if right_start > right.len() {
+        return false;
+    }
+
+    // Soustractions utilisées pour éviter l'overflow de start + count.
+    if count > left.len() - left_start {
+        return false;
+    }
+
+    if count > right.len() - right_start {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < count {
+        let left_position: i64 = (left_start + index) as i64;
+        let right_position: i64 = (right_start + index) as i64;
+
+        if left[left_position] != right[right_position] {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+export proc array_equal_range_by<T>(
+    left: &[T],
+    left_start: usize,
+    right: &[T],
+    right_start: usize,
+    count: usize,
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    if left_start > left.len() {
+        return false;
+    }
+
+    if right_start > right.len() {
+        return false;
+    }
+
+    if count > left.len() - left_start {
+        return false;
+    }
+
+    if count > right.len() - right_start {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < count {
+        let left_position: i64 = (left_start + index) as i64;
+        let right_position: i64 = (right_start + index) as i64;
+
+        if not equal(
+            &left[left_position],
+            &right[right_position]
+        ) {
+            return false;
+        }
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 16. BOUCLES FOR
+// ============================================================================
+
+/// Variante avec boucle for pour les comparaisons d'égalité.
+export proc array_equal_for<T>(
+    left: &[T],
+    right: &[T]
+) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+
+    for index in 0..left.len() {
+        let position: i64 = index as i64;
+
+        if left[position] != right[position] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/// Vérifie que chaque élément satisfait un prédicat.
+export proc array_all_match_for<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool {
+    for index in 0..array.len() {
+        let position: i64 = index as i64;
+
+        if not predicate(&array[position]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/// Vérifie qu'au moins un élément satisfait un prédicat.
+export proc array_any_match_for<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool {
+    for index in 0..array.len() {
+        let position: i64 = index as i64;
+
+        if predicate(&array[position]) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// ============================================================================
+// END OF MODULE
+// ============================================================================

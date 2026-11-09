@@ -219,6 +219,8 @@ typedef struct vitte_main_driver_context {
     size_t origin_count;
     vitte_lexer_t lexer;
     vitte_parser_t parser;
+    vitte_token_t *expanded_tokens;
+    size_t expanded_token_count;
     vitte_sema_t sema;
     vitte_hir_t hir;
     vitte_ir_context_t ir;
@@ -255,7 +257,8 @@ void vitte_main_report_process_error_span(
     const vitte_import_span_t *span,
     const char *diagnostic_context,
     const char *module_name,
-    const char *symbol_name);
+    const char *symbol_name,
+    const char *procedure_name);
 void vitte_main_warning(const vitte_main_options_t *options,
                         const char *message);
 void vitte_main_verbose(const vitte_main_options_t *options,

@@ -211,6 +211,23 @@ install_geany_integration() {
   printf '%s\n' \
     '[build-linux-debs] installed Geany integration'
 }
+install_shell_completions() {
+  data_root=$1
+  completion_root=$data_root/usr/local/share/vitte/completions
+  bash_destination=$data_root/usr/share/bash-completion/completions/vitte
+  fish_destination=$data_root/usr/share/fish/vendor_completions.d/vitte.fish
+  zsh_destination=$data_root/usr/share/zsh/vendor-completions/_vitte
+
+  mkdir -p \
+    "$(dirname "$bash_destination")" \
+    "$(dirname "$fish_destination")" \
+    "$(dirname "$zsh_destination")"
+  install -m 0644 "$completion_root/bash/vitte" "$bash_destination"
+  install -m 0644 "$completion_root/fish/vitte.fish" "$fish_destination"
+  install -m 0644 "$completion_root/zsh/_vitte" "$zsh_destination"
+  printf '%s\n' \
+    '[build-linux-debs] installed Bash, Fish and Zsh completions'
+}
 install_editor_integrations() {
   data_root=$1
   add_archived_integrations "$data_root"
@@ -218,6 +235,7 @@ install_editor_integrations() {
   install_emacs_integration "$data_root"
   install_nano_integration "$data_root"
   install_geany_integration "$data_root"
+  install_shell_completions "$data_root"
 }
 add_assets() {
   data_root=$1
@@ -273,6 +291,15 @@ verify_payload() {
   scripts_build_require_file \
     "$data_root/usr/share/geany/filedefs/filetypes.Vitte.conf" \
     "Geany Vitte filetype"
+  scripts_build_require_file \
+    "$data_root/usr/share/bash-completion/completions/vitte" \
+    "Bash Vitte completion"
+  scripts_build_require_file \
+    "$data_root/usr/share/fish/vendor_completions.d/vitte.fish" \
+    "Fish Vitte completion"
+  scripts_build_require_file \
+    "$data_root/usr/share/zsh/vendor-completions/_vitte" \
+    "Zsh Vitte completion"
   scripts_build_require_file \
     "$data_root/usr/local/share/vitte/assets/logo.png" \
     "Vitte logo"

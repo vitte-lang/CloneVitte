@@ -65,7 +65,8 @@ vitte_main_report_process_error_span(
     const vitte_import_span_t *span,
     const char *diagnostic_context,
     const char *module_name,
-    const char *symbol_name)
+    const char *symbol_name,
+    const char *procedure_name)
 {
     vitte_cli_diagnostic_t diagnostic;
     vitte_cli_diagnostic_render_options_t options;
@@ -111,7 +112,9 @@ vitte_main_report_process_error_span(
     diagnostic.end_column = end_column;
     diagnostic.module = module_name;
     diagnostic.symbol = symbol_name;
-    diagnostic.procedure = "import graph";
+    diagnostic.procedure = procedure_name != NULL
+        ? procedure_name
+        : "";
     diagnostic.context = diagnostic_context != NULL
         ? diagnostic_context
         : "use declaration";
