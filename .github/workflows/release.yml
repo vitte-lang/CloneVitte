@@ -228,6 +228,10 @@ jobs:
             requested="${GITHUB_REF_NAME#v}"
           fi
           [[ "$version" == "$requested" ]]
+          python3 scripts/build-release-integrations.py \
+            --out pkgout \
+            --version "$version" \
+            --source-date-epoch "$(git log -1 --format=%ct)"
           python3 tools/release_installer_metadata.py \
             --out pkgout \
             --version "$version" \
