@@ -45,6 +45,7 @@ def main() -> None:
     (args.out / f"{name}.sha256").write_text(f"{digest}  {name}\n", encoding="utf-8")
     manifest = {
         "name": name, "version": args.version, "os": "any", "arch": "any",
+        "abi": "source", "libc": "none", "minimum_version": "any",
         "sha256": digest, "installed_commands": [],
         "contents": ["editors", "system-completions"],
     }
