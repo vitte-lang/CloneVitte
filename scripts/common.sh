@@ -77,7 +77,7 @@ scripts_build_package_version() {
     fi
   fi
 
-  printf '%s\n' '0.1.0'
+  printf '%s\n' '0.1.1'
 }
 
 scripts_build_absolute_path() {

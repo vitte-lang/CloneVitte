@@ -23,8 +23,8 @@ extern "C" {
 
 #define CLONEVITTE_VERSION_MAJOR 0
 #define CLONEVITTE_VERSION_MINOR 1
-#define CLONEVITTE_VERSION_PATCH 0
-#define CLONEVITTE_VERSION_STRING "0.1.0"
+#define CLONEVITTE_VERSION_PATCH 1
+#define CLONEVITTE_VERSION_STRING "0.1.1"
 
 #define CLONEVITTE_VERSION_ENCODE(major, minor, patch) \
     (((uint32_t)(major) << 24u) |                     \

@@ -14,29 +14,34 @@ keywords: installation compiler compilateur bootstrap seed selfhost stage0 stage
 
 <h2 id="paquets">Installation habituelle par paquet</h2>
 <p>Pour une installation normale, choisissez le paquet natif correspondant à votre système et à votre processeur dans les <a href="https://github.com/vitte-lang/vitte/releases/latest">dernières versions de Vitte</a>. Téléchargez le fichier <code>.sha256</code> associé avec le paquet, puis vérifiez son empreinte avant l’installation.</p>
-<p>Le tableau sépare les artefacts effectivement joints à la dernière release publique des formats que les scripts savent construire. Vérification effectuée le 27 octobre 2026 : la dernière release est <a href="https://github.com/vitte-lang/vitte/releases/tag/VersionOctobre2026"><code>VersionOctobre2026</code></a>, paquet Vitte <code>0.1.0</code>.</p>
+<p>État vérifié le 9 novembre 2026 : la dernière release publique est <a href="https://github.com/vitte-lang/vitte/releases/tag/v0.1.1"><code>v0.1.1</code></a>. Le tableau indique les artefacts réellement publiés ; les cibles supplémentaires des scripts ne sont pas toutes des téléchargements disponibles.</p>
 <table><thead><tr><th>Système</th><th>Format normal</th><th>État de distribution vérifié</th></tr></thead><tbody>
-<tr><td>macOS</td><td><code>.pkg</code> : Apple Silicon (<code>arm64</code>), Intel (<code>x86_64</code>) ou universel</td><td>Disponible dans la release : <code>vitte-0.1.0-macos-arm64.pkg</code>, <code>vitte-0.1.0-macos-x86_64.pkg</code> et <code>vitte-0.1.0-macos-universal.pkg</code>.</td></tr>
-<tr><td>Linux Debian/Ubuntu</td><td><code>.deb</code> : <code>amd64</code> ou <code>arm64</code></td><td>Disponible dans la release : <code>vitte_0.1.0_amd64.deb</code> et <code>vitte_0.1.0_arm64.deb</code>.</td></tr>
+<tr><td>macOS</td><td><code>.pkg</code> ou image <code>.dmg</code> pour Apple Silicon (<code>arm64</code>)</td><td>Disponible : <code>vitte-0.1.1-macos-arm64.pkg</code> et <code>vitte-0.1.1-macos-arm64.dmg</code>.</td></tr>
+<tr><td>Linux Debian/Ubuntu</td><td><code>.deb</code> ou archive portable <code>.tar.gz</code> (<code>amd64</code>)</td><td>Disponible : <code>vitte_0.1.1_amd64.deb</code> et <code>vitte-0.1.1-portable-linux-amd64.tar.gz</code>.</td></tr>
 <tr><td>FreeBSD</td><td>Paquet natif <code>.pkg</code></td><td>Le générateur du dépôt prévoit ce format, mais aucun paquet FreeBSD n’est joint à la dernière release. Ne lancez l’installation que lorsqu’un fichier correspondant apparaît dans les versions publiées.</td></tr>
-<tr><td>Windows</td><td>Installateur exécutable <code>.exe</code></td><td>Le générateur et la CI couvrent l’installateur Windows, mais aucun <code>.exe</code> n’est joint à la dernière release. Le format seul ne signifie pas que le fichier est publié.</td></tr>
-<tr><td>Solaris</td><td>Paquet système SVR4 <code>.pkg</code></td><td><strong>Expérimental.</strong> Le script sait préparer ce format, mais la dernière release ne fournit pas de paquet Solaris validé sur sa cible.</td></tr>
+<tr><td>Windows 11</td><td>Installateur exécutable <code>.exe</code> (<code>amd64</code>)</td><td>Disponible : <code>vitte-0.1.1-windows-amd64-installer.exe</code>. L’archive <code>vitte-0.1.1-windows-amd64-nsis.tar.gz</code> est un kit de génération, pas l’installateur utilisateur.</td></tr>
+<tr><td>Solaris</td><td>Paquet système SVR4 <code>.pkg</code></td><td><strong>Expérimental.</strong> La CI vérifie la portabilité sur une VM Solaris, mais aucun installateur Solaris n’est publié.</td></tr>
 </tbody></table>
-<p>Les fichiers réellement disponibles et leurs sommes de contrôle sont la référence : la matrice de scripts décrit des cibles de fabrication, pas une promesse qu’un artefact est publié ou validé sur chaque système. Si le format voulu n’apparaît pas sur la page des releases, utilisez une archive portable publiée pour cette cible ou construisez depuis les sources.</p>
+<p>Chaque artefact publié possède un fichier de somme SHA-256 et un manifeste. La matrice des scripts décrit davantage de cibles que les paquets validés et publiés pour cette release ; si votre système ou architecture n’apparaît pas dans la liste, construisez Vitte depuis les sources.</p>
+
+<h3 id="integrations">Éditeurs et complétions</h3>
+<p>Les paquets installent les ressources d’éditeur et de shell sous <code>/usr/local/share/vitte/editors</code> et <code>/usr/local/share/vitte/completions</code>. Sur les systèmes Unix, le script inclus installe ou retire les prises en charge Vim, Emacs, Nano, Geany, Bash, Fish et Zsh :</p>
+<pre><code>sudo /usr/local/share/vitte/tools/install-unix-integrations.sh install
+sudo /usr/local/share/vitte/tools/install-unix-integrations.sh uninstall</code></pre>
 
 <h3 id="installer-macos">Installer le paquet macOS</h3>
-<p>Choisissez le paquet <code>arm64</code> pour Apple Silicon, <code>x86_64</code> pour un Mac Intel, ou <code>universal</code> pour un paquet compatible avec les deux. Après avoir téléchargé le paquet et son fichier de somme, ouvrez Terminal dans le dossier des téléchargements :</p>
-<pre><code>shasum -a 256 --check vitte-0.1.0-macos-arm64.pkg.sha256
-sudo installer -pkg vitte-0.1.0-macos-arm64.pkg -target /
+<p>La release 0.1.1 fournit le paquet <code>arm64</code> pour Apple Silicon. Après avoir téléchargé le paquet et son fichier de somme, ouvrez Terminal dans le dossier des téléchargements :</p>
+<pre><code>shasum -a 256 --check vitte-0.1.1-macos-arm64.pkg.sha256
+sudo installer -pkg vitte-0.1.1-macos-arm64.pkg -target /
 vitte --version</code></pre>
-<p>Remplacez le nom du fichier par celui de l’architecture choisie. Le vérificateur doit afficher <code>OK</code>. Vous pouvez aussi ouvrir le <code>.pkg</code> dans le Finder et suivre l’assistant d’installation. L’installation système demande les droits d’administration.</p>
+<p>Le vérificateur doit afficher <code>OK</code>. Vous pouvez aussi ouvrir le <code>.pkg</code> dans le Finder et suivre l’assistant d’installation. L’installation système demande les droits d’administration.</p>
 
 <h3 id="installer-debian">Installer le paquet Debian ou Ubuntu</h3>
-<p>Choisissez <code>amd64</code> sur les PC x86 64 bits ou <code>arm64</code> sur les systèmes ARM 64 bits. Depuis le dossier contenant le téléchargement et sa somme :</p>
-<pre><code>sha256sum --check vitte_0.1.0_amd64.deb.sha256
-sudo apt install ./vitte_0.1.0_amd64.deb
+<p>La release 0.1.1 fournit le paquet <code>amd64</code>. Depuis le dossier contenant le téléchargement et sa somme :</p>
+<pre><code>sha256sum --check vitte_0.1.1_amd64.deb.sha256
+sudo apt install ./vitte_0.1.1_amd64.deb
 vitte --version</code></pre>
-<p>Le contrôle doit afficher <code>OK</code>. Gardez le préfixe <code>./</code> devant le nom du paquet : il indique à <code>apt</code> que vous installez le fichier local téléchargé. Remplacez <code>amd64</code> par <code>arm64</code> pour l’autre architecture publiée.</p>
+<p>Le contrôle doit afficher <code>OK</code>. Gardez le préfixe <code>./</code> devant le nom du paquet : il indique à <code>apt</code> que vous installez le fichier local téléchargé.</p>
 
 <h3 id="installer-freebsd">Installer un paquet FreeBSD</h3>
 <p>Le script de packaging produit, lorsqu’un paquet natif a été construit, un nom de la forme <code>vitte-&lt;version&gt;-freebsd-&lt;architecture&gt;.pkg</code>. La dernière release publique vérifiée ne contient pas encore cet artefact. Lorsqu’il sera effectivement publié, téléchargez aussi son fichier de somme, vérifiez-le, puis installez le fichier local avec <code>pkg add</code> :</p>
@@ -46,19 +51,19 @@ vitte --version</code></pre>
 <p>Comparez la somme affichée par <code>sha256</code> à celle publiée dans le fichier <code>.sha256</code>. N’utilisez cette commande qu’avec le nom d’un paquet présent dans les <a href="https://github.com/vitte-lang/vitte/releases/latest">artefacts publiés</a>. Le tableau des cibles du dépôt n’est pas un dépôt binaire FreeBSD.</p>
 
 <h3 id="installer-windows">Installer sous Windows</h3>
-<p>Le format prévu est un installateur Windows <code>.exe</code>. La dernière release vérifiée n’en contient pas. Lorsque la page des versions publiera l’installateur, choisissez le fichier correspondant à l’architecture de Windows, lancez-le, suivez l’assistant, puis ouvrez un nouveau terminal et vérifiez la commande :</p>
+<p>La release 0.1.1 fournit l’installateur Windows 11 <code>amd64</code> <code>vitte-0.1.1-windows-amd64-installer.exe</code>. Lancez-le, suivez l’assistant, puis ouvrez un nouveau terminal et vérifiez la commande :</p>
 <pre><code>vitte --version</code></pre>
 <p>Ne téléchargez pas un kit NSIS de génération en pensant qu’il s’agit du programme d’installation : le kit contient les fichiers pour fabriquer l’installateur et n’est pas l’installateur exécutable destiné à l’utilisateur.</p>
 
 <h3 id="solaris-experimental">Solaris : expérimental</h3>
-<p>Le dépôt contient un générateur de paquets Solaris SVR4, mais ni paquet Solaris n’est publié dans la dernière release, ni validation sur une machine Solaris n’est établie par la CI actuelle. Considérez donc Solaris comme <strong>expérimental</strong> : le format prévu par un script n’est pas une preuve d’installation ni de compilation utilisable. Il faut attendre un artefact explicitement publié et tester ce paquet sur la version de Solaris visée.</p>
+<p>Le dépôt contient un générateur de paquets Solaris SVR4 et la CI vérifie la portabilité sur une VM Solaris. Aucun installateur Solaris n’est publié dans la release 0.1.1 ; considérez donc ce format comme <strong>expérimental</strong> jusqu’à ce qu’un paquet soit construit, publié et vérifié sur la version de Solaris visée.</p>
 
 <h2 id="portable">Installation manuelle depuis une archive binaire</h2>
 <p>Une archive portable est une distribution précompilée que vous décompressez vous-même, sans assistant système. Elle n’est pas équivalente à un fichier compilateur isolé : elle comprend des lanceurs dans <code>bin/</code>, les exécutables natifs dans <code>libexec/vitte/</code> et les ressources requises sous <code>share/vitte/</code>. Gardez toute cette arborescence ensemble.</p>
-<p>La dernière release vérifiée ne contient pas d’archive portable. Si une release en publie une pour votre système et votre architecture, son nom suit le modèle <code>vitte-&lt;version&gt;-portable-&lt;plateforme&gt;-&lt;architecture&gt;.tar.gz</code>. Téléchargez l’archive et le fichier <code>.sha256</code> correspondant, puis placez-vous dans le dossier de téléchargement :</p>
-<pre><code>sha256sum --check vitte-&lt;version&gt;-portable-&lt;plateforme&gt;-&lt;architecture&gt;.tar.gz.sha256
-tar -xzf vitte-&lt;version&gt;-portable-&lt;plateforme&gt;-&lt;architecture&gt;.tar.gz
-cd vitte-&lt;version&gt;-portable-&lt;plateforme&gt;-&lt;architecture&gt;
+<p>La release 0.1.1 fournit l’archive portable Linux amd64 <code>vitte-0.1.1-portable-linux-amd64.tar.gz</code>. Téléchargez-la ainsi que son fichier <code>.sha256</code>, puis placez-vous dans le dossier de téléchargement :</p>
+<pre><code>sha256sum --check vitte-0.1.1-portable-linux-amd64.tar.gz.sha256
+tar -xzf vitte-0.1.1-portable-linux-amd64.tar.gz
+cd vitte-0.1.1-portable-linux-amd64
 ./bin/vitte --version
 ./bin/vitte-installer-doctor</code></pre>
 <p>Sur macOS, remplacez <code>sha256sum</code> par <code>shasum -a 256 --check</code>. Le résultat du contrôle doit être <code>OK</code>. Le diagnostic d’installation intégré vérifie ensuite l’arborescence et les ressources de la distribution.</p>

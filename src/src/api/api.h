@@ -457,7 +457,7 @@ vitte_api_validate(
  *
  * Example:
  *
- *     "0.1.0"
+ *     "0.1.1"
  */
 VITTE_API
 VITTE_API_NODISCARD
