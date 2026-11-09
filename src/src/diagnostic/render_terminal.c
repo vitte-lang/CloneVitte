@@ -3600,7 +3600,7 @@ vitte_diagnostic_render_cli_batch(
         vitte_diagnostic_sarif_options_t sarif_options;
 
         vitte_diagnostic_sarif_options_init(&sarif_options);
-        sarif_options.tool_version = "0.1.0";
+        sarif_options.tool_version = "0.1.1";
         status = vitte_diagnostic_render_sarif(
             stream,
             &bag,

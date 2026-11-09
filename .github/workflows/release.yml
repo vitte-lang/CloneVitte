@@ -53,6 +53,11 @@ jobs:
             echo "VERSION is $version but release requested $requested" >&2
             exit 1
           }
+          actual_version="$("$PWD/build/bin/vitte" --version | sed -n '1p')"
+          [[ "$actual_version" == "vitte $version" ]] || {
+            echo "Built compiler reports '$actual_version', expected 'vitte $version'" >&2
+            exit 1
+          }
           out="$RUNNER_TEMP/vitte-packages"
           mkdir -p "$out"
           VERSION="$version" ARCH=amd64 OUT_DIR="$out" \
@@ -97,6 +102,11 @@ jobs:
           fi
           [[ "$version" == "$requested" ]] || {
             echo "VERSION is $version but release requested $requested" >&2
+            exit 1
+          }
+          actual_version="$("$PWD/target/macos-arm64/vitte" --version | sed -n '1p')"
+          [[ "$actual_version" == "vitte $version" ]] || {
+            echo "Built compiler reports '$actual_version', expected 'vitte $version'" >&2
             exit 1
           }
           out="$RUNNER_TEMP/vitte-packages"
@@ -159,6 +169,11 @@ jobs:
           fi
           [[ "$version" == "$requested" ]] || {
             echo "VERSION is $version but release requested $requested" >&2
+            exit 1
+          }
+          actual_version="$("$PWD/build/bin/vitte.exe" --version | sed -n '1p')"
+          [[ "$actual_version" == "vitte $version" ]] || {
+            echo "Built compiler reports '$actual_version', expected 'vitte $version'" >&2
             exit 1
           }
           out="$(cygpath -u "$RUNNER_TEMP")/vitte-packages"

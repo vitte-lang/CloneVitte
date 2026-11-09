@@ -69,7 +69,7 @@ extern "C" {
 #endif
 
 #ifndef VITTE_VERSION_PATCH
-#define VITTE_VERSION_PATCH 0
+#define VITTE_VERSION_PATCH 1
 #endif
 
 #ifndef VITTE_VERSION_PRERELEASE
@@ -418,7 +418,7 @@ typedef struct vitte_version_info {
  *
  * Examples:
  *
- *     0.1.0
+ *     0.1.1
  *     0.2.0-alpha.1
  *     1.0.0-beta.2+git.abcdef
  *
@@ -666,7 +666,7 @@ vitte_version_info(void);
  *
  * Example:
  *
- *     vitte 0.1.0 (darwin/aarch64, release, clang 18...)
+ *     vitte 0.1.1 (darwin/aarch64, release, clang 18...)
  *
  * Returned storage is static.
  */

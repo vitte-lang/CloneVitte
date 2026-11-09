@@ -1,5 +1,5 @@
 name = "runtime"
-version = "0.1.0"
+version = "0.1.1"
 entry = "runtime.vit"
 module_root = "."
 module_path_syntax = "::"

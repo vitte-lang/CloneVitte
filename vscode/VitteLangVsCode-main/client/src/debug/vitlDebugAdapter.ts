@@ -53,7 +53,7 @@ class VitlInlineAdapter implements vscode.DebugAdapter {
   private breakpoints: { [path: string]: any[] } = {};
   private vars: Record<number, any[]> = {
     1: [{ name: "counter", value: "0", type: "int", variablesReference: 0 }],
-    2: [{ name: "VERSION", value: "0.1.0", type: "string", variablesReference: 0 }]
+    2: [{ name: "VERSION", value: "0.1.1", type: "string", variablesReference: 0 }]
   };
 
   handleMessage(msg: any): void {
