@@ -600,6 +600,34 @@ proc sema_integer_literal_fits(context: *const Sema, destination: SemaTypeId, pa
     return false;
 }
 
+proc sema_contextualize_u64_integer_literal(context: *mut Sema, node: *const ASTNode) -> bool {
+    if context == null or node == null { return false; }
+    if (*node).kind == ASTNodeKind.GroupExpr and (*node).child_count == 1 {
+        if not sema_contextualize_u64_integer_literal(
+            context,
+            sema_child((*context).parser, node, 0)
+        ) { return false; }
+    } elif (*node).kind != ASTNodeKind.IntegerLiteral {
+        return false;
+    } else {
+        let mut value: u64 = 0;
+        if not sema_integer_literal_value((*context).parser, node, &mut value) { return false; }
+        let info = sema_node_info_mut(context, (*node).id);
+        if info == null { return false; }
+        set (*info).constant.kind = SemaConstantKind.UnsignedInteger;
+        set (*info).constant.value.as_[0] = value as usize;
+        set (*info).type_id = (*context).type_u64;
+        set (*info).node_flags = (*info).node_flags | SEMA_NODE_FLAG_IMPLICIT_CONVERSION;
+    }
+    let info = sema_node_info_mut(context, (*node).id);
+    if info != null {
+        set (*info).type_id = (*context).type_u64;
+        set (*info).node_flags = (*info).node_flags | SEMA_NODE_FLAG_IMPLICIT_CONVERSION;
+        return true;
+    }
+    return false;
+}
+
 proc sema_value_type(context: *const Sema, type_id: SemaTypeId) -> SemaTypeId {
     if context == null or type_id == 0 or type_id > (*context).type_count as SemaTypeId { return type_id; }
     let type_record = &(*context).types[(type_id - 1) as usize];
@@ -4544,8 +4572,17 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                 set left = sema_value_type(context as *const Sema, left);
                 set right = sema_value_type(context as *const Sema, right);
             }
-            if left != right and sema_integer_literal_fits(context as *const Sema, left, (*context).parser, right_node) { set right = left; }
-            else if left != right and sema_integer_literal_fits(context as *const Sema, right, (*context).parser, left_node) { set left = right; }
+            if left != right and left == (*context).type_u64 and
+               sema_contextualize_u64_integer_literal(context, right_node) {
+                set right = left;
+            } elif left != right and right == (*context).type_u64 and
+                  sema_contextualize_u64_integer_literal(context, left_node) {
+                set left = right;
+            } elif left != right and sema_integer_literal_fits(context as *const Sema, left, (*context).parser, right_node) {
+                set right = left;
+            } elif left != right and sema_integer_literal_fits(context as *const Sema, right, (*context).parser, left_node) {
+                set left = right;
+            }
             if is_equality and sema_pick_type_has_payload(context, left) {
                 let _ = sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.InvalidBinaryOperands, node, left, right);
             } else if left == (*context).type_error or right == (*context).type_error {
@@ -4655,7 +4692,15 @@ proc sema_analyze_expression(context: *mut Sema, node: *const ASTNode, scope_id:
                 let _ = sema_add_diagnostic(context, SemaDiagnosticKind.Error, SemaDiagnosticCode.InvalidBinaryOperands, node, left, right);
             }
         },
-        case ASTNodeKind.CastExpr => if (*node).child_count > 1 { set result = sema_type_from_node(context, (*node).children[1], scope_id); let _ = sema_analyze_expression(context, sema_child((*context).parser, node, 0), scope_id); },
+        case ASTNodeKind.CastExpr => if (*node).child_count > 1 {
+            let source_node = sema_child((*context).parser, node, 0);
+            let mut source_type = sema_analyze_expression(context, source_node, scope_id);
+            set result = sema_type_from_node(context, (*node).children[1], scope_id);
+            if result == (*context).type_u64 and source_type != result and
+               sema_contextualize_u64_integer_literal(context, source_node) {
+                set source_type = result;
+            }
+        },
         case ASTNodeKind.CallExpr => {
             let callee_node = sema_child((*context).parser, node, 0);
             let callee_token = sema_token_name_node((*context).parser, callee_node);

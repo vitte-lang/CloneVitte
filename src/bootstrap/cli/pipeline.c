@@ -22,6 +22,7 @@
 #include "filesystem/filesystem.h"
 #include "hir/lower.h"
 #include "ir/lower.h"
+#include "macro_expansion.h"
 #include "platform/platform.h"
 #include "printer/printer.h"
 #include "unicode/unicode.h"
@@ -48,10 +49,12 @@ static bool vitte_main_origin_span(
 static void vitte_main_diagnostic_map_span(
     const vitte_main_driver_context_t *context,
     vitte_cli_diagnostic_span_t *span);
+#ifdef VITTE_NATIVE_FRONTEND_LINKED
 static void vitte_main_diagnostic_map_native_batch(
     const vitte_main_driver_context_t *context,
     vitte_cli_diagnostic_t *diagnostics,
     size_t diagnostic_count);
+#endif
 static bool vitte_main_render_diagnostic(
     const vitte_main_driver_context_t *context,
     vitte_cli_diagnostic_severity_t severity,
@@ -304,6 +307,7 @@ vitte_main_driver_load_source(
     return true;
 }
 
+#ifdef VITTE_NATIVE_FRONTEND_LINKED
 static bool
 vitte_main_source_has_import_keyword(
     const unsigned char *source,
@@ -340,7 +344,9 @@ vitte_main_source_has_import_keyword(
 
     return false;
 }
+#endif
 
+#ifdef VITTE_NATIVE_FRONTEND_LINKED
 static bool
 vitte_main_source_identifier_byte(unsigned char byte)
 {
@@ -697,8 +703,11 @@ vitte_main_source_requires_compatibility_frontend(
            vitte_main_source_has_named_call(source, length, "starts_with") ||
            vitte_main_source_has_named_call(source, length, "ends_with") ||
            vitte_main_source_has_borrowed_call(source, length) ||
-           vitte_main_source_has_if_block_local(source, length);
+           vitte_main_source_has_if_block_local(source, length) ||
+           vitte_main_source_has_word(source, length, "comptime") ||
+           vitte_main_source_has_word(source, length, "unsafe");
 }
+#endif
 
 bool
 vitte_main_driver_lex(
@@ -1472,10 +1481,13 @@ vitte_main_render_lexer_diagnostic(
             code = "VITTE_LEXER_E_INVALID_CHARACTER";
             break;
 
+        case VITTE_LEXER_ERROR_OVERFLOW:
+            code = "VITTE_LEXER_E_NUMBER_OVERFLOW";
+            break;
+
         case VITTE_LEXER_ERROR_COMMENT_DEPTH:
         case VITTE_LEXER_ERROR_TOKEN_LIMIT:
         case VITTE_LEXER_ERROR_SOURCE_TOO_LARGE:
-        case VITTE_LEXER_ERROR_OVERFLOW:
             code = "VITTE_INFRA_E_LIMIT";
             break;
 
@@ -2486,10 +2498,39 @@ vitte_main_driver_parse(
 
     vitte_main_verbose(context->options, "parsing");
 
+    {
+        vitte_macro_expansion_result_t expansion;
+        if (!vitte_macro_expand_tokens(context->lexer.tokens,
+                context->lexer.token_count, &expansion)) {
+            const char *code = expansion.error == VITTE_MACRO_EXPANSION_ERROR_RECURSION
+                ? "E1802" : "E1801";
+            const char *message = expansion.error == VITTE_MACRO_EXPANSION_ERROR_RECURSION
+                ? "macro expansion recursion limit reached" : "macro expansion failed";
+            const char *details = expansion.error == VITTE_MACRO_EXPANSION_ERROR_RECURSION
+                ? "A macro expands itself or exceeds the supported expansion depth."
+                : expansion.error == VITTE_MACRO_EXPANSION_ERROR_INVALID_INVOCATION
+                    ? "Check that the macro exists and that its invocation supplies the declared number of arguments."
+                    : "Macro expansion exceeded an implementation resource limit.";
+            vitte_parser_span_t span;
+            span.file_id = expansion.error_span.file_id;
+            span.begin = expansion.error_span.begin;
+            span.end = expansion.error_span.end;
+            span.line = 0u;
+            span.column = 0u;
+            span.valid = expansion.error_span.valid;
+            (void)vitte_main_render_diagnostic(context, VITTE_CLI_DIAGNOSTIC_ERROR,
+                code, message, details, &span, NULL, "macro expansion");
+            vitte_macro_expansion_result_destroy(&expansion);
+            return false;
+        }
+        context->expanded_tokens = expansion.tokens;
+        context->expanded_token_count = expansion.token_count;
+    }
+
     if (!vitte_parser_init(
             &context->parser,
-            context->lexer.tokens,
-            context->lexer.token_count)) {
+            context->expanded_tokens,
+            context->expanded_token_count)) {
         vitte_main_error("failed to initialize parser");
         return false;
     }
@@ -2602,6 +2643,48 @@ vitte_main_sema_diagnostic_code(
         case VITTE_SEMA_DIAGNOSTIC_UNKNOWN_MEMBER:
             return "VITTE_TYPE_E_NO_MEMBER";
 
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_REQUIRES:
+            return "VITTE_CONTRACT_E_REQUIRES";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_ENSURES:
+            return "VITTE_CONTRACT_E_ENSURES";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_RESULT:
+            return "VITTE_CONTRACT_E_RESULT";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_CONTRADICTION:
+            return "VITTE_CONTRACT_E_CONTRADICTION";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_POSTCONDITION:
+            return "VITTE_CONTRACT_E_POSTCONDITION";
+        case VITTE_SEMA_DIAGNOSTIC_MISSING_RETURN:
+            return "VITTE_CONTROL_E_MISSING_RETURN";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_PRECONDITION:
+            return "VITTE_CONTRACT_E_PRECONDITION";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_OVERFLOW:
+            return "VITTE_CONST_E_OVERFLOW";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_DIVIDE_BY_ZERO:
+            return "VITTE_CONST_E_DIVIDE_BY_ZERO";
+        case VITTE_SEMA_DIAGNOSTIC_INDEX_OUT_OF_BOUNDS:
+            return "VITTE_MEMORY_E_INVALID_ACCESS";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_EFFECT:
+            return "VITTE_CONTRACT_E_EFFECT";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_NON_EXHAUSTIVE:
+            return "VITTE_PATTERN_E_NON_EXHAUSTIVE";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_UNREACHABLE:
+            return "VITTE_PATTERN_E_UNREACHABLE";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_CYCLE:
+            return "VITTE_CONST_E_CYCLE";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_TYPE:
+            return "VITTE_PATTERN_E_TYPE";
+        case VITTE_SEMA_DIAGNOSTIC_UNSAFE_REQUIRED:
+            return "VITTE_UNSAFE_E_REQUIRED";
+        case VITTE_SEMA_DIAGNOSTIC_REFERENCE_ESCAPE:
+            return "VITTE_MEMORY_E_REFERENCE_ESCAPE";
+        case VITTE_SEMA_DIAGNOSTIC_BORROW_CONFLICT:
+            return "VITTE_MEMORY_E_BORROW_CONFLICT";
+        case VITTE_SEMA_DIAGNOSTIC_BORROWED_MUTATION:
+            return "VITTE_MEMORY_E_BORROWED_MUTATION";
+        case VITTE_SEMA_DIAGNOSTIC_MOVE_BORROWED:
+            return "VITTE_MEMORY_E_MOVE_BORROWED";
+        case VITTE_SEMA_DIAGNOSTIC_USE_AFTER_MOVE:
+            return "VITTE_MEMORY_E_USE_AFTER_MOVE";
         case VITTE_SEMA_DIAGNOSTIC_CONDITION_NOT_BOOL:
             return "VITTE_TYPE_E_CONDITION_NOT_BOOL";
 
@@ -2977,6 +3060,7 @@ vitte_main_diagnostic_map_span(
     span->end_column = end.column - 1u;
 }
 
+#ifdef VITTE_NATIVE_FRONTEND_LINKED
 static void
 vitte_main_diagnostic_map_native_batch(
     const vitte_main_driver_context_t *context,
@@ -3027,6 +3111,7 @@ vitte_main_diagnostic_map_native_batch(
         diagnostic->end_column = span.end_column;
     }
 }
+#endif
 
 static bool
 vitte_main_sema_symbol_origin_location(
@@ -3520,6 +3605,60 @@ vitte_main_render_sema_diagnostics(
                 diagnostic->symbol = context_symbol->name;
             }
         }
+        if (sema_diagnostic->contract_span.valid &&
+            sema_diagnostic->contract_span.begin <= sema_diagnostic->contract_span.end &&
+            sema_diagnostic->contract_span.end <= context->file.length) {
+            const vitte_symbol_t *procedure_symbol = vitte_scope_get_symbol(
+                &context->sema.scopes, sema_diagnostic->contract_symbol_id);
+            vitte_cli_diagnostic_t clause;
+            size_t expression_length = sema_diagnostic->contract_span.end -
+                sema_diagnostic->contract_span.begin;
+            bool ensures = (sema_diagnostic->contract_flags &
+                VITTE_AST_FLAG_CONTRACT_ENSURES) != 0u;
+            if (expression_length >= sizeof(type_contexts[index])) {
+                expression_length = sizeof(type_contexts[index]) - 1u;
+            }
+            memcpy(type_contexts[index],
+                context->file.data + sema_diagnostic->contract_span.begin,
+                expression_length);
+            type_contexts[index][expression_length] = '\0';
+            diagnostic->context = ensures ? "ensures clause" : "requires clause";
+            diagnostic->procedure = procedure_symbol != NULL ? procedure_symbol->name : NULL;
+            diagnostic->has_contract = true;
+            diagnostic->contract.kind = ensures
+                ? VITTE_CLI_DIAGNOSTIC_CONTRACT_ENSURES
+                : VITTE_CLI_DIAGNOSTIC_CONTRACT_REQUIRES;
+            diagnostic->contract.expression = type_contexts[index];
+            diagnostic->contract.procedure = diagnostic->procedure;
+            diagnostic->contract.reason =
+                sema_diagnostic->code == VITTE_SEMA_DIAGNOSTIC_CONTRACT_PRECONDITION
+                    ? "the known call arguments do not satisfy the precondition"
+                    : sema_diagnostic->code == VITTE_SEMA_DIAGNOSTIC_CONTRACT_RESULT
+                    ? "result is available only in an ensures clause of a procedure returning a value"
+                    : sema_diagnostic->code == VITTE_SEMA_DIAGNOSTIC_CONTRACT_CONTRADICTION ||
+                      sema_diagnostic->code == VITTE_SEMA_DIAGNOSTIC_CONTRACT_POSTCONDITION
+                        ? "the contract condition evaluates to false for the known values"
+                        : "the contract expression must be valid and have type bool";
+            diagnostic->probable_cause = diagnostic->contract.reason;
+            if (vitte_main_make_cli_diagnostic(
+                    context, &clause, diagnostic->severity, diagnostic->code,
+                    NULL, NULL, &sema_diagnostic->contract_span, NULL, NULL) &&
+                clause.has_span) {
+                diagnostic->contract.has_contract_span = true;
+                diagnostic->contract.contract_span.valid = true;
+                diagnostic->contract.contract_span.source_name = clause.source_name;
+                diagnostic->contract.contract_span.source_id = clause.source_id;
+                diagnostic->contract.contract_span.file_id = clause.file_id;
+                diagnostic->contract.contract_span.start_offset = clause.start_offset;
+                diagnostic->contract.contract_span.end_offset = clause.end_offset;
+                diagnostic->contract.contract_span.start_line = clause.start_line;
+                diagnostic->contract.contract_span.start_column = clause.start_column;
+                diagnostic->contract.contract_span.end_line = clause.end_line;
+                diagnostic->contract.contract_span.end_column = clause.end_column;
+            }
+        }
+        if (sema_diagnostic->code == VITTE_SEMA_DIAGNOSTIC_INDEX_OUT_OF_BOUNDS)
+            diagnostic->message = "array index out of bounds";
         diagnostic->help = sema_diagnostic->help;
         details_length = 0;
         if (expected_type != NULL &&
@@ -3571,6 +3710,15 @@ vitte_main_render_sema_diagnostics(
                        source_name,
                        diagnostic,
                        &related_locations[index])) {
+            diagnostic->related = &related_locations[index];
+            diagnostic->related_count = 1u;
+        }
+        if (diagnostic->has_contract && diagnostic->contract.has_contract_span &&
+            (sema_diagnostic->span.begin != sema_diagnostic->contract_span.begin ||
+             sema_diagnostic->span.end != sema_diagnostic->contract_span.end)) {
+            related_locations[index].kind = VITTE_CLI_DIAGNOSTIC_LOCATION_DECLARATION;
+            related_locations[index].span = diagnostic->contract.contract_span;
+            related_locations[index].label = "contract declared here";
             diagnostic->related = &related_locations[index];
             diagnostic->related_count = 1u;
         }
@@ -3866,7 +4014,7 @@ vitte_main_driver_compile_ast(
                     details = "the external linker could not create the requested executable; see its diagnostics above";
                     break;
                 case VITTE_C17_COMPILE_RUNTIME_FAILED:
-                    code = "VITTE_INFRA_E_PHASE";
+                    code = "VITTE_BACKEND_E_EXECUTION";
                     message = "compiled program exited unsuccessfully";
                     details = "C17 compilation and linking succeeded, but program execution returned a failure status";
                     break;
@@ -4109,7 +4257,7 @@ vitte_main_driver_codegen_ir(
                 details = "the external linker could not create the requested executable; see its diagnostics above";
                 break;
             case VITTE_C17_IR_COMPILE_RUNTIME_FAILED:
-                code = "VITTE_INFRA_E_PHASE";
+                code = "VITTE_BACKEND_E_EXECUTION";
                 message = "compiled program exited unsuccessfully";
                 details = "C17 compilation and linking succeeded, but program execution returned a failure status";
                 break;
@@ -4181,6 +4329,10 @@ vitte_main_driver_context_destroy(
         vitte_parser_destroy(&context->parser);
         context->parser_initialized = false;
     }
+
+    free(context->expanded_tokens);
+    context->expanded_tokens = NULL;
+    context->expanded_token_count = 0u;
 
     if (context->lexer_initialized) {
         vitte_lexer_destroy(&context->lexer);

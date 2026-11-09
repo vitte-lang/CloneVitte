@@ -6,52 +6,553 @@ changing an exported signature. Contracts and error semantics are described
 in [`README.md`](README.md). This is a source API index, not a stable ABI
 promise.
 
-Source files indexed: 181.
-Exported declarations indexed: 1652.
+Source files indexed: 184.
+Exported declarations indexed: 1930.
 
 ## `core::array::compare`
 
-Source: [`src/array/compare.vit`](src/array/compare.vit) · exports: 5
+Source: [`src/array/compare.vit`](src/array/compare.vit) · exports: 45
 
 ```vit
 export proc array_equal<T>(left: &[T], right: &[T]) -> bool;
-export proc array_compare<T>(left: &[T], right: &[T], compare: proc(&T, &T) -> i8) -> i32;
 export proc array_not_equal<T>(left: &[T], right: &[T]) -> bool;
-export proc array_starts_with<T>(array: &[T], prefix: &[T]) -> bool;
-export proc array_ends_with<T>(array: &[T], suffix: &[T]) -> bool;
+export proc array_equal_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc array_not_equal_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc array_compare<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> i32;
+export proc array_compare_natural(
+    left: &[i64],
+    right: &[i64]
+) -> i32;
+export proc array_less<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc array_less_equal<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc array_greater<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc array_greater_equal<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc array_starts_with<T>(
+    array: &[T],
+    prefix: &[T]
+) -> bool;
+export proc array_starts_with_by<T>(
+    array: &[T],
+    prefix: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc array_ends_with<T>(
+    array: &[T],
+    suffix: &[T]
+) -> bool;
+export proc array_ends_with_by<T>(
+    array: &[T],
+    suffix: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc array_common_prefix_length<T>(
+    left: &[T],
+    right: &[T]
+) -> usize;
+export proc array_common_prefix_length_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> usize;
+export proc array_common_suffix_length<T>(
+    left: &[T],
+    right: &[T]
+) -> usize;
+export proc array_common_suffix_length_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> usize;
+export proc array_contains<T>(
+    array: &[T],
+    value: &T
+) -> bool;
+export proc array_contains_by<T>(
+    array: &[T],
+    value: &T,
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc array_contains_slice<T>(
+    array: &[T],
+    needle: &[T]
+) -> bool;
+export proc array_contains_slice_by<T>(
+    array: &[T],
+    needle: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc array_equal_n<T>(
+    left: &[T],
+    right: &[T],
+    count: usize
+) -> bool;
+export proc array_compare_n<T>(
+    left: &[T],
+    right: &[T],
+    count: usize,
+    compare: proc(&T, &T) -> i8
+) -> i32;
+export proc array_equal_reverse<T>(
+    left: &[T],
+    right: &[T]
+) -> bool;
+export proc array_is_palindrome<T>(array: &[T]) -> bool;
+export proc array_is_palindrome_by<T>(
+    array: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc array_all_equal<T>(array: &[T]) -> bool;
+export proc array_all_equal_by<T>(
+    array: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc array_all_distinct<T>(array: &[T]) -> bool;
+export proc array_all_distinct_by<T>(
+    array: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc array_is_sorted<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc array_is_sorted_strict<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc array_is_sorted_descending<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc array_is_sorted_descending_strict<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc array_all_match<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc array_any_match<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc array_none_match<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc array_mismatch_count<T>(
+    left: &[T],
+    right: &[T]
+) -> usize;
+export proc array_mismatch_count_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> usize;
+export proc array_equal_range<T>(
+    left: &[T],
+    left_start: usize,
+    right: &[T],
+    right_start: usize,
+    count: usize
+) -> bool;
+export proc array_equal_range_by<T>(
+    left: &[T],
+    left_start: usize,
+    right: &[T],
+    right_start: usize,
+    count: usize,
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc array_equal_for<T>(
+    left: &[T],
+    right: &[T]
+) -> bool;
+export proc array_all_match_for<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc array_any_match_for<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool;
 ```
 
 ## `core::array::fixed`
 
-Source: [`src/array/fixed.vit`](src/array/fixed.vit) · exports: 12
+Source: [`src/array/fixed.vit`](src/array/fixed.vit) · exports: 68
 
 ```vit
-export proc fixed_fill<T>(array: &mut [T], value: T);
-export proc fixed_copy<T>(source: &[T], destination: &mut [T]) -> usize;
-export proc fixed_equal<T>(left: &[T], right: &[T]) -> bool;
-export proc fixed_contains<T>(array: &[T], value: T) -> bool;
-export proc fixed_index_of<T>(array: &[T], value: T) -> isize;
-export proc fixed_reverse<T>(array: &mut [T]);
-export proc fixed_rotate_left<T>(array: &mut [T]);
-export proc fixed_rotate_right<T>(array: &mut [T]);
-export proc fixed_count<T>(array: &[T], value: T) -> usize;
+export proc fixed_length<T>(array: &[T]) -> usize;
+export proc fixed_is_empty<T>(array: &[T]) -> bool;
+export proc fixed_is_not_empty<T>(array: &[T]) -> bool;
+export proc fixed_has_index<T>(
+    array: &[T],
+    index: usize
+) -> bool;
+export proc fixed_has_range<T>(
+    array: &[T],
+    start: usize,
+    count: usize
+) -> bool;
+export proc fixed_min_length<T>(
+    left: &[T],
+    right: &[T]
+) -> usize;
+export proc fixed_fill<T>(
+    array: &mut [T],
+    value: T
+);
+export proc fixed_fill_range<T>(
+    array: &mut [T],
+    start: usize,
+    count: usize,
+    value: T
+) -> bool;
+export proc fixed_fill_prefix<T>(
+    array: &mut [T],
+    count: usize,
+    value: T
+) -> usize;
+export proc fixed_fill_suffix<T>(
+    array: &mut [T],
+    count: usize,
+    value: T
+) -> usize;
+export proc fixed_copy<T>(
+    source: &[T],
+    destination: &mut [T]
+) -> usize;
+export proc fixed_copy_exact<T>(
+    source: &[T],
+    destination: &mut [T]
+) -> bool;
+export proc fixed_copy_range<T>(
+    source: &[T],
+    source_start: usize,
+    destination: &mut [T],
+    destination_start: usize,
+    count: usize
+) -> bool;
+export proc fixed_equal<T>(
+    left: &[T],
+    right: &[T]
+) -> bool;
+export proc fixed_not_equal<T>(
+    left: &[T],
+    right: &[T]
+) -> bool;
+export proc fixed_equal_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc fixed_equal_prefix<T>(
+    left: &[T],
+    right: &[T],
+    count: usize
+) -> bool;
+export proc fixed_contains<T>(
+    array: &[T],
+    value: T
+) -> bool;
+export proc fixed_contains_by<T>(
+    array: &[T],
+    value: &T,
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc fixed_index_of<T>(
+    array: &[T],
+    value: T
+) -> isize;
+export proc fixed_last_index_of<T>(
+    array: &[T],
+    value: T
+) -> isize;
+export proc fixed_index_of_by<T>(
+    array: &[T],
+    value: &T,
+    equal: proc(&T, &T) -> bool
+) -> isize;
+export proc fixed_last_index_of_by<T>(
+    array: &[T],
+    value: &T,
+    equal: proc(&T, &T) -> bool
+) -> isize;
+export proc fixed_count<T>(
+    array: &[T],
+    value: T
+) -> usize;
+export proc fixed_count_by<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> usize;
+export proc fixed_all<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc fixed_any<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc fixed_none<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc fixed_swap<T>(
+    array: &mut [T],
+    first: usize,
+    second: usize
+) -> bool;
+export proc fixed_reverse<T>(
+    array: &mut [T]
+);
+export proc fixed_reverse_range<T>(
+    array: &mut [T],
+    start: usize,
+    count: usize
+) -> bool;
+export proc fixed_rotate_left<T>(
+    array: &mut [T]
+);
+export proc fixed_rotate_right<T>(
+    array: &mut [T]
+);
+export proc fixed_rotate_left_by<T>(
+    array: &mut [T],
+    count: usize
+);
+export proc fixed_rotate_right_by<T>(
+    array: &mut [T],
+    count: usize
+);
+export proc fixed_shift_left<T>(
+    array: &mut [T],
+    count: usize,
+    fill: T
+);
+export proc fixed_shift_right<T>(
+    array: &mut [T],
+    count: usize,
+    fill: T
+);
+export proc fixed_starts_with<T>(
+    array: &[T],
+    prefix: &[T]
+) -> bool;
+export proc fixed_ends_with<T>(
+    array: &[T],
+    suffix: &[T]
+) -> bool;
+export proc fixed_common_prefix_length<T>(
+    left: &[T],
+    right: &[T]
+) -> usize;
+export proc fixed_common_suffix_length<T>(
+    left: &[T],
+    right: &[T]
+) -> usize;
+export proc fixed_is_palindrome<T>(
+    array: &[T]
+) -> bool;
+export proc fixed_is_palindrome_by<T>(
+    array: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc fixed_all_equal<T>(
+    array: &[T]
+) -> bool;
+export proc fixed_all_distinct<T>(
+    array: &[T]
+) -> bool;
+export proc fixed_all_distinct_by<T>(
+    array: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool;
+export proc fixed_compare<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> i32;
+export proc fixed_less<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc fixed_greater<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc fixed_is_sorted<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc fixed_is_sorted_strict<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc fixed_is_sorted_descending<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool;
+export proc fixed_is_sorted_i8(array: &[i8]) -> bool;
+export proc fixed_is_sorted_i16(array: &[i16]) -> bool;
+export proc fixed_is_sorted_i32(array: &[i32]) -> bool;
 export proc fixed_is_sorted_i64(array: &[i64]) -> bool;
+export proc fixed_is_sorted_u8(array: &[u8]) -> bool;
+export proc fixed_is_sorted_u16(array: &[u16]) -> bool;
+export proc fixed_is_sorted_u32(array: &[u32]) -> bool;
 export proc fixed_is_sorted_u64(array: &[u64]) -> bool;
+export proc fixed_is_sorted_f32(array: &[f32]) -> bool;
 export proc fixed_is_sorted_f64(array: &[f64]) -> bool;
+export proc fixed_min_index_i64(
+    array: &[i64]
+) -> isize;
+export proc fixed_max_index_i64(
+    array: &[i64]
+) -> isize;
+export proc fixed_min_index_u64(
+    array: &[u64]
+) -> isize;
+export proc fixed_max_index_u64(
+    array: &[u64]
+) -> isize;
+export proc fixed_mismatch_count<T>(
+    left: &[T],
+    right: &[T]
+) -> usize;
+export proc fixed_equal_reverse<T>(
+    left: &[T],
+    right: &[T]
+) -> bool;
 ```
 
 ## `core::array::init`
 
-Source: [`src/array/init.vit`](src/array/init.vit) · exports: 11
+Source: [`src/array/init.vit`](src/array/init.vit) · exports: 53
 
 ```vit
+export type ArrayInitIndexPredicate = proc(usize) -> bool;
+export type ArrayInitValuePredicate<T> = proc(&T) -> bool;
+export type ArrayInitGenerator<T> = proc(usize) -> T;
 export proc array_init_fill<T>(
     array: &mut [T],
     value: T
 );
+export proc array_init_default<T>(
+    array: &mut [T]
+);
+export proc array_init_zero<T>(
+    array: &mut [T]
+);
+export proc array_init_with<T>(
+    array: &mut [T],
+    generator: ArrayInitGenerator<T>
+);
 export proc array_init_indexed(
     array: &mut [usize]
 );
+export proc array_init_copy<T>(
+    source: &[T],
+    destination: &mut [T]
+) -> usize;
+export proc array_init_copy_exact<T>(
+    source: &[T],
+    destination: &mut [T]
+) -> bool;
+export proc array_init_copy_range<T>(
+    source: &[T],
+    source_start: usize,
+    destination: &mut [T],
+    destination_start: usize,
+    count: usize
+) -> bool;
+export proc array_init_if<T>(
+    array: &mut [T],
+    predicate: ArrayInitIndexPredicate,
+    value: T
+);
+export proc array_init_if_value<T>(
+    array: &mut [T],
+    predicate: ArrayInitValuePredicate<T>,
+    value: T
+);
+export proc array_init_with_if<T>(
+    array: &mut [T],
+    predicate: ArrayInitIndexPredicate,
+    generator: ArrayInitGenerator<T>
+);
+export proc array_init_range<T>(
+    array: &mut [T],
+    start: usize,
+    end: usize,
+    value: T
+);
+export proc array_init_range_checked<T>(
+    array: &mut [T],
+    start: usize,
+    end: usize,
+    value: T
+) -> bool;
+export proc array_init_prefix<T>(
+    array: &mut [T],
+    count: usize,
+    value: T
+) -> usize;
+export proc array_init_suffix<T>(
+    array: &mut [T],
+    count: usize,
+    value: T
+) -> usize;
+export proc array_init_range_with<T>(
+    array: &mut [T],
+    start: usize,
+    end: usize,
+    generator: ArrayInitGenerator<T>
+) -> bool;
+export proc array_init_alternating<T>(
+    array: &mut [T],
+    first: T,
+    second: T
+);
+export proc array_init_triple<T>(
+    array: &mut [T],
+    first: T,
+    second: T,
+    third: T
+);
+export proc array_init_pattern<T>(
+    array: &mut [T],
+    pattern: &[T]
+) -> bool;
 export proc array_init_sequence(
     array: &mut [i64],
     start: i64,
@@ -62,25 +563,19 @@ export proc array_init_reverse_sequence(
     start: i64,
     step: i64
 ) -> bool;
-export proc array_init_copy<T>(
-    source: &[T],
-    destination: &mut [T]
-) -> usize;
-export proc array_init_range<T>(
-    array: &mut [T],
-    start: usize,
-    end: usize,
-    value: T
-);
-export proc array_init_alternating<T>(
-    array: &mut [T],
-    first: T,
-    second: T
-);
 export proc array_init_geometric(
     array: &mut [i64],
     start: i64,
     ratio: i64
+) -> bool;
+export proc array_init_i64_indices(
+    array: &mut [i64]
+) -> bool;
+export proc array_init_squares_i64(
+    array: &mut [i64]
+) -> bool;
+export proc array_init_powers_of_two_i64(
+    array: &mut [i64]
 ) -> bool;
 export proc array_init_bool(
     array: &mut [bool],
@@ -92,6 +587,518 @@ export proc array_init_false(
 export proc array_init_true(
     array: &mut [bool]
 );
+export proc array_init_bool_alternating(
+    array: &mut [bool],
+    first: bool
+);
+export proc array_init_bool_with(
+    array: &mut [bool],
+    predicate: ArrayInitIndexPredicate
+);
+export proc array_init_i8(
+    array: &mut [i8],
+    value: i8
+);
+export proc array_init_i16(
+    array: &mut [i16],
+    value: i16
+);
+export proc array_init_i32(
+    array: &mut [i32],
+    value: i32
+);
+export proc array_init_i64(
+    array: &mut [i64],
+    value: i64
+);
+export proc array_init_u8(
+    array: &mut [u8],
+    value: u8
+);
+export proc array_init_u16(
+    array: &mut [u16],
+    value: u16
+);
+export proc array_init_u32(
+    array: &mut [u32],
+    value: u32
+);
+export proc array_init_u64(
+    array: &mut [u64],
+    value: u64
+);
+export proc array_init_f32(
+    array: &mut [f32],
+    value: f32
+);
+export proc array_init_f64(
+    array: &mut [f64],
+    value: f64
+);
+export proc array_init_zero_i8(array: &mut [i8]);
+export proc array_init_zero_i16(array: &mut [i16]);
+export proc array_init_zero_i32(array: &mut [i32]);
+export proc array_init_zero_i64(array: &mut [i64]);
+export proc array_init_zero_u8(array: &mut [u8]);
+export proc array_init_zero_u16(array: &mut [u16]);
+export proc array_init_zero_u32(array: &mut [u32]);
+export proc array_init_zero_u64(array: &mut [u64]);
+export proc array_init_zero_f32(array: &mut [f32]);
+export proc array_init_zero_f64(array: &mut [f64]);
+```
+
+## `core::array::iterator`
+
+Source: [`src/array/iterator.vit`](src/array/iterator.vit) · exports: 49
+
+```vit
+export proc array_for_each<T>(
+    array: &[T],
+    callback: proc(&T)
+);
+export proc array_for_each_indexed<T>(
+    array: &[T],
+    callback: proc(usize, &T)
+);
+export proc array_for_each_reverse<T>(
+    array: &[T],
+    callback: proc(&T)
+);
+export proc array_for_each_reverse_indexed<T>(
+    array: &[T],
+    callback: proc(usize, &T)
+);
+export proc array_for_each_mut<T>(
+    array: &mut [T],
+    callback: proc(&mut T)
+);
+export proc array_for_each_indexed_mut<T>(
+    array: &mut [T],
+    callback: proc(usize, &mut T)
+);
+export proc array_for_each_reverse_mut<T>(
+    array: &mut [T],
+    callback: proc(&mut T)
+);
+export proc array_all<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc array_any<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc array_none<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc array_all_indexed<T>(
+    array: &[T],
+    predicate: proc(usize, &T) -> bool
+) -> bool;
+export proc array_any_indexed<T>(
+    array: &[T],
+    predicate: proc(usize, &T) -> bool
+) -> bool;
+export proc array_count_if<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> usize;
+export proc array_count_if_indexed<T>(
+    array: &[T],
+    predicate: proc(usize, &T) -> bool
+) -> usize;
+export proc array_find_index<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> isize;
+export proc array_find_last_index<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> isize;
+export proc array_find_indexed<T>(
+    array: &[T],
+    predicate: proc(usize, &T) -> bool
+) -> isize;
+export proc array_position<T>(
+    array: &[T],
+    value: T
+) -> isize;
+export proc array_rposition<T>(
+    array: &[T],
+    value: T
+) -> isize;
+export proc array_take_while_count<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> usize;
+export proc array_skip_while_count<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> usize;
+export proc array_take_while_reverse_count<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> usize;
+export proc array_map<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_map_indexed<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(usize, &T) -> U
+) -> usize;
+export proc array_map_reverse<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_filter<T>(
+    source: &[T],
+    destination: &mut [T],
+    predicate: proc(&T) -> bool
+) -> usize;
+export proc array_filter_indexed<T>(
+    source: &[T],
+    destination: &mut [T],
+    predicate: proc(usize, &T) -> bool
+) -> usize;
+export proc array_filter_reverse<T>(
+    source: &[T],
+    destination: &mut [T],
+    predicate: proc(&T) -> bool
+) -> usize;
+export proc array_fold<T, U>(
+    array: &[T],
+    initial: U,
+    reducer: proc(U, &T) -> U
+) -> U;
+export proc array_fold_right<T, U>(
+    array: &[T],
+    initial: U,
+    reducer: proc(U, &T) -> U
+) -> U;
+export proc array_fold_indexed<T, U>(
+    array: &[T],
+    initial: U,
+    reducer: proc(U, usize, &T) -> U
+) -> U;
+export proc array_zip_for_each<T, U>(
+    left: &[T],
+    right: &[U],
+    callback: proc(&T, &U)
+);
+export proc array_zip_for_each_indexed<T, U>(
+    left: &[T],
+    right: &[U],
+    callback: proc(usize, &T, &U)
+);
+export proc array_zip_map<T, U, V>(
+    left: &[T],
+    right: &[U],
+    destination: &mut [V],
+    transform: proc(&T, &U) -> V
+) -> usize;
+export proc array_equal_by<T, U>(
+    left: &[T],
+    right: &[U],
+    comparator: proc(&T, &U) -> bool
+) -> bool;
+export proc array_zip_all<T, U>(
+    left: &[T],
+    right: &[U],
+    predicate: proc(&T, &U) -> bool
+) -> bool;
+export proc array_zip_any<T, U>(
+    left: &[T],
+    right: &[U],
+    predicate: proc(&T, &U) -> bool
+) -> bool;
+export proc array_step_by<T>(
+    array: &[T],
+    step: usize,
+    callback: proc(&T)
+);
+export proc array_step_by_reverse<T>(
+    array: &[T],
+    step: usize,
+    callback: proc(&T)
+);
+export proc array_for_each_range<T>(
+    array: &[T],
+    start: usize,
+    end: usize,
+    callback: proc(&T)
+);
+export proc array_for_each_range_checked<T>(
+    array: &[T],
+    start: usize,
+    end: usize,
+    callback: proc(&T)
+) -> bool;
+export proc array_for_each_take<T>(
+    array: &[T],
+    count: usize,
+    callback: proc(&T)
+);
+export proc array_for_each_skip<T>(
+    array: &[T],
+    count: usize,
+    callback: proc(&T)
+);
+export proc array_for_each_pair<T>(
+    array: &[T],
+    callback: proc(&T, &T)
+);
+export proc array_for_each_pair_indexed<T>(
+    array: &[T],
+    callback: proc(usize, &T, &T)
+);
+export proc array_partition_count<T>(
+    array: &[T],
+    comparator: proc(&T) -> i32,
+    less: &mut usize,
+    equal: &mut usize,
+    greater: &mut usize
+);
+export proc array_partition_bool_count<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool,
+    accepted: &mut usize,
+    rejected: &mut usize
+);
+export proc array_transform_if<T>(
+    array: &mut [T],
+    predicate: proc(&T) -> bool,
+    transform: proc(&T) -> T
+) -> usize;
+export proc array_transform<T>(
+    array: &mut [T],
+    transform: proc(&T) -> T
+);
+```
+
+## `core::array::map`
+
+Source: [`src/array/map.vit`](src/array/map.vit) · exports: 37
+
+```vit
+export proc array_map<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_map_indexed<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(usize, &T) -> U
+) -> usize;
+export proc array_map_in_place<T>(
+    array: &mut [T],
+    transform: proc(&T) -> T
+);
+export proc array_map_in_place_indexed<T>(
+    array: &mut [T],
+    transform: proc(usize, &T) -> T
+);
+export proc array_map_exact<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T) -> U
+) -> bool;
+export proc array_map_same_length<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T) -> U
+) -> bool;
+export proc array_map_range<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    start: usize,
+    end: usize,
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_map_range_checked<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    start: usize,
+    end: usize,
+    transform: proc(&T) -> U
+) -> bool;
+export proc array_map_take<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    count: usize,
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_map_skip<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    count: usize,
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_map_reverse<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_map_backward<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_map_reverse_indexed<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(usize, &T) -> U
+) -> usize;
+export proc array_map_if<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    predicate: proc(&T) -> bool,
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_map_if_indexed<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    predicate: proc(usize, &T) -> bool,
+    transform: proc(usize, &T) -> U
+) -> usize;
+export proc array_map_in_place_if<T>(
+    array: &mut [T],
+    predicate: proc(&T) -> bool,
+    transform: proc(&T) -> T
+) -> usize;
+export proc array_map_select<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    predicate: proc(&T) -> bool,
+    when_true: proc(&T) -> U,
+    when_false: proc(&T) -> U
+) -> usize;
+export proc array_filter_map<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    predicate: proc(&T) -> bool,
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_filter_map_indexed<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    predicate: proc(usize, &T) -> bool,
+    transform: proc(usize, &T) -> U
+) -> usize;
+export proc array_filter_map_reverse<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    predicate: proc(&T) -> bool,
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_map_zip<T, U, V>(
+    left: &[T],
+    right: &[U],
+    destination: &mut [V],
+    transform: proc(&T, &U) -> V
+) -> usize;
+export proc array_map_zip_indexed<T, U, V>(
+    left: &[T],
+    right: &[U],
+    destination: &mut [V],
+    transform: proc(usize, &T, &U) -> V
+) -> usize;
+export proc array_map_zip3<T, U, V, W>(
+    first: &[T],
+    second: &[U],
+    third: &[V],
+    destination: &mut [W],
+    transform: proc(&T, &U, &V) -> W
+) -> usize;
+export proc array_map_accumulate<T, U, A>(
+    source: &[T],
+    destination: &mut [U],
+    initial: A,
+    transform: proc(A, &T) -> A,
+    project: proc(&A) -> U
+) -> A;
+export proc array_map_accumulate_indexed<T, U, A>(
+    source: &[T],
+    destination: &mut [U],
+    initial: A,
+    transform: proc(A, usize, &T) -> A,
+    project: proc(&A) -> U
+) -> A;
+export proc array_map_accumulate_backward<T, U, A>(
+    source: &[T],
+    destination: &mut [U],
+    initial: A,
+    transform: proc(A, &T) -> A,
+    project: proc(&A) -> U
+) -> A;
+export proc array_map_step<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    step: usize,
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_map_step_reverse<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    step: usize,
+    transform: proc(&T) -> U
+) -> usize;
+export proc array_map_adjacent<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    first_transform: proc(&T) -> U,
+    transform: proc(&T, &T) -> U
+) -> usize;
+export proc array_map_pairs<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T, &T) -> U
+) -> usize;
+export proc array_map_triplets<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    transform: proc(&T, &T, &T) -> U
+) -> usize;
+export proc array_map_alternating<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    even_transform: proc(&T) -> U,
+    odd_transform: proc(&T) -> U
+) -> usize;
+export proc array_map_classified<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    classifier: proc(&T) -> i32,
+    negative_transform: proc(&T) -> U,
+    zero_transform: proc(&T) -> U,
+    positive_transform: proc(&T) -> U
+) -> usize;
+export proc array_map_repeat<T>(
+    array: &mut [T],
+    repetitions: usize,
+    transform: proc(&T) -> T
+);
+export proc array_map_repeat_to<T, U>(
+    source: &[T],
+    destination: &mut [U],
+    repetitions: usize,
+    transform: proc(&T) -> T,
+    project: proc(&T) -> U
+) -> usize;
+export proc array_map_generate<T>(
+    destination: &mut [T],
+    generator: proc(usize) -> T
+) -> usize;
+export proc array_map_generate_if<T>(
+    destination: &mut [T],
+    predicate: proc(usize) -> bool,
+    generator: proc(usize) -> T
+) -> usize;
 ```
 
 ## `core::array`
@@ -104,7 +1111,7 @@ export proc array_length<T>(value: &[T]) -> usize;
 
 ## `core::array::repeat`
 
-Source: [`src/array/repeat.vit`](src/array/repeat.vit) · exports: 15
+Source: [`src/array/repeat.vit`](src/array/repeat.vit) · exports: 28
 
 ```vit
 export proc array_repeat_fill<T>(
@@ -181,6 +1188,73 @@ export proc array_repeat_pattern_range<T>(
     start: usize,
     end: usize
 ) -> usize;
+export proc array_repeat_pattern_offset<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    offset: usize
+) -> usize;
+export proc array_repeat_two_patterns<T>(
+    destination: &mut [T],
+    first: &[T],
+    second: &[T]
+) -> usize;
+export proc array_repeat_blocks_custom<T>(
+    array: &mut [T],
+    value: T,
+    fill_count: usize,
+    skip_count: usize
+) -> usize;
+export proc array_repeat_if<T>(
+    array: &mut [T],
+    value: T,
+    predicate: proc(usize) -> bool
+) -> usize;
+export proc array_repeat_if_value<T>(
+    array: &mut [T],
+    value: T,
+    predicate: proc(&T) -> bool
+) -> usize;
+export proc array_repeat_cycle_offset<T>(
+    array: &mut [T],
+    cycle_length: usize,
+    offset: usize,
+    generator: proc(usize) -> T
+) -> usize;
+export proc array_repeat_pattern_count<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    count: usize
+) -> usize;
+export proc array_repeat_pattern_exact<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    repetitions: usize
+) -> bool;
+export proc array_repeat_each_exact<T>(
+    source: &[T],
+    destination: &mut [T],
+    repetitions: usize
+) -> bool;
+export proc array_repeat_pattern_blocks<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    block_size: usize
+) -> usize;
+export proc array_repeat_generate_indexed<T>(
+    destination: &mut [T],
+    cycle_length: usize,
+    generator: proc(usize, usize) -> T
+) -> usize;
+export proc array_repeat_reverse_pattern_range<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    start: usize,
+    end: usize
+) -> usize;
+export proc array_repeat_bounce<T>(
+    destination: &mut [T],
+    pattern: &[T]
+) -> usize;
 ```
 
 ## `core::array::zip`
@@ -231,7 +1305,7 @@ export proc array_zip4<T, U, V, W>(
 
 ## `core::cell::cell`
 
-Source: [`src/cell/cell.vit`](src/cell/cell.vit) · exports: 16
+Source: [`src/cell/cell.vit`](src/cell/cell.vit) · exports: 48
 
 ```vit
 export form Cell<T> {
@@ -289,6 +1363,138 @@ export proc cell_update_if<T>(
     cell: &mut Cell[T],
     predicate: proc(&T) -> bool,
     transform: proc(T) -> T
+) -> bool;
+export proc cell_default<T>() -> Cell[T];
+export proc cell_from_fn<T>(
+    generator: proc() -> T
+) -> Cell[T];
+export proc cell_zero<T>() -> Cell[T];
+export proc cell_copy<T>(
+    cell: &Cell[T]
+) -> Cell[T];
+export proc cell_clone_with<T>(
+    cell: &Cell[T],
+    clone: proc(&T) -> T
+) -> Cell[T];
+export proc cell_map_ref<T, U>(
+    cell: &Cell[T],
+    transform: proc(&T) -> U
+) -> U;
+export proc cell_map<T, U>(
+    cell: &Cell[T],
+    transform: proc(&T) -> U
+) -> Cell[U];
+export proc cell_map_owned<T, U>(
+    cell: Cell[T],
+    transform: proc(T) -> U
+) -> Cell[U];
+export proc cell_get_if<T>(
+    cell: &Cell[T],
+    condition: bool,
+    fallback: T
+) -> T;
+export proc cell_equal_by<T, U>(
+    left: &Cell[T],
+    right: &Cell[U],
+    compare: proc(&T, &U) -> bool
+) -> bool;
+export proc cell_compare<T>(
+    left: &Cell[T],
+    right: &Cell[T],
+    compare: proc(&T, &T) -> i32
+) -> i32;
+export proc cell_is<T>(
+    cell: &Cell[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc cell_is_not<T>(
+    cell: &Cell[T],
+    predicate: proc(&T) -> bool
+) -> bool;
+export proc cell_update_ref<T>(
+    cell: &mut Cell[T],
+    transform: proc(&T) -> T
+);
+export proc cell_update_checked<T>(
+    cell: &mut Cell[T],
+    predicate: proc(&T) -> bool,
+    transform: proc(&T) -> T
+) -> bool;
+export proc cell_modify<T>(
+    cell: &mut Cell[T],
+    callback: proc(&mut T)
+);
+export proc cell_modify_if<T>(
+    cell: &mut Cell[T],
+    predicate: proc(&T) -> bool,
+    callback: proc(&mut T)
+) -> bool;
+export proc cell_replace_if<T>(
+    cell: &mut Cell[T],
+    predicate: proc(&T) -> bool,
+    value: T
+) -> bool;
+export proc cell_swap_if<T>(
+    left: &mut Cell[T],
+    right: &mut Cell[T],
+    condition: bool
+) -> bool;
+export proc cell_swap_by<T>(
+    left: &mut Cell[T],
+    right: &mut Cell[T],
+    predicate: proc(&T, &T) -> bool
+) -> bool;
+export proc cell_assign<T>(
+    destination: &mut Cell[T],
+    source: &Cell[T]
+);
+export proc cell_replace_with<T>(
+    cell: &mut Cell[T],
+    generator: proc() -> T
+);
+export proc cell_reset_default<T>(
+    cell: &mut Cell[T]
+);
+export proc cell_reset_zero<T>(
+    cell: &mut Cell[T]
+);
+export proc cell_with<T>(
+    cell: &Cell[T],
+    callback: proc(&T)
+);
+export proc cell_with_mut<T>(
+    cell: &mut Cell[T],
+    callback: proc(&mut T)
+);
+export proc cell_zip_map<T, U, V>(
+    left: &Cell[T],
+    right: &Cell[U],
+    transform: proc(&T, &U) -> V
+) -> Cell[V];
+export proc cell_update_from<T, U>(
+    destination: &mut Cell[T],
+    source: &Cell[U],
+    transform: proc(&T, &U) -> T
+);
+export proc cell_validate<T>(
+    cell: &Cell[T],
+    validator: proc(&T) -> bool
+) -> bool;
+export proc cell_set_validated<T>(
+    cell: &mut Cell[T],
+    value: T,
+    validator: proc(&T) -> bool
+) -> bool;
+export proc cell_update_validated<T>(
+    cell: &mut Cell[T],
+    transform: proc(&T) -> T,
+    validator: proc(&T) -> bool
+) -> bool;
+export proc cell_update_if_validated<T>(
+    cell: &mut Cell[T],
+    predicate: proc(&T) -> bool,
+    transform: proc(&T) -> T,
+    validator: proc(&T) -> bool
 ) -> bool;
 ```
 
@@ -2918,6 +4124,22 @@ Source: [`src/ptr/copy.vit`](src/ptr/copy.vit) · exports: 1
 
 ```vit
 export proc ptr_copy(destination: *mut u8, source: *const u8, length: usize) -> bool;
+```
+
+## `vitte::core::memory`
+
+Source: [`src/ptr/memory.vit`](src/ptr/memory.vit) · exports: 9
+
+```vit
+export intrinsic native_allocate(size: usize) -> *mut u8;
+export intrinsic native_deallocate(pointer: *mut u8);
+export proc allocate(size: usize) -> *mut u8;
+export proc deallocate(pointer: *mut u8);
+export proc fill(destination: *mut u8, value: u8, length: usize) -> bool;
+export proc copy(destination: *mut u8, source: *const u8, length: usize) -> bool;
+export proc cstring_length(value: *const u8) -> usize;
+export proc copy_string_bytes(destination: *mut u8, source: string, length: usize) -> bool;
+export proc format(format_text: string, arguments: [string]) -> string;
 ```
 
 ## `core::ptr`

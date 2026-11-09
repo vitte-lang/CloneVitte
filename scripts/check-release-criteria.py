@@ -18,6 +18,7 @@ FRONTEND_TEST = ROOT / "src/tests/native_frontend_subset_test.py"
 PARSER_TEST = ROOT / "src/tests/native_parser_parity_test.c"
 BOOTSTRAP_PARITY_TEST = ROOT / "src/tests/native_bootstrap_parity_test.py"
 ROBUSTNESS_TEST = ROOT / "src/tests/robustness_test.c"
+DIAGNOSTIC_CONTRACT_TEST = ROOT / "src/tests/diagnostic_contract_test.py"
 
 
 def fail(message: str) -> None:
@@ -398,17 +399,55 @@ def check_filesystem_ownership_witnesses() -> None:
     if "test-robustness" not in power_gate:
         fail("compiler-power-gate does not execute filesystem ABI witnesses")
 
+
+def check_diagnostic_contract_gate() -> None:
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+    test = DIAGNOSTIC_CONTRACT_TEST.read_text(encoding="utf-8")
+    power_gate = makefile.split("compiler-power-gate:", 1)[1].split(
+        "# Maximum fast local gate", 1
+    )[0]
+    full_suite = makefile.split(".PHONY: test\ntest:", 1)[1].split(
+        "# ----------------------------------------------------------------------------", 1
+    )[0]
+    contract_target = makefile.split(
+        ".PHONY: test-diagnostic-contract", 1
+    )[1].split(".PHONY:", 1)[0]
+    if "diagnostic_contract_test.py" not in contract_target:
+        fail("bootstrap diagnostic contract target does not execute its source matrix")
+    if "test-diagnostic-contract" not in power_gate:
+        fail("compiler-power-gate omits exact bootstrap diagnostic contracts")
+    if "test-diagnostic-contract" not in full_suite:
+        fail("complete test suite omits exact bootstrap diagnostic contracts")
+    for witness in (
+        "ACTIVE_BOOTSTRAP_SOURCE_CODES",
+        "check_source_code_inventory",
+        "c_api_only_codes",
+        "expected_codes",
+        'position["start_byte"]',
+        'position["end_byte"]',
+        'diagnostic["phase"]',
+        'diagnostic["severity"]',
+        'diagnostic["annotations"]',
+        "check_invalid_utf8",
+        "check_private_import",
+        "check_import_cycle",
+    ):
+        if witness not in test:
+            fail(f"bootstrap diagnostic contract lost its assertion: {witness}")
+
 def main() -> int:
     native = parse_native_registry()
     c_rows = parse_c_registry()
     check_diagnostic_ownership(native, c_rows)
     check_frontend_paths()
     check_filesystem_ownership_witnesses()
+    check_diagnostic_contract_gate()
     print(
         "Release criteria passed: "
         f"{len(native)} owned diagnostics, matched C/native codes, "
-        "all frontend actions and fallback routes have test witnesses, "
-        "and every active bootstrap filesystem ABI import is covered."
+        "all frontend actions, fallback routes and exact bootstrap error "
+        "contracts have test witnesses, and active bootstrap filesystem ABI "
+        "imports are covered."
     )
     return 0
 

@@ -51,6 +51,7 @@
 
 #include "sema.h"
 
+#include "../constant_fold/constant.h"
 #include <float.h>
 #include <math.h>
 #include <stddef.h>
@@ -6159,13 +6160,28 @@ vitte_sema_analyze_identifier(
         name_length == 6u &&
         memcmp(name, "result", 6u) == 0 &&
         context->current_return_type != VITTE_SEMA_INVALID_TYPE_ID &&
-        context->current_return_type != context->type_void) {
+        context->current_return_type != context->type_void &&
+        context->current_return_type != context->type_never) {
         if (info != NULL) {
             info->type_id = context->current_return_type;
             info->scope_id = scope_id;
             info->flags |= VITTE_SEMA_NODE_FLAG_RESOLVED;
         }
         return context->current_return_type;
+    }
+
+    if ((context->current_contract_ensures ||
+         context->current_contract_requires) &&
+        name_length == 6u && memcmp(name, "result", 6u) == 0) {
+        (void)vitte_sema_add_diagnostic(
+            context, VITTE_SEMA_DIAGNOSTIC_ERROR,
+            VITTE_SEMA_DIAGNOSTIC_CONTRACT_RESULT,
+            node->span, node->id, VITTE_SCOPE_INVALID_SYMBOL_ID,
+            VITTE_SEMA_INVALID_TYPE_ID, VITTE_SEMA_INVALID_TYPE_ID);
+        if (info != NULL) {
+            info->type_id = context->type_error;
+        }
+        return context->type_error;
     }
 
     symbol_id =
@@ -6309,6 +6325,8 @@ vitte_sema_analyze_identifier(
     return type_id;
 }
 
+#include "constant_eval.inc"
+
 /* ========================================================================= */
 /* Literal analysis                                                          */
 /* ========================================================================= */
@@ -6428,6 +6446,12 @@ vitte_sema_analyze_unary(
             node->children[0],
             scope_id);
 
+    if (operand_type == context->type_error) {
+        info = vitte_sema_node_info_mut_private(context, node->id);
+        if (info != NULL) info->type_id = context->type_error;
+        return context->type_error;
+    }
+
     result = context->type_error;
 
     switch (node->operator_kind) {
@@ -6466,6 +6490,12 @@ vitte_sema_analyze_unary(
                     operand_type)) {
                 result = context->type_bool;
             }
+            break;
+
+        case VITTE_TOKEN_KW_MOVE:
+            /* `move` transfers the binding's value; representation lowering
+             * is identity in C17 and the reference pass enforces consumption. */
+            result = operand_type;
             break;
 
         case VITTE_TOKEN_STAR:
@@ -7235,6 +7265,7 @@ vitte_sema_analyze_call(
     size_t index;
     vitte_sema_type_id_t result;
     vitte_sema_node_info_t *info;
+    bool unsafe_call_error = false;
 
     if (node->child_count == 0u) {
         return context->type_error;
@@ -7763,6 +7794,27 @@ vitte_sema_analyze_call(
             function_symbol != NULL
                 ? (const vitte_ast_node_t *)function_symbol->payload
                 : NULL;
+        if (function_symbol != NULL &&
+            (function_symbol->flags & VITTE_SYMBOL_FLAG_UNSAFE) != 0u &&
+            !context->current_unsafe) {
+            if (vitte_sema_add_diagnostic(
+                    context,
+                    VITTE_SEMA_DIAGNOSTIC_ERROR,
+                    VITTE_SEMA_DIAGNOSTIC_UNSAFE_REQUIRED,
+                    node->span,
+                    node->id,
+                    type->symbol_id,
+                    VITTE_SEMA_INVALID_TYPE_ID,
+                    VITTE_SEMA_INVALID_TYPE_ID)) {
+                vitte_sema_diagnostic_t *diagnostic =
+                    &context->diagnostics[context->diagnostic_count - 1u];
+                (void)snprintf(
+                    diagnostic->help,
+                    sizeof(diagnostic->help),
+                    "Call this unsafe procedure inside an `unsafe { ... }` block, or from another unsafe procedure.");
+            }
+            unsafe_call_error = true;
+        }
         generic_parameter_count = function_declaration != NULL
             ? vitte_sema_generic_parameter_count_private(
                   context, type->symbol_id)
@@ -8101,6 +8153,10 @@ vitte_sema_analyze_call(
         }
     }
 
+    if (unsafe_call_error) {
+        result = context->type_error;
+    }
+
     info =
         vitte_sema_node_info_mut_private(
             context,
@@ -8152,7 +8208,7 @@ vitte_sema_analyze_index(
             node->children[1],
             scope_id);
 
-    if (!vitte_sema_type_is_integer_private(
+    if (index_type != context->type_error && !vitte_sema_type_is_integer_private(
             context,
             index_type)) {
         (void)vitte_sema_add_diagnostic(
@@ -8198,7 +8254,7 @@ vitte_sema_analyze_index(
         }
     }
 
-    if (result ==
+    if (object_type != context->type_error && result ==
         context->type_error) {
         (void)vitte_sema_add_diagnostic(
             context,
@@ -8210,6 +8266,9 @@ vitte_sema_analyze_index(
             VITTE_SEMA_INVALID_TYPE_ID,
             object_type);
     }
+
+    if (index_type == context->type_error ||
+        !vitte_sema_type_is_integer_private(context, index_type)) result = context->type_error;
 
     info =
         vitte_sema_node_info_mut_private(
@@ -9011,6 +9070,14 @@ vitte_sema_analyze_expression(
                     context,
                     node->children[1],
                     scope_id);
+                if (target_type == context->type_u64 &&
+                    source_type != target_type &&
+                    vitte_sema_contextualize_integer_literal(
+                        context,
+                        node->children[0],
+                        context->type_u64)) {
+                    source_type = context->type_u64;
+                }
                 if (source_type == context->type_error ||
                     target_type == context->type_error) {
                     result = context->type_error;
@@ -11676,6 +11743,8 @@ vitte_sema_analyze_member(
 /* Procedure analysis                                                        */
 /* ========================================================================= */
 
+#include "flow.inc"
+
 static vitte_sema_type_id_t
 vitte_sema_analyze_proc(
     vitte_sema_t *context,
@@ -11687,6 +11756,8 @@ vitte_sema_analyze_proc(
     vitte_sema_type_id_t previous_return;
     vitte_scope_id_t previous_proc_scope;
     bool previous_contract_ensures;
+    bool previous_contract_requires;
+    bool previous_unsafe;
     size_t index;
     size_t parameter_count;
     vitte_sema_type_id_t *parameter_types;
@@ -11724,10 +11795,15 @@ vitte_sema_analyze_proc(
         context->current_proc_scope;
     previous_contract_ensures =
         context->current_contract_ensures;
+    previous_contract_requires = context->current_contract_requires;
+    previous_unsafe = context->current_unsafe;
 
     context->current_proc_scope =
         proc_scope;
     context->current_contract_ensures = false;
+    context->current_contract_requires = false;
+    context->current_unsafe =
+        (node->flags & VITTE_AST_FLAG_UNSAFE) != 0u;
 
     return_type =
         context->type_void;
@@ -11843,6 +11919,8 @@ vitte_sema_analyze_proc(
             context->current_return_type = previous_return;
             context->current_proc_scope = previous_proc_scope;
             context->current_contract_ensures = previous_contract_ensures;
+            context->current_contract_requires = previous_contract_requires;
+            context->current_unsafe = previous_unsafe;
             return context->type_error;
         }
         parameter_count = 0u;
@@ -11904,9 +11982,12 @@ vitte_sema_analyze_proc(
              (VITTE_AST_FLAG_CONTRACT_REQUIRES |
               VITTE_AST_FLAG_CONTRACT_ENSURES)) != 0u) {
             vitte_sema_type_id_t contract_type;
+            size_t first_contract_diagnostic = context->diagnostic_count;
+            size_t diagnostic_index;
 
             context->current_contract_ensures =
                 (child->flags & VITTE_AST_FLAG_CONTRACT_ENSURES) != 0u;
+            context->current_contract_requires = !context->current_contract_ensures;
             contract_type =
                 vitte_sema_analyze_expression(
                     context,
@@ -11917,14 +11998,26 @@ vitte_sema_analyze_proc(
                 (void)vitte_sema_add_diagnostic(
                     context,
                     VITTE_SEMA_DIAGNOSTIC_ERROR,
-                    VITTE_SEMA_DIAGNOSTIC_CONDITION_NOT_BOOL,
+                    context->current_contract_ensures
+                        ? VITTE_SEMA_DIAGNOSTIC_CONTRACT_ENSURES
+                        : VITTE_SEMA_DIAGNOSTIC_CONTRACT_REQUIRES,
                     child->span,
                     child->id,
                     symbol_id,
                     context->type_bool,
                     contract_type);
             }
+            for (diagnostic_index = first_contract_diagnostic;
+                 diagnostic_index < context->diagnostic_count;
+                 ++diagnostic_index) {
+                vitte_sema_diagnostic_t *diagnostic =
+                    &context->diagnostics[diagnostic_index];
+                diagnostic->contract_flags = child->flags;
+                diagnostic->contract_span = child->span;
+                diagnostic->contract_symbol_id = symbol_id;
+            }
             context->current_contract_ensures = false;
+            context->current_contract_requires = false;
             continue;
         }
 
@@ -11951,6 +12044,23 @@ vitte_sema_analyze_proc(
             context,
             child->id,
             proc_scope);
+
+        if (child->kind == VITTE_AST_NODE_BLOCK &&
+            return_type != context->type_void &&
+            return_type != context->type_error &&
+            return_type != VITTE_SEMA_INVALID_TYPE_ID &&
+            vitte_sema_exit_flow(context, child, 0u) ==
+                VITTE_SEMA_EXIT_FALLTHROUGH) {
+            vitte_parser_span_t end_span = child->span;
+            if (end_span.end > end_span.begin) {
+                end_span.begin = end_span.end - 1u;
+            }
+            (void)vitte_sema_add_diagnostic(
+                context, VITTE_SEMA_DIAGNOSTIC_ERROR,
+                VITTE_SEMA_DIAGNOSTIC_MISSING_RETURN,
+                end_span, child->id, symbol_id, return_type,
+                VITTE_SEMA_INVALID_TYPE_ID);
+        }
     }
 
     context->current_return_type =
@@ -11960,6 +12070,8 @@ vitte_sema_analyze_proc(
         previous_proc_scope;
     context->current_contract_ensures =
         previous_contract_ensures;
+    context->current_contract_requires = previous_contract_requires;
+    context->current_unsafe = previous_unsafe;
 
     return function_type;
 }
@@ -12059,7 +12171,9 @@ vitte_sema_analyze_block(
             child->kind ==
                 VITTE_AST_NODE_BREAK_STMT ||
             child->kind ==
-                VITTE_AST_NODE_CONTINUE_STMT) {
+                VITTE_AST_NODE_CONTINUE_STMT ||
+            vitte_sema_exit_flow(context, child, 0u) ==
+                VITTE_SEMA_EXIT_TERMINATED) {
             terminated = true;
         }
     }
@@ -13610,7 +13724,7 @@ vitte_sema_analyze_node(
                 ? vitte_sema_node(context, node->children[0])
                 : NULL;
             subject_type = subject != NULL
-                ? vitte_sema_analyze_node(
+                ? vitte_sema_analyze_expression(
                       context, subject->id, scope_id)
                 : context->type_error;
 
@@ -13653,6 +13767,24 @@ vitte_sema_analyze_node(
                     arm_scope = match_scope;
                 }
                 pattern = vitte_sema_node(context, arm->children[0]);
+                if (pattern != NULL &&
+                    (pattern->kind == VITTE_AST_NODE_BOOL_LITERAL ||
+                     pattern->kind == VITTE_AST_NODE_INTEGER_LITERAL ||
+                     pattern->kind == VITTE_AST_NODE_FLOAT_LITERAL ||
+                     pattern->kind == VITTE_AST_NODE_STRING_LITERAL ||
+                     pattern->kind == VITTE_AST_NODE_CHARACTER_LITERAL ||
+                     pattern->kind == VITTE_AST_NODE_NULL_LITERAL)) {
+                    vitte_sema_type_id_t pattern_type = vitte_sema_analyze_expression(context, pattern->id, arm_scope);
+                    if (subject_type != context->type_error && pattern_type != context->type_error &&
+                        !vitte_sema_accept_value_private(context, subject_type, pattern_type, pattern->id)) {
+                        vitte_sema_node_info_t *pattern_info;
+                        (void)vitte_sema_add_diagnostic(context, VITTE_SEMA_DIAGNOSTIC_ERROR,
+                            VITTE_SEMA_DIAGNOSTIC_MATCH_TYPE, pattern->span, pattern->id,
+                            VITTE_SCOPE_INVALID_SYMBOL_ID, subject_type, pattern_type);
+                        pattern_info = vitte_sema_node_info_mut_private(context, pattern->id);
+                        if (pattern_info != NULL) pattern_info->type_id = context->type_error;
+                    }
+                }
                 /* Alternative bindings need name-set validation before they
                  * can share a scope. Literal alternatives introduce none. */
                 if (pattern != NULL &&
@@ -13668,10 +13800,24 @@ vitte_sema_analyze_node(
                 for (child_index = 1u;
                      child_index < arm->child_count;
                      ++child_index) {
-                    (void)vitte_sema_analyze_node(
-                        context,
-                        arm->children[child_index],
-                        arm_scope);
+                    const vitte_ast_node_t *part = vitte_sema_node(context, arm->children[child_index]);
+                    if (arm->child_count == 3u && child_index == 1u) {
+                        (void)vitte_sema_analyze_condition(context, arm->children[child_index], arm_scope);
+                    } else if (part != NULL && part->kind != VITTE_AST_NODE_BLOCK &&
+                        part->kind != VITTE_AST_NODE_RETURN_STMT && part->kind != VITTE_AST_NODE_IF_STMT &&
+                        part->kind != VITTE_AST_NODE_WHILE_STMT && part->kind != VITTE_AST_NODE_LOOP_STMT &&
+                        part->kind != VITTE_AST_NODE_MATCH_STMT && part->kind != VITTE_AST_NODE_BREAK_STMT &&
+                        part->kind != VITTE_AST_NODE_CONTINUE_STMT && part->kind != VITTE_AST_NODE_ASSERT_STMT &&
+                        part->kind != VITTE_AST_NODE_LET_STMT && part->kind != VITTE_AST_NODE_EXPR_STMT) {
+                        vitte_ast_node_t implicit_return = *part;
+                        vitte_ast_node_id_t value_id = part->id;
+                        implicit_return.kind = VITTE_AST_NODE_RETURN_STMT;
+                        implicit_return.children = &value_id;
+                        implicit_return.child_count = 1u;
+                        (void)vitte_sema_analyze_return(context, &implicit_return, arm_scope);
+                    } else {
+                        (void)vitte_sema_analyze_node(context, arm->children[child_index], arm_scope);
+                    }
                 }
             }
 
@@ -13692,7 +13838,6 @@ vitte_sema_analyze_node(
             return context->type_void;
 
         case VITTE_AST_NODE_DEFER_STMT:
-        case VITTE_AST_NODE_UNSAFE_BLOCK:
         case VITTE_AST_NODE_ASM_STMT:
             for (index = 0u;
                  index < node->child_count;
@@ -13704,6 +13849,22 @@ vitte_sema_analyze_node(
             }
 
             return context->type_void;
+
+        case VITTE_AST_NODE_UNSAFE_BLOCK: {
+            bool previous_unsafe = context->current_unsafe;
+
+            context->current_unsafe = true;
+            for (index = 0u;
+                 index < node->child_count;
+                 ++index) {
+                (void)vitte_sema_analyze_node(
+                    context,
+                    node->children[index],
+                    scope_id);
+            }
+            context->current_unsafe = previous_unsafe;
+            return context->type_void;
+        }
 
         case VITTE_AST_NODE_ASSERT_STMT:
             if (node->child_count != 0u) {
@@ -13994,6 +14155,48 @@ vitte_sema_diagnostic_code_name(
             return "invalid_index_type";
         case VITTE_SEMA_DIAGNOSTIC_UNKNOWN_MEMBER:
             return "unknown_member";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_REQUIRES:
+            return "contract_requires";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_ENSURES:
+            return "contract_ensures";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_RESULT:
+            return "contract_result";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_CONTRADICTION:
+            return "contract_contradiction";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_POSTCONDITION:
+            return "contract_postcondition";
+        case VITTE_SEMA_DIAGNOSTIC_MISSING_RETURN:
+            return "missing_return";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_PRECONDITION:
+            return "contract_precondition";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_OVERFLOW:
+            return "constant_overflow";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_DIVIDE_BY_ZERO:
+            return "constant_divide_by_zero";
+        case VITTE_SEMA_DIAGNOSTIC_INDEX_OUT_OF_BOUNDS:
+            return "index_out_of_bounds";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_EFFECT:
+            return "contract_effect";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_NON_EXHAUSTIVE:
+            return "match_non_exhaustive";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_UNREACHABLE:
+            return "match_unreachable";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_CYCLE:
+            return "constant_cycle";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_TYPE:
+            return "match_type";
+        case VITTE_SEMA_DIAGNOSTIC_UNSAFE_REQUIRED:
+            return "unsafe_required";
+        case VITTE_SEMA_DIAGNOSTIC_REFERENCE_ESCAPE:
+            return "reference_escape";
+        case VITTE_SEMA_DIAGNOSTIC_BORROW_CONFLICT:
+            return "borrow_conflict";
+        case VITTE_SEMA_DIAGNOSTIC_BORROWED_MUTATION:
+            return "borrowed_mutation";
+        case VITTE_SEMA_DIAGNOSTIC_MOVE_BORROWED:
+            return "move_borrowed";
+        case VITTE_SEMA_DIAGNOSTIC_USE_AFTER_MOVE:
+            return "use_after_move";
         case VITTE_SEMA_DIAGNOSTIC_CONDITION_NOT_BOOL:
             return "condition_not_bool";
         case VITTE_SEMA_DIAGNOSTIC_RETURN_OUTSIDE_PROC:
@@ -14273,6 +14476,8 @@ vitte_sema_set_limits(
 /* Analysis                                                                  */
 /* ========================================================================= */
 
+#include "static_checks.inc"
+
 bool
 vitte_sema_run(
     vitte_sema_t *context)
@@ -14358,6 +14563,10 @@ vitte_sema_run(
         context,
         root,
         root_scope);
+
+    if (context->last_error == VITTE_SEMA_ERROR_NONE) {
+        vitte_sema_check_static_program(context);
+    }
 
     if (context->last_error ==
             VITTE_SEMA_ERROR_OUT_OF_MEMORY ||

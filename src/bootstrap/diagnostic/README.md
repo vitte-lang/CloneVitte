@@ -140,9 +140,19 @@ converter; the generic entry point returns `VITTE_STATUS_ERROR_INVALID_STATE`
 rather than inventing UTF-16 positions.
 
 Run `make test` for coverage, real CLI examples, format consistency and
-bounded rendering checks; `make test-diagnostic-help` runs the focused CLI
-suite, while `make test-diagnostic-parity` compares terminal, JSON, SARIF and
-LSP output and exercises `vitte explain` for every public registry code.
+bounded rendering checks. `make test-diagnostic-contract` runs the C bootstrap
+against 42 source cases, eight valid procedure cases and one invalid-UTF-8 byte case, asserting public code,
+phase, severity, exact byte range, primary label and actionable help. It also
+checks cross-module privacy with a secondary declaration location and import
+cycles with the originating `use` range. The invalid-UTF-8 case requires the
+offending byte to be underlined.
+`make test-diagnostic-help` runs the contextual CLI suite. Meanwhile,
+`make test-diagnostic-parity` compares terminal, JSON, SARIF and LSP output and
+checks the complete human-readable and JSON `explain` contract for all 154
+registered codes in both the C bootstrap and native frontend. Registry-wide
+`explain` coverage proves that every code is documented; the source-case
+matrix separately records which current bootstrap failures have executable
+emission witnesses.
 
 Without a span:
 ```text
@@ -165,3 +175,8 @@ Formatting options:
 
 Summary:
 - `vitte_diagnostic_format_summary` reports total diagnostics, errors, warnings, and suppressed diagnostics.
+
+The bootstrap public C API stores diagnostic identity and text in owned buffers
+before adding them to the diagnostic bag. Its textual results use the same
+terminal renderer as the CLI, preserving public codes, phases and source
+locations instead of reducing failures to an unnamed compact diagnostic.

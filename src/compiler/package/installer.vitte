@@ -119,7 +119,9 @@ proc package_parse_version(text: string, output: *mut PackageVersion) -> bool {
     while field < 3 {
         let start = index;
         let mut value: u64 = 0;
-        while index < text.len() and text[index] >= '0' and text[index] <= '9' {
+        while index < text.len() and
+              (text[index] as u8) >= ('0' as u8) and
+              (text[index] as u8) <= ('9' as u8) {
             value = value * 10 + ((text[index] as u8 - ('0' as u8)) as u64);
             if value > 4294967295 { return false; }
             set index += 1;

@@ -130,9 +130,10 @@ en Vitte.
 
 `core::array::fixed` applique ses algorithmes à des tranches empruntées; les
 fonctions de copie s'arrêtent à la capacité disponible. Il ne s'agit pas de
-fonctions à longueur constante : les paramètres génériques `const N` et la
-conversion automatique de `[N]T` vers `&[T]` ne sont pas disponibles dans le
-langage.
+fonctions à longueur constante : les déclarations génériques `const N: usize`
+sont reconnues et analysées, mais l'instanciation avec une valeur constante et
+la spécialisation du tableau fixe ne sont pas encore disponibles. La conversion
+automatique de `[N]T` vers `&[T]` manque aussi.
 
 `core::array::init` et `core::array::repeat` exposent les remplissages, copies,
 motifs, plages, pas et séquences qui ne nécessitent pas de callback. Les
@@ -264,9 +265,10 @@ vérifie les 202 sources individuellement avec le bootstrap et en accepte 199
 `cell/oncecell.vit` butent sur l'accès aux valeurs génériques optionnelles;
 `cell/refcell.vit` demande une mutabilité intérieure absente du langage.
 `types/array.vit` et sa déclaration `const N: usize` passent maintenant le
-parseur et l'analyse sémantique, mais l'instanciation des paramètres génériques
-de valeur et leur spécialisation native restent à terminer. `types/never.vit`, `error/panic.vit` et
-`intrinsics/unreachable.vit` sont maintenant acceptés par les deux frontends;
+parseur et l'analyse sémantique, mais l'instanciation effective des paramètres
+const et la spécialisation native correspondante restent à terminer.
+`types/never.vit`, `error/panic.vit` et `intrinsics/unreachable.vit` sont
+maintenant acceptés par les deux frontends;
 `primitive/unit.vit` et les 14 fichiers de traits le sont aussi. Les traits
 utilisent des récepteurs et types de sortie explicites, car `Self`, les types associés et le
 dispatch d'`impl` ne sont pas encore reliés dans le compilateur. `Unit` est une

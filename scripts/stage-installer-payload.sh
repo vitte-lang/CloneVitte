@@ -159,6 +159,11 @@ for directory in docs examples editors completions assets; do
   fi
 done
 
+mkdir -p "$prefix/share/vitte/tools"
+install -m 0755 \
+  "$ROOT_DIR/scripts/install-unix-integrations.sh" \
+  "$prefix/share/vitte/tools/install-unix-integrations.sh"
+
 #
 # Public headers
 #

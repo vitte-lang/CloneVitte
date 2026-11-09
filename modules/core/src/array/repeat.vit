@@ -411,3 +411,453 @@ export proc array_repeat_pattern_range<T>(
 
     return limit - begin;
 }
+
+// ============================================================================
+// 19. RÉPÉTITION AVEC DÉCALAGE DE PHASE
+// ============================================================================
+
+/// Répète un motif en commençant à une position donnée.
+export proc array_repeat_pattern_offset<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    offset: usize
+) -> usize {
+    let pattern_length: usize = pattern.len() as usize;
+
+    if pattern_length == 0 {
+        return 0;
+    }
+
+    let mut position: usize = offset % pattern_length;
+
+    for i in 0 as usize..(destination.len() as usize) {
+        set destination[i] = pattern[position];
+
+        if position == pattern_length - 1 {
+            set position = 0;
+        } else {
+            set position = position + 1;
+        }
+    }
+
+    return destination.len() as usize;
+}
+
+// ============================================================================
+// 20. RÉPÉTITION DE DEUX MOTIFS
+// ============================================================================
+
+/// Alterne deux motifs non vides.
+/// Chaque motif est écrit intégralement avant le suivant,
+/// sous réserve de la capacité disponible.
+export proc array_repeat_two_patterns<T>(
+    destination: &mut [T],
+    first: &[T],
+    second: &[T]
+) -> usize {
+    let first_length: usize = first.len() as usize;
+    let second_length: usize = second.len() as usize;
+    let capacity: usize = destination.len() as usize;
+
+    if first_length == 0 || second_length == 0 {
+        return 0;
+    }
+
+    let mut written: usize = 0;
+
+    while written < capacity {
+        for i in 0 as usize..first_length {
+            if written >= capacity {
+                return written;
+            }
+
+            set destination[written] = first[i];
+            set written = written + 1;
+        }
+
+        for i in 0 as usize..second_length {
+            if written >= capacity {
+                return written;
+            }
+
+            set destination[written] = second[i];
+            set written = written + 1;
+        }
+    }
+
+    return written;
+}
+
+// ============================================================================
+// 21. RÉPÉTITION DE BLOCS PARAMÉTRABLES
+// ============================================================================
+
+/// Écrit des blocs de fill_count éléments, séparés
+/// par skip_count positions inchangées.
+export proc array_repeat_blocks_custom<T>(
+    array: &mut [T],
+    value: T,
+    fill_count: usize,
+    skip_count: usize
+) -> usize {
+    if fill_count == 0 {
+        return 0;
+    }
+
+    let length: usize = array.len() as usize;
+    let mut position: usize = 0;
+    let mut written: usize = 0;
+
+    while position < length {
+        let mut filled: usize = 0;
+
+        while filled < fill_count && position < length {
+            set array[position] = value;
+            set written = written + 1;
+            set position = position + 1;
+            set filled = filled + 1;
+        }
+
+        let remaining: usize = length - position;
+
+        if skip_count >= remaining {
+            return written;
+        }
+
+        set position = position + skip_count;
+    }
+
+    return written;
+}
+
+// ============================================================================
+// 22. RÉPÉTITION AVEC PRÉDICAT INDEXÉ
+// ============================================================================
+
+/// Écrit aux positions sélectionnées.
+/// Contrairement à repeat_while, le parcours continue
+/// lorsqu'une position est refusée.
+export proc array_repeat_if<T>(
+    array: &mut [T],
+    value: T,
+    predicate: proc(usize) -> bool
+) -> usize {
+    let mut written: usize = 0;
+
+    for i in 0 as usize..(array.len() as usize) {
+        if predicate(i) {
+            set array[i] = value;
+            set written = written + 1;
+        }
+    }
+
+    return written;
+}
+
+// ============================================================================
+// 23. RÉPÉTITION AVEC PRÉDICAT SUR LA VALEUR
+// ============================================================================
+
+export proc array_repeat_if_value<T>(
+    array: &mut [T],
+    value: T,
+    predicate: proc(&T) -> bool
+) -> usize {
+    let mut written: usize = 0;
+
+    for i in 0 as usize..(array.len() as usize) {
+        if predicate(&array[i]) {
+            set array[i] = value;
+            set written = written + 1;
+        }
+    }
+
+    return written;
+}
+
+// ============================================================================
+// 24. RÉPÉTITION AVEC GÉNÉRATEUR ET PHASE
+// ============================================================================
+
+/// Génère les valeurs à partir d'une position cyclique.
+/// Le calcul de phase évite offset + i et son overflow.
+export proc array_repeat_cycle_offset<T>(
+    array: &mut [T],
+    cycle_length: usize,
+    offset: usize,
+    generator: proc(usize) -> T
+) -> usize {
+    if cycle_length == 0 {
+        return 0;
+    }
+
+    let mut phase: usize = offset % cycle_length;
+
+    for i in 0 as usize..(array.len() as usize) {
+        set array[i] = generator(phase);
+
+        if phase == cycle_length - 1 {
+            set phase = 0;
+        } else {
+            set phase = phase + 1;
+        }
+    }
+
+    return array.len() as usize;
+}
+
+// ============================================================================
+// 25. RÉPÉTITION D'UN MOTIF SUR N ÉLÉMENTS
+// ============================================================================
+
+/// Répète un motif sur les count premières positions.
+/// Retourne le nombre d'éléments réellement écrits.
+export proc array_repeat_pattern_count<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    count: usize
+) -> usize {
+    let pattern_length: usize = pattern.len() as usize;
+
+    if pattern_length == 0 {
+        return 0;
+    }
+
+    let mut limit: usize = destination.len() as usize;
+
+    if count < limit {
+        set limit = count;
+    }
+
+    for i in 0 as usize..limit {
+        set destination[i] = pattern[i % pattern_length];
+    }
+
+    return limit;
+}
+
+// ============================================================================
+// 26. RÉPÉTITION STRICTE D'UN MOTIF
+// ============================================================================
+
+/// Exige une destination suffisamment grande pour contenir
+/// exactement repetitions copies du motif.
+///
+/// Retourne false sans écriture si la capacité est insuffisante.
+export proc array_repeat_pattern_exact<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    repetitions: usize
+) -> bool {
+    let pattern_length: usize = pattern.len() as usize;
+    let capacity: usize = destination.len() as usize;
+
+    if pattern_length == 0 {
+        return repetitions == 0;
+    }
+
+    if repetitions > capacity / pattern_length {
+        return false;
+    }
+
+    let mut written: usize = 0;
+
+    for repetition in 0 as usize..repetitions {
+        for i in 0 as usize..pattern_length {
+            set destination[written] = pattern[i];
+            set written = written + 1;
+        }
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 27. RÉPÉTITION STRICTE DE CHAQUE ÉLÉMENT
+// ============================================================================
+
+/// Exige une capacité suffisante pour toutes les répétitions.
+export proc array_repeat_each_exact<T>(
+    source: &[T],
+    destination: &mut [T],
+    repetitions: usize
+) -> bool {
+    let source_length: usize = source.len() as usize;
+    let capacity: usize = destination.len() as usize;
+
+    if source_length == 0 {
+        return true;
+    }
+
+    if repetitions > capacity / source_length {
+        return false;
+    }
+
+    let mut written: usize = 0;
+
+    for i in 0 as usize..source_length {
+        for repetition in 0 as usize..repetitions {
+            set destination[written] = source[i];
+            set written = written + 1;
+        }
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 28. RÉPÉTITION D'UN MOTIF PAR BLOCS
+// ============================================================================
+
+/// Répète chaque valeur du motif block_size fois,
+/// puis passe à la valeur suivante.
+export proc array_repeat_pattern_blocks<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    block_size: usize
+) -> usize {
+    let pattern_length: usize = pattern.len() as usize;
+    let capacity: usize = destination.len() as usize;
+
+    if pattern_length == 0 || block_size == 0 {
+        return 0;
+    }
+
+    let mut written: usize = 0;
+    let mut pattern_index: usize = 0;
+
+    while written < capacity {
+        let mut count: usize = 0;
+
+        while count < block_size && written < capacity {
+            set destination[written] = pattern[pattern_index];
+            set written = written + 1;
+            set count = count + 1;
+        }
+
+        if pattern_index == pattern_length - 1 {
+            set pattern_index = 0;
+        } else {
+            set pattern_index = pattern_index + 1;
+        }
+    }
+
+    return written;
+}
+
+// ============================================================================
+// 29. RÉPÉTITION PAR GÉNÉRATEUR INDEXÉ
+// ============================================================================
+
+/// Le générateur reçoit l'indice global et l'indice cyclique.
+export proc array_repeat_generate_indexed<T>(
+    destination: &mut [T],
+    cycle_length: usize,
+    generator: proc(usize, usize) -> T
+) -> usize {
+    if cycle_length == 0 {
+        return 0;
+    }
+
+    let length: usize = destination.len() as usize;
+
+    for i in 0 as usize..length {
+        set destination[i] = generator(i, i % cycle_length);
+    }
+
+    return length;
+}
+
+// ============================================================================
+// 30. RÉPÉTITION EN ORDRE INVERSE SUR UNE PLAGE
+// ============================================================================
+
+export proc array_repeat_reverse_pattern_range<T>(
+    destination: &mut [T],
+    pattern: &[T],
+    start: usize,
+    end: usize
+) -> usize {
+    let length: usize = destination.len() as usize;
+    let pattern_length: usize = pattern.len() as usize;
+
+    if pattern_length == 0 {
+        return 0;
+    }
+
+    let mut begin: usize = start;
+    let mut limit: usize = end;
+
+    if begin > length {
+        set begin = length;
+    }
+
+    if limit > length {
+        set limit = length;
+    }
+
+    if begin >= limit {
+        return 0;
+    }
+
+    let mut position: usize = 0;
+
+    for i in begin..limit {
+        let source_index: usize =
+            pattern_length - 1 - (position % pattern_length);
+
+        set destination[i] = pattern[source_index];
+        set position = position + 1;
+    }
+
+    return limit - begin;
+}
+
+// ============================================================================
+// 31. RÉPÉTITION D'UN MOTIF AVEC ALTERNANCE DE SENS
+// ============================================================================
+
+/// Répète un motif alternativement en ordre normal
+/// puis inverse, avec répétition des extrémités.
+///
+/// Exemple:
+/// pattern = [1, 2, 3]
+/// résultat = [1, 2, 3, 3, 2, 1, 1, 2, 3, ...]
+export proc array_repeat_bounce<T>(
+    destination: &mut [T],
+    pattern: &[T]
+) -> usize {
+    let length: usize = destination.len() as usize;
+    let pattern_length: usize = pattern.len() as usize;
+
+    if pattern_length == 0 {
+        return 0;
+    }
+
+    let mut position: usize = 0;
+    let mut forward: bool = true;
+
+    for i in 0 as usize..length {
+        set destination[i] = pattern[position];
+
+        if forward {
+            if position == pattern_length - 1 {
+                set forward = false;
+            } else {
+                set position = position + 1;
+            }
+        } else {
+            if position == 0 {
+                set forward = true;
+            } else {
+                set position = position - 1;
+            }
+        }
+    }
+
+    return length;
+}
+
+// ============================================================================
+// END OF EXTENSIONS
+// ============================================================================

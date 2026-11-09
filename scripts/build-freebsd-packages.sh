@@ -486,6 +486,20 @@ install_editor_integrations() {
 
   install_geany_integration "$data_root"
 
+  completion_root=$data_root/usr/local/share/vitte/completions
+  bash_destination=$data_root/usr/local/share/bash-completion/completions/vitte
+  fish_destination=$data_root/usr/local/share/fish/vendor_completions.d/vitte.fish
+  zsh_destination=$data_root/usr/local/share/zsh/site-functions/_vitte
+  mkdir -p \
+    "$(dirname "$bash_destination")" \
+    "$(dirname "$fish_destination")" \
+    "$(dirname "$zsh_destination")"
+  install -m 0644 "$completion_root/bash/vitte" "$bash_destination"
+  install -m 0644 "$completion_root/fish/vitte.fish" "$fish_destination"
+  install -m 0644 "$completion_root/zsh/_vitte" "$zsh_destination"
+  printf '%s\n' \
+    '[build-freebsd-packages] installed Bash, Fish and Zsh completions'
+
 }
 
 
@@ -695,6 +709,18 @@ verify_payload() {
   require_directory \
     "$data_root/usr/local/share/vitte/completions" \
     "shell completions"
+
+  require_file \
+    "$data_root/usr/local/share/bash-completion/completions/vitte" \
+    "Bash Vitte completion"
+
+  require_file \
+    "$data_root/usr/local/share/fish/vendor_completions.d/vitte.fish" \
+    "Fish Vitte completion"
+
+  require_file \
+    "$data_root/usr/local/share/zsh/site-functions/_vitte" \
+    "Zsh Vitte completion"
 
 
 

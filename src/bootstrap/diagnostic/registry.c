@@ -1243,6 +1243,56 @@ vitte_registry_entries[] = {
         "The requested memory operation violates alignment requirements."
     ),
 
+    ENTRY(
+        "VITTE_MEMORY_E_REFERENCE_ESCAPE",
+        "E1205",
+        VITTE_DIAGNOSTIC_ERROR,
+        VITTE_DIAGNOSTIC_ORIGIN_TYPE_CHECK,
+        "memory",
+        "reference lifetime cannot be verified",
+        "The owner does not outlive the reference, or the bootstrap cannot determine the reference origin."
+    ),
+
+    ENTRY(
+        "VITTE_MEMORY_E_BORROW_CONFLICT",
+        "E1206",
+        VITTE_DIAGNOSTIC_ERROR,
+        VITTE_DIAGNOSTIC_ORIGIN_TYPE_CHECK,
+        "memory",
+        "conflicting reference borrow",
+        "An exclusive reference cannot overlap another live reference to the same value."
+    ),
+
+    ENTRY(
+        "VITTE_MEMORY_E_BORROWED_MUTATION",
+        "E1207",
+        VITTE_DIAGNOSTIC_ERROR,
+        VITTE_DIAGNOSTIC_ORIGIN_TYPE_CHECK,
+        "memory",
+        "access conflicts with a live reference",
+        "The value cannot be read or changed while an incompatible reference is live."
+    ),
+
+    ENTRY(
+        "VITTE_MEMORY_E_MOVE_BORROWED",
+        "E1208",
+        VITTE_DIAGNOSTIC_ERROR,
+        VITTE_DIAGNOSTIC_ORIGIN_TYPE_CHECK,
+        "memory",
+        "cannot move a borrowed value",
+        "A value cannot be moved while a live reference depends on it."
+    ),
+
+    ENTRY(
+        "VITTE_MEMORY_E_USE_AFTER_MOVE",
+        "E1209",
+        VITTE_DIAGNOSTIC_ERROR,
+        VITTE_DIAGNOSTIC_ORIGIN_TYPE_CHECK,
+        "memory",
+        "use of moved value",
+        "The value was moved and must be initialized again before it can be used."
+    ),
+
     /* ===================================================================== */
     /* E1300-E1399: unsafe / low-level                                       */
     /* ===================================================================== */

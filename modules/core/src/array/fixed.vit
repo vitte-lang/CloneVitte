@@ -1,21 +1,168 @@
-/// Algorithmes sûrs pour les tableaux empruntés sous forme de tranches.
+/// Algorithmes pour tableaux fixes et tranches empruntées.
 ///
-/// Les fonctions acceptent une tranche afin de fonctionner aussi bien sur un
-/// tableau inline que sur une vue empruntée. Les opérations entre deux
-/// tranches s'arrêtent à la longueur disponible la plus courte, sauf pour
-/// l'égalité qui exige des longueurs identiques.
+/// Module: core::array::fixed
+///
+/// Propriétés:
+/// - aucune allocation dynamique
+/// - aucune dépendance libc
+/// - vérification des bornes avant les accès conditionnels
+/// - prise en charge des tranches vides
+/// - opérations en place
+///
+/// Contrat générique:
+/// Les opérations manipulant des valeurs T par affectation supposent
+/// que T possède une sémantique de copie compatible.
+///
+/// Les comparaisons génériques nécessitent les opérateurs correspondants.
+///
+/// Les fonctions retournant isize utilisent -1 pour signaler
+/// l'absence d'un élément.
+
 space core::array::fixed;
 
-export proc fixed_fill<T>(array: &mut [T], value: T) {
+// ============================================================================
+// 1. LONGUEURS ET VALIDATION
+// ============================================================================
+
+export proc fixed_length<T>(array: &[T]) -> usize {
+    return array.len() as usize;
+}
+
+export proc fixed_is_empty<T>(array: &[T]) -> bool {
+    return (array.len() as usize) == 0;
+}
+
+export proc fixed_is_not_empty<T>(array: &[T]) -> bool {
+    return (array.len() as usize) != 0;
+}
+
+export proc fixed_has_index<T>(
+    array: &[T],
+    index: usize
+) -> bool {
+    return index < (array.len() as usize);
+}
+
+export proc fixed_has_range<T>(
+    array: &[T],
+    start: usize,
+    count: usize
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if start > length {
+        return false;
+    }
+
+    return count <= length - start;
+}
+
+export proc fixed_min_length<T>(
+    left: &[T],
+    right: &[T]
+) -> usize {
+    let left_length: usize = left.len() as usize;
+    let right_length: usize = right.len() as usize;
+
+    if left_length < right_length {
+        return left_length;
+    }
+
+    return right_length;
+}
+
+// ============================================================================
+// 2. REMPLISSAGE
+// ============================================================================
+
+export proc fixed_fill<T>(
+    array: &mut [T],
+    value: T
+) {
     for index in 0 as usize..(array.len() as usize) {
         set array[index] = value;
     }
 }
 
-export proc fixed_copy<T>(source: &[T], destination: &mut [T]) -> usize {
-    let mut length: usize = (source.len() as usize);
+export proc fixed_fill_range<T>(
+    array: &mut [T],
+    start: usize,
+    count: usize,
+    value: T
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if start > length {
+        return false;
+    }
+
+    if count > length - start {
+        return false;
+    }
+
+    for index in 0 as usize..count {
+        set array[start + index] = value;
+    }
+
+    return true;
+}
+
+export proc fixed_fill_prefix<T>(
+    array: &mut [T],
+    count: usize,
+    value: T
+) -> usize {
+    let mut limit: usize = array.len() as usize;
+
+    if count < limit {
+        set limit = count;
+    }
+
+    for index in 0 as usize..limit {
+        set array[index] = value;
+    }
+
+    return limit;
+}
+
+export proc fixed_fill_suffix<T>(
+    array: &mut [T],
+    count: usize,
+    value: T
+) -> usize {
+    let length: usize = array.len() as usize;
+    let mut limit: usize = count;
+
+    if limit > length {
+        set limit = length;
+    }
+
+    let start: usize = length - limit;
+
+    for index in start..length {
+        set array[index] = value;
+    }
+
+    return limit;
+}
+
+// ============================================================================
+// 3. COPIE
+// ============================================================================
+
+/// Copie au maximum min(source.len(), destination.len()) éléments.
+///
+/// Précondition: les régions source et destination ne se chevauchent
+/// pas d'une manière interdite par le modèle d'emprunt.
+
+export proc fixed_copy<T>(
+    source: &[T],
+    destination: &mut [T]
+) -> usize {
+    let mut length: usize = source.len() as usize;
+
     if (destination.len() as usize) < length {
-        set length = (destination.len() as usize);
+        set length = destination.len() as usize;
     }
 
     for index in 0 as usize..length {
@@ -25,96 +172,1066 @@ export proc fixed_copy<T>(source: &[T], destination: &mut [T]) -> usize {
     return length;
 }
 
-export proc fixed_equal<T>(left: &[T], right: &[T]) -> bool {
-    if (left.len() as usize) != (right.len() as usize) { return false; }
+export proc fixed_copy_exact<T>(
+    source: &[T],
+    destination: &mut [T]
+) -> bool {
+    if (source.len() as usize) != (destination.len() as usize) {
+        return false;
+    }
 
-    for index in 0 as usize..(left.len() as usize) {
-        if left[index] != right[index] { return false; }
+    for index in 0 as usize..(source.len() as usize) {
+        set destination[index] = source[index];
     }
 
     return true;
 }
 
-export proc fixed_contains<T>(array: &[T], value: T) -> bool {
+export proc fixed_copy_range<T>(
+    source: &[T],
+    source_start: usize,
+    destination: &mut [T],
+    destination_start: usize,
+    count: usize
+) -> bool {
+    let source_length: usize = source.len() as usize;
+    let destination_length: usize = destination.len() as usize;
+
+    if source_start > source_length {
+        return false;
+    }
+
+    if destination_start > destination_length {
+        return false;
+    }
+
+    if count > source_length - source_start {
+        return false;
+    }
+
+    if count > destination_length - destination_start {
+        return false;
+    }
+
+    for index in 0 as usize..count {
+        set destination[destination_start + index] =
+            source[source_start + index];
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 4. ÉGALITÉ
+// ============================================================================
+
+export proc fixed_equal<T>(
+    left: &[T],
+    right: &[T]
+) -> bool {
+    if (left.len() as usize) != (right.len() as usize) {
+        return false;
+    }
+
+    for index in 0 as usize..(left.len() as usize) {
+        if left[index] != right[index] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_not_equal<T>(
+    left: &[T],
+    right: &[T]
+) -> bool {
+    return not fixed_equal(left, right);
+}
+
+export proc fixed_equal_by<T>(
+    left: &[T],
+    right: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    if (left.len() as usize) != (right.len() as usize) {
+        return false;
+    }
+
+    for index in 0 as usize..(left.len() as usize) {
+        if not equal(&left[index], &right[index]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_equal_prefix<T>(
+    left: &[T],
+    right: &[T],
+    count: usize
+) -> bool {
+    if count > (left.len() as usize) {
+        return false;
+    }
+
+    if count > (right.len() as usize) {
+        return false;
+    }
+
+    for index in 0 as usize..count {
+        if left[index] != right[index] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 5. RECHERCHE
+// ============================================================================
+
+export proc fixed_contains<T>(
+    array: &[T],
+    value: T
+) -> bool {
     for index in 0 as usize..(array.len() as usize) {
-        if array[index] == value { return true; }
+        if array[index] == value {
+            return true;
+        }
     }
 
     return false;
 }
 
-export proc fixed_index_of<T>(array: &[T], value: T) -> isize {
+export proc fixed_contains_by<T>(
+    array: &[T],
+    value: &T,
+    equal: proc(&T, &T) -> bool
+) -> bool {
     for index in 0 as usize..(array.len() as usize) {
-        if array[index] == value { return index as isize; }
+        if equal(&array[index], value) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+export proc fixed_index_of<T>(
+    array: &[T],
+    value: T
+) -> isize {
+    for index in 0 as usize..(array.len() as usize) {
+        if array[index] == value {
+            return index as isize;
+        }
     }
 
     return -1;
 }
 
-export proc fixed_reverse<T>(array: &mut [T]) {
+export proc fixed_last_index_of<T>(
+    array: &[T],
+    value: T
+) -> isize {
+    let mut index: usize = array.len() as usize;
+
+    while index > 0 {
+        set index = index - 1;
+
+        if array[index] == value {
+            return index as isize;
+        }
+    }
+
+    return -1;
+}
+
+export proc fixed_index_of_by<T>(
+    array: &[T],
+    value: &T,
+    equal: proc(&T, &T) -> bool
+) -> isize {
+    for index in 0 as usize..(array.len() as usize) {
+        if equal(&array[index], value) {
+            return index as isize;
+        }
+    }
+
+    return -1;
+}
+
+export proc fixed_last_index_of_by<T>(
+    array: &[T],
+    value: &T,
+    equal: proc(&T, &T) -> bool
+) -> isize {
+    let mut index: usize = array.len() as usize;
+
+    while index > 0 {
+        set index = index - 1;
+
+        if equal(&array[index], value) {
+            return index as isize;
+        }
+    }
+
+    return -1;
+}
+
+// ============================================================================
+// 6. COMPTAGE
+// ============================================================================
+
+export proc fixed_count<T>(
+    array: &[T],
+    value: T
+) -> usize {
+    let mut count: usize = 0;
+
+    for index in 0 as usize..(array.len() as usize) {
+        if array[index] == value {
+            set count = count + 1;
+        }
+    }
+
+    return count;
+}
+
+export proc fixed_count_by<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> usize {
+    let mut count: usize = 0;
+
+    for index in 0 as usize..(array.len() as usize) {
+        if predicate(&array[index]) {
+            set count = count + 1;
+        }
+    }
+
+    return count;
+}
+
+// ============================================================================
+// 7. PRÉDICATS
+// ============================================================================
+
+export proc fixed_all<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool {
+    for index in 0 as usize..(array.len() as usize) {
+        if not predicate(&array[index]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_any<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool {
+    for index in 0 as usize..(array.len() as usize) {
+        if predicate(&array[index]) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+export proc fixed_none<T>(
+    array: &[T],
+    predicate: proc(&T) -> bool
+) -> bool {
+    return not fixed_any(array, predicate);
+}
+
+// ============================================================================
+// 8. PERMUTATION
+// ============================================================================
+
+export proc fixed_swap<T>(
+    array: &mut [T],
+    first: usize,
+    second: usize
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if first >= length {
+        return false;
+    }
+
+    if second >= length {
+        return false;
+    }
+
+    if first == second {
+        return true;
+    }
+
+    let temporary: T = array[first];
+
+    set array[first] = array[second];
+    set array[second] = temporary;
+
+    return true;
+}
+
+// ============================================================================
+// 9. INVERSION
+// ============================================================================
+
+export proc fixed_reverse<T>(
+    array: &mut [T]
+) {
+    let length: usize = array.len() as usize;
     let mut index: usize = 0;
-    while index < (array.len() as usize) / 2 {
-        let opposite: usize = (array.len() as usize) - 1 - index;
+
+    while index < length / 2 {
+        let opposite: usize = length - 1 - index;
         let temporary: T = array[index];
+
         set array[index] = array[opposite];
         set array[opposite] = temporary;
+
         set index = index + 1;
     }
 }
 
-export proc fixed_rotate_left<T>(array: &mut [T]) {
-    if (array.len() as usize) < 2 { return; }
+export proc fixed_reverse_range<T>(
+    array: &mut [T],
+    start: usize,
+    count: usize
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if start > length {
+        return false;
+    }
+
+    if count > length - start {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < count / 2 {
+        let left: usize = start + index;
+        let right: usize = start + count - 1 - index;
+
+        let temporary: T = array[left];
+
+        set array[left] = array[right];
+        set array[right] = temporary;
+
+        set index = index + 1;
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 10. ROTATION D'UNE POSITION
+// ============================================================================
+
+export proc fixed_rotate_left<T>(
+    array: &mut [T]
+) {
+    let length: usize = array.len() as usize;
+
+    if length < 2 {
+        return;
+    }
+
     let first: T = array[0];
     let mut index: usize = 0;
-    while index + 1 < (array.len() as usize) {
+
+    while index < length - 1 {
         set array[index] = array[index + 1];
         set index = index + 1;
     }
-    set array[(array.len() as usize) - 1] = first;
+
+    set array[length - 1] = first;
 }
 
-export proc fixed_rotate_right<T>(array: &mut [T]) {
-    if (array.len() as usize) < 2 { return; }
-    let last: T = array[(array.len() as usize) - 1];
-    let mut index: usize = (array.len() as usize) - 1;
+export proc fixed_rotate_right<T>(
+    array: &mut [T]
+) {
+    let length: usize = array.len() as usize;
+
+    if length < 2 {
+        return;
+    }
+
+    let last: T = array[length - 1];
+    let mut index: usize = length - 1;
+
     while index > 0 {
         set array[index] = array[index - 1];
         set index = index - 1;
     }
+
     set array[0] = last;
 }
 
-export proc fixed_count<T>(array: &[T], value: T) -> usize {
-    let mut count: usize = 0;
-    for index in 0 as usize..(array.len() as usize) {
-        if array[index] == value { set count = count + 1; }
+// ============================================================================
+// 11. ROTATION DE PLUSIEURS POSITIONS
+//
+// Algorithme par trois inversions.
+// Complexité O(n), mémoire supplémentaire O(1).
+// ============================================================================
+
+export proc fixed_rotate_left_by<T>(
+    array: &mut [T],
+    count: usize
+) {
+    let length: usize = array.len() as usize;
+
+    if length < 2 {
+        return;
     }
+
+    let shift: usize = count % length;
+
+    if shift == 0 {
+        return;
+    }
+
+    fixed_reverse_range(array, 0, shift);
+    fixed_reverse_range(array, shift, length - shift);
+    fixed_reverse(array);
+}
+
+export proc fixed_rotate_right_by<T>(
+    array: &mut [T],
+    count: usize
+) {
+    let length: usize = array.len() as usize;
+
+    if length < 2 {
+        return;
+    }
+
+    let shift: usize = count % length;
+
+    if shift == 0 {
+        return;
+    }
+
+    fixed_rotate_left_by(array, length - shift);
+}
+
+// ============================================================================
+// 12. DÉCALAGES AVEC REMPLISSAGE
+// ============================================================================
+
+export proc fixed_shift_left<T>(
+    array: &mut [T],
+    count: usize,
+    fill: T
+) {
+    let length: usize = array.len() as usize;
+
+    if count >= length {
+        fixed_fill(array, fill);
+        return;
+    }
+
+    let remaining: usize = length - count;
+
+    for index in 0 as usize..remaining {
+        set array[index] = array[index + count];
+    }
+
+    for index in remaining..length {
+        set array[index] = fill;
+    }
+}
+
+export proc fixed_shift_right<T>(
+    array: &mut [T],
+    count: usize,
+    fill: T
+) {
+    let length: usize = array.len() as usize;
+
+    if count >= length {
+        fixed_fill(array, fill);
+        return;
+    }
+
+    let mut index: usize = length - count;
+
+    while index > 0 {
+        set index = index - 1;
+        set array[index + count] = array[index];
+    }
+
+    for position in 0 as usize..count {
+        set array[position] = fill;
+    }
+}
+
+// ============================================================================
+// 13. PRÉFIXES ET SUFFIXES
+// ============================================================================
+
+export proc fixed_starts_with<T>(
+    array: &[T],
+    prefix: &[T]
+) -> bool {
+    if (prefix.len() as usize) > (array.len() as usize) {
+        return false;
+    }
+
+    for index in 0 as usize..(prefix.len() as usize) {
+        if array[index] != prefix[index] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_ends_with<T>(
+    array: &[T],
+    suffix: &[T]
+) -> bool {
+    let length: usize = array.len() as usize;
+    let suffix_length: usize = suffix.len() as usize;
+
+    if suffix_length > length {
+        return false;
+    }
+
+    let offset: usize = length - suffix_length;
+
+    for index in 0 as usize..suffix_length {
+        if array[offset + index] != suffix[index] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_common_prefix_length<T>(
+    left: &[T],
+    right: &[T]
+) -> usize {
+    let limit: usize = fixed_min_length(left, right);
+
+    for index in 0 as usize..limit {
+        if left[index] != right[index] {
+            return index;
+        }
+    }
+
+    return limit;
+}
+
+export proc fixed_common_suffix_length<T>(
+    left: &[T],
+    right: &[T]
+) -> usize {
+    let left_length: usize = left.len() as usize;
+    let right_length: usize = right.len() as usize;
+    let limit: usize = fixed_min_length(left, right);
+
+    let mut count: usize = 0;
+
+    while count < limit {
+        let left_index: usize = left_length - count - 1;
+        let right_index: usize = right_length - count - 1;
+
+        if left[left_index] != right[right_index] {
+            return count;
+        }
+
+        set count = count + 1;
+    }
+
     return count;
 }
 
-export proc fixed_is_sorted_i64(array: &[i64]) -> bool {
-    if (array.len() as usize) < 2 { return true; }
-    for index in 1 as usize..(array.len() as usize) {
-        let previous: usize = index - 1;
-        if array[index] < array[previous] { return false; }
+// ============================================================================
+// 14. PALINDROMES
+// ============================================================================
+
+export proc fixed_is_palindrome<T>(
+    array: &[T]
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    for index in 0 as usize..(length / 2) {
+        let opposite: usize = length - index - 1;
+
+        if array[index] != array[opposite] {
+            return false;
+        }
     }
+
+    return true;
+}
+
+export proc fixed_is_palindrome_by<T>(
+    array: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    for index in 0 as usize..(length / 2) {
+        let opposite: usize = length - index - 1;
+
+        if not equal(&array[index], &array[opposite]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 15. UNICITÉ
+// ============================================================================
+
+export proc fixed_all_equal<T>(
+    array: &[T]
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if length < 2 {
+        return true;
+    }
+
+    for index in 1 as usize..length {
+        if array[index] != array[0] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_all_distinct<T>(
+    array: &[T]
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    for index in 0 as usize..length {
+        let mut other: usize = index + 1;
+
+        while other < length {
+            if array[index] == array[other] {
+                return false;
+            }
+
+            set other = other + 1;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_all_distinct_by<T>(
+    array: &[T],
+    equal: proc(&T, &T) -> bool
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    for index in 0 as usize..length {
+        let mut other: usize = index + 1;
+
+        while other < length {
+            if equal(&array[index], &array[other]) {
+                return false;
+            }
+
+            set other = other + 1;
+        }
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 16. COMPARAISON LEXICOGRAPHIQUE
+// ============================================================================
+
+export proc fixed_compare<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> i32 {
+    let limit: usize = fixed_min_length(left, right);
+
+    for index in 0 as usize..limit {
+        let ordering: i8 = compare(&left[index], &right[index]);
+
+        if ordering < 0 {
+            return -1;
+        }
+
+        if ordering > 0 {
+            return 1;
+        }
+    }
+
+    if (left.len() as usize) < (right.len() as usize) {
+        return -1;
+    }
+
+    if (left.len() as usize) > (right.len() as usize) {
+        return 1;
+    }
+
+    return 0;
+}
+
+export proc fixed_less<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    return fixed_compare(left, right, compare) < 0;
+}
+
+export proc fixed_greater<T>(
+    left: &[T],
+    right: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    return fixed_compare(left, right, compare) > 0;
+}
+
+// ============================================================================
+// 17. TRI GÉNÉRIQUE
+// ============================================================================
+
+export proc fixed_is_sorted<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if length < 2 {
+        return true;
+    }
+
+    for index in 1 as usize..length {
+        if compare(&array[index - 1], &array[index]) > 0 {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_is_sorted_strict<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if length < 2 {
+        return true;
+    }
+
+    for index in 1 as usize..length {
+        if compare(&array[index - 1], &array[index]) >= 0 {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_is_sorted_descending<T>(
+    array: &[T],
+    compare: proc(&T, &T) -> i8
+) -> bool {
+    let length: usize = array.len() as usize;
+
+    if length < 2 {
+        return true;
+    }
+
+    for index in 1 as usize..length {
+        if compare(&array[index - 1], &array[index]) < 0 {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// ============================================================================
+// 18. TRI DES TYPES PRIMITIFS
+// ============================================================================
+
+export proc fixed_is_sorted_i8(array: &[i8]) -> bool {
+    for index in 1 as usize..(array.len() as usize) {
+        if array[index] < array[index - 1] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_is_sorted_i16(array: &[i16]) -> bool {
+    for index in 1 as usize..(array.len() as usize) {
+        if array[index] < array[index - 1] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_is_sorted_i32(array: &[i32]) -> bool {
+    for index in 1 as usize..(array.len() as usize) {
+        if array[index] < array[index - 1] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_is_sorted_i64(array: &[i64]) -> bool {
+    for index in 1 as usize..(array.len() as usize) {
+        if array[index] < array[index - 1] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_is_sorted_u8(array: &[u8]) -> bool {
+    for index in 1 as usize..(array.len() as usize) {
+        if array[index] < array[index - 1] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_is_sorted_u16(array: &[u16]) -> bool {
+    for index in 1 as usize..(array.len() as usize) {
+        if array[index] < array[index - 1] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export proc fixed_is_sorted_u32(array: &[u32]) -> bool {
+    for index in 1 as usize..(array.len() as usize) {
+        if array[index] < array[index - 1] {
+            return false;
+        }
+    }
+
     return true;
 }
 
 export proc fixed_is_sorted_u64(array: &[u64]) -> bool {
-    if (array.len() as usize) < 2 { return true; }
     for index in 1 as usize..(array.len() as usize) {
-        let previous: usize = index - 1;
-        if array[index] < array[previous] { return false; }
+        if array[index] < array[index - 1] {
+            return false;
+        }
     }
+
+    return true;
+}
+
+// ============================================================================
+// 19. TRI FLOTTANT
+//
+// Politique: NaN rend le tableau non trié.
+// ============================================================================
+
+export proc fixed_is_sorted_f32(array: &[f32]) -> bool {
+    let length: usize = array.len() as usize;
+
+    for index in 0 as usize..length {
+        if array[index] != array[index] {
+            return false;
+        }
+
+        if index > 0 {
+            if array[index] < array[index - 1] {
+                return false;
+            }
+        }
+    }
+
     return true;
 }
 
 export proc fixed_is_sorted_f64(array: &[f64]) -> bool {
-    if (array.len() as usize) < 2 { return true; }
-    for index in 1 as usize..(array.len() as usize) {
-        let previous: usize = index - 1;
-        if array[index] < array[previous] { return false; }
+    let length: usize = array.len() as usize;
+
+    for index in 0 as usize..length {
+        if array[index] != array[index] {
+            return false;
+        }
+
+        if index > 0 {
+            if array[index] < array[index - 1] {
+                return false;
+            }
+        }
     }
+
     return true;
 }
+
+// ============================================================================
+// 20. MINIMUM ET MAXIMUM
+//
+// Résultat: indice ou -1 si tableau vide.
+// ============================================================================
+
+export proc fixed_min_index_i64(
+    array: &[i64]
+) -> isize {
+    let length: usize = array.len() as usize;
+
+    if length == 0 {
+        return -1;
+    }
+
+    let mut minimum: usize = 0;
+
+    for index in 1 as usize..length {
+        if array[index] < array[minimum] {
+            set minimum = index;
+        }
+    }
+
+    return minimum as isize;
+}
+
+export proc fixed_max_index_i64(
+    array: &[i64]
+) -> isize {
+    let length: usize = array.len() as usize;
+
+    if length == 0 {
+        return -1;
+    }
+
+    let mut maximum: usize = 0;
+
+    for index in 1 as usize..length {
+        if array[index] > array[maximum] {
+            set maximum = index;
+        }
+    }
+
+    return maximum as isize;
+}
+
+export proc fixed_min_index_u64(
+    array: &[u64]
+) -> isize {
+    let length: usize = array.len() as usize;
+
+    if length == 0 {
+        return -1;
+    }
+
+    let mut minimum: usize = 0;
+
+    for index in 1 as usize..length {
+        if array[index] < array[minimum] {
+            set minimum = index;
+        }
+    }
+
+    return minimum as isize;
+}
+
+export proc fixed_max_index_u64(
+    array: &[u64]
+) -> isize {
+    let length: usize = array.len() as usize;
+
+    if length == 0 {
+        return -1;
+    }
+
+    let mut maximum: usize = 0;
+
+    for index in 1 as usize..length {
+        if array[index] > array[maximum] {
+            set maximum = index;
+        }
+    }
+
+    return maximum as isize;
+}
+
+// ============================================================================
+// 21. DIFFÉRENCES
+// ============================================================================
+
+export proc fixed_mismatch_count<T>(
+    left: &[T],
+    right: &[T]
+) -> usize {
+    let left_length: usize = left.len() as usize;
+    let right_length: usize = right.len() as usize;
+    let limit: usize = fixed_min_length(left, right);
+
+    let mut count: usize = 0;
+
+    for index in 0 as usize..limit {
+        if left[index] != right[index] {
+            set count = count + 1;
+        }
+    }
+
+    if left_length > right_length {
+        set count = count + (left_length - right_length);
+    } else {
+        set count = count + (right_length - left_length);
+    }
+
+    return count;
+}
+
+export proc fixed_equal_reverse<T>(
+    left: &[T],
+    right: &[T]
+) -> bool {
+    let length: usize = left.len() as usize;
+
+    if length != (right.len() as usize) {
+        return false;
+    }
+
+    for index in 0 as usize..length {
+        if left[index] != right[length - index - 1] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// ============================================================================
+// END OF MODULE
+// ============================================================================

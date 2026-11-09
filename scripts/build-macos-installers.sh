@@ -307,6 +307,19 @@ create_editor_payload() {
   copy_tree "$EDITORS_DIR" "$archive_root"
   copy_tree "$COMPLETIONS_DIR" "$completion_root"
 
+  for integration_prefix in /usr/local /opt/homebrew; do
+    bash_destination=$payload_root$integration_prefix/etc/bash_completion.d/vitte
+    fish_destination=$payload_root$integration_prefix/share/fish/vendor_completions.d/vitte.fish
+    zsh_destination=$payload_root$integration_prefix/share/zsh/site-functions/_vitte
+    mkdir -p \
+      "$(dirname "$bash_destination")" \
+      "$(dirname "$fish_destination")" \
+      "$(dirname "$zsh_destination")"
+    install -m 0644 "$COMPLETIONS_DIR/bash/vitte" "$bash_destination"
+    install -m 0644 "$COMPLETIONS_DIR/fish/vitte.fish" "$fish_destination"
+    install -m 0644 "$COMPLETIONS_DIR/zsh/_vitte" "$zsh_destination"
+  done
+
   create_vim_integration "$payload_root"
   create_emacs_integration "$payload_root"
   create_nano_integration "$payload_root"
@@ -798,6 +811,23 @@ verify_product_package() {
 
   scripts_build_verify_modules \
     "$(dirname "$(dirname "$(dirname "$module_package")")")"
+
+  for integration_path in \
+    '*/Payload/usr/local/etc/bash_completion.d/vitte' \
+    '*/Payload/usr/local/share/fish/vendor_completions.d/vitte.fish' \
+    '*/Payload/usr/local/share/zsh/site-functions/_vitte' \
+    '*/Payload/opt/homebrew/etc/bash_completion.d/vitte' \
+    '*/Payload/opt/homebrew/share/fish/vendor_completions.d/vitte.fish' \
+    '*/Payload/opt/homebrew/share/zsh/site-functions/_vitte'
+  do
+    find "$expanded" \
+      -path "$integration_path" \
+      -type f \
+      -print \
+      -quit |
+      grep -q . ||
+      die "missing shell completion in macOS package: $integration_path"
+  done
 
   find "$expanded" \
     -path '*/Payload/usr/local/share/vim/vimfiles/syntax/vitte.vim' \

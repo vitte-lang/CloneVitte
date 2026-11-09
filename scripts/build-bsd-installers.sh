@@ -99,6 +99,9 @@ verify_payload() {
   [ -d "$root/usr/local/share/vitte/completions" ] ||
     die "shell completions missing from $family $release $arch payload"
 
+  [ -x "$root/usr/local/share/vitte/tools/install-unix-integrations.sh" ] ||
+    die "editor and shell integration installer missing from $family $release $arch payload"
+
   find "$root/usr/local/share/vitte/editors" \
     -type f \
     -print \
@@ -188,6 +191,13 @@ else
   done
 fi
 
+integration_helper=$target_root$PREFIX/share/vitte/tools/install-unix-integrations.sh
+[ -x "$integration_helper" ] || {
+  printf 'Vitte integration installer is missing: %s\n' "$integration_helper" >&2
+  exit 1
+}
+PREFIX=$PREFIX DESTDIR=$DESTDIR "$integration_helper"
+
 printf 'Vitte installed in %s%s.\n' \
   "$DESTDIR" \
   "$PREFIX"
@@ -233,6 +243,11 @@ rm -f \
   "$root$PREFIX/bin/vitte" \
   "$root$PREFIX/bin/vittec" \
   "$root$PREFIX/bin/vitte-installer-doctor"
+
+integration_helper=$root$PREFIX/share/vitte/tools/install-unix-integrations.sh
+if [ -x "$integration_helper" ]; then
+  PREFIX=$PREFIX DESTDIR=$DESTDIR "$integration_helper" uninstall
+fi
 
 rm -rf \
   "$root$PREFIX/libexec/vitte" \

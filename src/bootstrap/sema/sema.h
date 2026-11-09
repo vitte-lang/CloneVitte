@@ -481,6 +481,37 @@ typedef enum vitte_sema_diagnostic_code {
     VITTE_SEMA_DIAGNOSTIC_RECURSION_LIMIT,
     VITTE_SEMA_DIAGNOSTIC_INVALID_TYPE,
 
+    /* Contract declaration checks. Keep existing diagnostic ordinals stable. */
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_REQUIRES,
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_ENSURES,
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_RESULT,
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_CONTRADICTION,
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_POSTCONDITION,
+
+    VITTE_SEMA_DIAGNOSTIC_MISSING_RETURN,
+
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_PRECONDITION,
+    VITTE_SEMA_DIAGNOSTIC_CONSTANT_OVERFLOW,
+    VITTE_SEMA_DIAGNOSTIC_CONSTANT_DIVIDE_BY_ZERO,
+    VITTE_SEMA_DIAGNOSTIC_INDEX_OUT_OF_BOUNDS,
+
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_EFFECT,
+    VITTE_SEMA_DIAGNOSTIC_MATCH_NON_EXHAUSTIVE,
+    VITTE_SEMA_DIAGNOSTIC_MATCH_UNREACHABLE,
+
+    VITTE_SEMA_DIAGNOSTIC_CONSTANT_CYCLE,
+
+    VITTE_SEMA_DIAGNOSTIC_MATCH_TYPE,
+
+    /* Append to preserve the ordinals used by the bootstrap API. */
+    VITTE_SEMA_DIAGNOSTIC_UNSAFE_REQUIRED,
+
+    VITTE_SEMA_DIAGNOSTIC_REFERENCE_ESCAPE,
+    VITTE_SEMA_DIAGNOSTIC_BORROW_CONFLICT,
+    VITTE_SEMA_DIAGNOSTIC_BORROWED_MUTATION,
+    VITTE_SEMA_DIAGNOSTIC_MOVE_BORROWED,
+    VITTE_SEMA_DIAGNOSTIC_USE_AFTER_MOVE,
+
     VITTE_SEMA_DIAGNOSTIC_CODE_COUNT
 } vitte_sema_diagnostic_code_t;
 
@@ -509,6 +540,11 @@ typedef struct vitte_sema_diagnostic {
 
     /* Evidence from name resolution or the selected procedure signature. */
     char help[512];
+
+    /* Enclosing clause, including diagnostics on a nested expression. */
+    uint32_t contract_flags;
+    vitte_parser_span_t contract_span;
+    vitte_symbol_id_t contract_symbol_id;
 } vitte_sema_diagnostic_t;
 
 /* ========================================================================= */
@@ -649,6 +685,7 @@ typedef struct vitte_sema {
 
     /* True while checking an ensures clause, where `result` is implicit. */
     bool current_contract_ensures;
+    bool current_contract_requires;
 
     /* Public use/export declarations, indexed once for name lookup. */
     vitte_ast_node_id_t *explicit_exports;
@@ -683,6 +720,9 @@ typedef struct vitte_sema {
 
     /* Appended so existing public field offsets stay stable in API v2. */
     vitte_sema_type_id_t type_never;
+
+    /* True while the current procedure/block permits unsafe operations. */
+    bool current_unsafe;
 } vitte_sema_t;
 
 /* ========================================================================= */
