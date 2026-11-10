@@ -1,0 +1,276 @@
+{
+  "Procedure": {
+    "prefix": "proc",
+    "body": [
+      "proc ${1:name}(${2:value}: ${3:int}) -> ${4:void} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Procedure"
+  },
+  "Async procedure": {
+    "prefix": "aproc",
+    "body": [
+      "async proc ${1:name}() {",
+      "    $0",
+      "}"
+    ],
+    "description": "Async procedure"
+  },
+  "Unsafe procedure": {
+    "prefix": "uproc",
+    "body": [
+      "unsafe proc ${1:name}() {",
+      "    $0",
+      "}"
+    ],
+    "description": "Unsafe procedure"
+  },
+  "Extern procedure": {
+    "prefix": "extern",
+    "body": [
+      "extern \"C\" proc ${1:name}(${2:value}: ${3:int}) -> ${4:void};"
+    ],
+    "description": "Extern procedure"
+  },
+  "Constant": {
+    "prefix": "const",
+    "body": [
+      "const ${1:NAME}: ${2:int} = ${3:0};"
+    ],
+    "description": "Constant"
+  },
+  "Static": {
+    "prefix": "static",
+    "body": [
+      "static ${1:name}: ${2:type} = ${3:value};"
+    ],
+    "description": "Static"
+  },
+  "Local binding": {
+    "prefix": "let",
+    "body": [
+      "let ${1:name}: ${2:type} = ${3:value};"
+    ],
+    "description": "Local binding"
+  },
+  "Mutable local binding": {
+    "prefix": "letm",
+    "body": [
+      "let mut ${1:name}: ${2:type} = ${3:value};"
+    ],
+    "description": "Mutable local binding"
+  },
+  "Assignment": {
+    "prefix": "set",
+    "body": [
+      "set ${1:name} = ${2:value};"
+    ],
+    "description": "Assignment"
+  },
+  "Form": {
+    "prefix": "form",
+    "body": [
+      "form ${1:Name} {",
+      "    ${2:field}: ${3:type},",
+      "    $0",
+      "}"
+    ],
+    "description": "Form"
+  },
+  "Pick": {
+    "prefix": "pick",
+    "body": [
+      "pick ${1:Name} {",
+      "    ${2:Ready},",
+      "    ${3:Failed}(i32),",
+      "    $0",
+      "}"
+    ],
+    "description": "Pick"
+  },
+  "Type alias": {
+    "prefix": "type",
+    "body": [
+      "type ${1:Name} = ${2:type};"
+    ],
+    "description": "Type alias"
+  },
+  "Opaque type": {
+    "prefix": "opaque",
+    "body": [
+      "opaque ${1:Name};"
+    ],
+    "description": "Opaque type"
+  },
+  "Trait": {
+    "prefix": "trait",
+    "body": [
+      "trait ${1:Name} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Trait"
+  },
+  "Implementation": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:Type} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Implementation"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value} {",
+      "    ${2:pattern} => {",
+      "        $0",
+      "    },",
+      "}"
+    ],
+    "description": "Match"
+  },
+  "If": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "    $0",
+      "}"
+    ],
+    "description": "If"
+  },
+  "If / else": {
+    "prefix": "ife",
+    "body": [
+      "if ${1:condition} {",
+      "    ${2}",
+      "} else {",
+      "    $0",
+      "}"
+    ],
+    "description": "If / else"
+  },
+  "While loop": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition} {",
+      "    $0",
+      "}"
+    ],
+    "description": "While loop"
+  },
+  "Loop": {
+    "prefix": "loop",
+    "body": [
+      "loop {",
+      "    $0",
+      "}"
+    ],
+    "description": "Loop"
+  },
+  "For loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:items} {",
+      "    $0",
+      "}"
+    ],
+    "description": "For loop"
+  },
+  "Unsafe block": {
+    "prefix": "unsafe",
+    "body": [
+      "unsafe {",
+      "    $0",
+      "}"
+    ],
+    "description": "Unsafe block"
+  },
+  "Defer": {
+    "prefix": "defer",
+    "body": [
+      "defer {",
+      "    $0",
+      "}"
+    ],
+    "description": "Defer"
+  },
+  "Return value": {
+    "prefix": "give",
+    "body": [
+      "give ${1:value};"
+    ],
+    "description": "Return value"
+  },
+  "Assertion": {
+    "prefix": "assert",
+    "body": [
+      "assert(${1:condition});"
+    ],
+    "description": "Assertion"
+  },
+  "Entry procedure": {
+    "prefix": "entry",
+    "body": [
+      "proc main() {",
+      "    $0",
+      "}"
+    ],
+    "description": "Entry procedure"
+  },
+  "Use module": {
+    "prefix": "use",
+    "body": [
+      "use ${1:module}::{${2:item}};"
+    ],
+    "description": "Use module"
+  },
+  "Export": {
+    "prefix": "export",
+    "body": [
+      "export ${1:name};"
+    ],
+    "description": "Export"
+  },
+  "Space": {
+    "prefix": "space",
+    "body": [
+      "space ${1:app};"
+    ],
+    "description": "Space"
+  },
+  "Test": {
+    "prefix": "test",
+    "body": [
+      "test ${1:name} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Test"
+  },
+  "Macro": {
+    "prefix": "macro",
+    "body": [
+      "macro ${1:name}(${2:value}: ${3:type}) {",
+      "    $0",
+      "}"
+    ],
+    "description": "Macro"
+  },
+  "Intrinsic": {
+    "prefix": "intrinsic",
+    "body": [
+      "intrinsic ${1:name}(${2:value}: ${3:type}) -> ${4:void};"
+    ],
+    "description": "Intrinsic"
+  },
+  "Assembly": {
+    "prefix": "asm",
+    "body": [
+      "asm(\"${1:instruction}\");"
+    ],
+    "description": "Assembly"
+  }
+}

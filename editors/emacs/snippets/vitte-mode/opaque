@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: Opaque type
+# key: opaque
+# --
+opaque ${1:Name};

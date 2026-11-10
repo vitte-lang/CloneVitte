@@ -56,6 +56,12 @@ if [ "$MODE" = uninstall ]; then
   do
     remove_file "$path"
   done
+  for relative in indent/vitte.vim compiler/vitte.vim autoload/vitte.vim autoload/vitte/complete.vim after/syntax/vitte.vim colors/vitte_reference.vim ultisnips/vitte.snippets; do
+    remove_file "$DESTDIR$PREFIX/share/vim/vimfiles/$relative"
+  done
+  remove_file "$DESTDIR$PREFIX/share/emacs/site-lisp/vitte-indent.el"
+  remove_file "$DESTDIR$PREFIX/bin/vitte-editor"
+  remove_file "$DESTDIR$PREFIX/bin/vitte-lsp"
   remove_nano_include "$DESTDIR/etc/nanorc"
   remove_nano_include "$DESTDIR$PREFIX/etc/nanorc"
   if [ -z "$DESTDIR" ]; then
@@ -73,6 +79,12 @@ install_file "$EDITOR_ROOT/vim/ftdetect/vitte.vim" \
   "$DESTDIR$PREFIX/share/vim/vimfiles/ftdetect/vitte.vim"
 install_file "$EDITOR_ROOT/vim/ftplugin/vitte.vim" \
   "$DESTDIR$PREFIX/share/vim/vimfiles/ftplugin/vitte.vim"
+
+for relative in indent/vitte.vim compiler/vitte.vim autoload/vitte.vim autoload/vitte/complete.vim after/syntax/vitte.vim colors/vitte_reference.vim ultisnips/vitte.snippets; do
+  install_file "$EDITOR_ROOT/vim/$relative" "$DESTDIR$PREFIX/share/vim/vimfiles/$relative"
+done
+install_file "$EDITOR_ROOT/emacs/vitte-indent.el" \
+  "$DESTDIR$PREFIX/share/emacs/site-lisp/vitte-indent.el"
 
 install_file "$EDITOR_ROOT/emacs/vitte-mode.el" \
   "$DESTDIR$PREFIX/share/emacs/site-lisp/vitte-mode.el"
@@ -92,8 +104,20 @@ chmod 0644 "$emacs_startup"
 
 install_file "$EDITOR_ROOT/nano/vitte.nanorc" \
   "$DESTDIR$PREFIX/share/nano/vitte.nanorc"
-install_file "$EDITOR_ROOT/geany/filetypes.vitte.conf" \
-  "$DESTDIR$PREFIX/share/geany/filedefs/filetypes.Vitte.conf"
+mkdir -p "$DESTDIR$PREFIX/bin" "$DESTDIR$PREFIX/share/geany/filedefs"
+cat > "$DESTDIR$PREFIX/bin/vitte-editor" <<'WRAPPER'
+#!/bin/sh
+set -eu
+payload=$(CDPATH= cd -- "$(dirname -- "$0")/../share/vitte" && pwd)
+exec "${PYTHON:-python3}" "$payload/editors/vitte-editor" "$@"
+WRAPPER
+cat > "$DESTDIR$PREFIX/bin/vitte-lsp" <<'WRAPPER'
+#!/bin/sh
+exec "$(dirname -- "$0")/vitte-editor" lsp "$@"
+WRAPPER
+chmod 0755 "$DESTDIR$PREFIX/bin/vitte-editor" "$DESTDIR$PREFIX/bin/vitte-lsp"
+python3 "$EDITOR_ROOT/geany/integration.py" --render-filetype --helper "$PREFIX/bin/vitte-editor" \
+  > "$DESTDIR$PREFIX/share/geany/filedefs/filetypes.Vitte.conf"
 install_file "$EDITOR_ROOT/geany/snippets.vitte.conf" \
   "$DESTDIR$PREFIX/share/geany/filedefs/snippets.vitte.conf"
 

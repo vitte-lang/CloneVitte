@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: Local binding
+# key: let
+# --
+let ${1:name}: ${2:type} = ${3:value};

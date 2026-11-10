@@ -1,0 +1,7 @@
+# -*- mode: snippet -*-
+# name: Test
+# key: test
+# --
+test ${1:name} {
+    $0
+}

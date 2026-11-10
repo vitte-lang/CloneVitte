@@ -1,13 +1,6 @@
 ;;; vitte-indent.el --- Advanced indentation engine for Vitte -*- lexical-binding: t; -*-
 
-;; High quality indentation engine for the Vitte language.
-;; Supports:
-;; - braces
-;; - grammar-defined brace blocks
-;; - multiline calls
-;; - chained expressions
-;; - continuation indentation
-;; - comments
+;; Indent delimiter bodies while ignoring delimiters in strings and comments.
 
 (require 'cl-lib)
 
@@ -25,128 +18,27 @@
   :type 'integer
   :group 'vitte-indent)
 
-(defconst vitte--block-open-keywords
-  '("space" "form" "pick" "trait" "impl" "proc" "macro" "test"
-    "if" "else" "match" "loop" "while" "for" "unsafe" "defer"))
-
-(defun vitte--trim-string (s)
-  (replace-regexp-in-string
-   "[ \t\n\r]+$"
-   ""
-   (replace-regexp-in-string
-    "^[ \t\n\r]+"
-    ""
-    s)))
-
-(defun vitte--current-line ()
-  (buffer-substring-no-properties
-   (line-beginning-position)
-   (line-end-position)))
-
-(defun vitte--current-line-trimmed ()
-  (vitte--trim-string (vitte--current-line)))
-
 (defun vitte--blank-line-p ()
-  (string-match-p
-   "\\`[ \t]*\\'"
-   (vitte--current-line)))
-
-(defun vitte--comment-line-p ()
-  (save-excursion
-    (back-to-indentation)
-    (or
-     (looking-at-p "//")
-     (looking-at-p "/\\*")
-     (looking-at-p "\\*"))))
-
-(defun vitte--line-starts-with (re)
-  (save-excursion
-    (back-to-indentation)
-    (looking-at re)))
-
-(defun vitte--line-ends-with (re)
-  (save-excursion
-    (end-of-line)
-    (skip-chars-backward " \t")
-    (looking-back re (line-beginning-position))))
-
-(defun vitte--previous-code-line ()
-  "Move to previous non-empty non-comment line."
-  (let ((found nil))
-    (while (and (not found)
-                (= (forward-line -1) 0))
-      (unless (or (vitte--blank-line-p)
-                  (vitte--comment-line-p))
-        (setq found t)))
-    found))
-
-(defun vitte--previous-indentation ()
-  (save-excursion
-    (if (vitte--previous-code-line)
-        (current-indentation)
-      0)))
-
-(defun vitte--previous-line-text ()
-  (save-excursion
-    (if (vitte--previous-code-line)
-        (vitte--current-line-trimmed)
-      "")))
-
-(defun vitte--line-opens-block-p (line)
-  (or
-   (string-match-p "{[ \t]*$" line)
-   (and
-    (not (string-match-p ";[ \t]*$" line))
-    (string-match-p
-     (concat "\\_<"
-             (regexp-opt vitte--block-open-keywords t)
-             "\\_>")
-     line))))
-
-(defun vitte--line-closes-block-p ()
-  (save-excursion
-    (back-to-indentation)
-    (or
-     (looking-at-p "}")
-     (looking-at-p
-      (concat "\\("
-              (regexp-opt
-               '("else"))
-              "\\)\\_>")))))
-
-(defun vitte--continuation-line-p ()
-  (let ((prev (vitte--previous-line-text)))
-    (or
-     (string-match-p "[,\\[(:+\\-*/=<>&|!][ \t]*$" prev)
-     (string-match-p "\\_<\\(and\\|or\\)\\_>[ \t]*$" prev)
-     (string-match-p "\\.$" prev))))
-
-(defun vitte--inside-parens-depth ()
-  (car (syntax-ppss)))
-
-(defun vitte--inside-string-or-comment-p ()
-  (nth 8 (syntax-ppss)))
-
-(defun vitte--compute-indent ()
   (save-excursion
     (beginning-of-line)
-    (cond
-     ((bobp)
-      0)
-     ((vitte--comment-line-p)
-      (vitte--previous-indentation))
-     ((vitte--inside-string-or-comment-p)
-      (current-indentation))
-     ((vitte--line-closes-block-p)
-      (max 0 (- (vitte--previous-indentation) vitte-indent-offset)))
-     ((vitte--continuation-line-p)
-      (+ (vitte--previous-indentation) vitte-indent-continuation-offset))
-     ((> (vitte--inside-parens-depth) 0)
-      (+ (vitte--previous-indentation) vitte-indent-continuation-offset))
-     ((vitte--line-opens-block-p (vitte--previous-line-text))
-      (+ (vitte--previous-indentation) vitte-indent-offset))
-     (t
-      (vitte--previous-indentation)))))
+    (looking-at-p "[ \t]*$")))
+
+(defun vitte--compute-indent ()
+  "Indent relative to the containing delimiter, ignoring strings and comments."
+  (save-excursion
+    (back-to-indentation)
+    (let* ((state (syntax-ppss))
+           (opener (nth 1 state))
+           (closing (looking-at-p "[]})]")))
+      (cond
+       ((or (nth 3 state) (nth 4 state)) (current-indentation))
+       (opener
+        (goto-char opener)
+        (+ (current-indentation)
+           (cond (closing 0)
+                 ((eq (char-after) ?{) vitte-indent-offset)
+                 (t vitte-indent-continuation-offset))))
+       (t 0)))))
 
 (defun vitte-indent-line ()
   "Indent current line as Vitte code."
@@ -162,12 +54,15 @@
 (defun vitte-indent-region (begin end)
   "Indent Vitte region."
   (interactive "r")
-  (save-excursion
-    (goto-char begin)
-    (while (< (point) end)
-      (unless (vitte--blank-line-p)
-        (vitte-indent-line))
-      (forward-line 1))))
+  (let ((limit (copy-marker end)))
+    (unwind-protect
+        (save-excursion
+          (goto-char begin)
+          (while (< (point) limit)
+            (unless (vitte--blank-line-p)
+              (vitte-indent-line))
+            (forward-line 1)))
+      (set-marker limit nil))))
 
 (defun vitte-newline-and-indent ()
   "Insert newline and indent."

@@ -1,0 +1,7 @@
+# -*- mode: snippet -*-
+# name: Unsafe procedure
+# key: uproc
+# --
+unsafe proc ${1:name}() {
+    $0
+}

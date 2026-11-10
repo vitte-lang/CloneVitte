@@ -1,5 +1,7 @@
 ;;; vitte-mode.el --- Major mode for Vitte (generated) -*- lexical-binding: t; -*-
 
+(require 'compile)
+
 (defgroup vitte nil "Vitte language support." :group 'languages)
 
 (declare-function vitte-indent-line "vitte-indent")
@@ -10,11 +12,59 @@
   :type 'string
   :group 'vitte)
 
+(defcustom vitte-editor-binary
+  (let ((bundled (expand-file-name "../vitte-editor"
+                                   (file-name-directory (or load-file-name buffer-file-name)))))
+    (if (file-exists-p bundled) bundled "vitte-editor"))
+  "Path to the bundled Vitte editor tools."
+  :type 'string
+  :group 'vitte)
+
+(defun vitte-format-buffer ()
+  "Format indentation using the bundled formatter, preserving source on failure."
+  (interactive)
+  (let ((output (generate-new-buffer " *vitte-format*")))
+    (unwind-protect
+        (let ((status (call-process-region (point-min) (point-max)
+                                          vitte-editor-binary nil output nil
+                                          "format" "-" "--indent"
+                                          (number-to-string (if (boundp 'vitte-indent-offset) vitte-indent-offset 4)))))
+          (unless (and (integerp status) (zerop status))
+            (user-error "Vitte formatter failed: %s" (with-current-buffer output (buffer-string))))
+          (let ((text (with-current-buffer output (buffer-string)))
+                (position (point)))
+            (unless (equal text (buffer-string))
+              (atomic-change-group
+                (erase-buffer)
+                (insert text)))
+            (goto-char (min position (point-max)))))
+      (kill-buffer output))))
+
+(defun vitte-test-buffer ()
+  "Compile and execute test declarations in the saved buffer."
+  (interactive)
+  (let ((file (vitte--file-or-error)))
+    (save-buffer)
+    (compile (mapconcat #'shell-quote-argument
+                        (list vitte-editor-binary "--compiler" vitte-binary "test" file) " "))))
+
+(defun vitte-start-lsp ()
+  "Start the bundled server through Emacs's Eglot client."
+  (interactive)
+  (require 'eglot)
+  (add-to-list 'eglot-server-programs
+               `(vitte-mode . (,vitte-editor-binary "--compiler" ,vitte-binary "lsp" "--stdio")))
+  (eglot-ensure))
+
 (defvar vitte-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "C-c C-c") #'vitte-check-buffer)
     (define-key map (kbd "C-c C-b") #'vitte-build-buffer)
     (define-key map (kbd "C-c C-p") #'vitte-parse-buffer)
+    (define-key map (kbd "C-c C-r") #'vitte-run-buffer)
+    (define-key map (kbd "C-c C-t") #'vitte-test-buffer)
+    (define-key map (kbd "C-c C-f") #'vitte-format-buffer)
+    (define-key map (kbd "C-c C-l") #'vitte-start-lsp)
     map)
   "Keymap for `vitte-mode'.")
 
@@ -22,9 +72,10 @@
   (let ((st (make-syntax-table)))
     (modify-syntax-entry ?_ "w" st)
     (modify-syntax-entry ?/ ". 124b" st)
-    (modify-syntax-entry ?* ". 23" st)
-    (modify-syntax-entry ?\n ">" st)
+    (modify-syntax-entry ?* ". 23n" st)
+    (modify-syntax-entry ?\n "> b" st)
     (modify-syntax-entry ?\" "\"" st)
+    (modify-syntax-entry ?\' "\"" st)
     st)
   "Syntax table for `vitte-mode'.")
 
@@ -83,13 +134,15 @@
   (or (buffer-file-name) (user-error "Buffer is not visiting a file")))
 
 (defun vitte--run (subcommand file)
-  (compile (format "%s %s %s"
+  (save-buffer)
+  (compile (format "%s %s --no-color %s"
                    (shell-quote-argument vitte-binary)
                    subcommand
                    (shell-quote-argument file))))
 
 (defun vitte-check-buffer () (interactive) (vitte--run "check" (vitte--file-or-error)))
-(defun vitte-build-buffer () (interactive) (vitte--run "build" (vitte--file-or-error)))
+(defun vitte-build-buffer () (interactive) (vitte--run "compile" (vitte--file-or-error)))
+(defun vitte-run-buffer () (interactive) (vitte--run "run" (vitte--file-or-error)))
 (defun vitte-parse-buffer () (interactive) (vitte--run "parse" (vitte--file-or-error)))
 
 ;;;###autoload
@@ -97,7 +150,8 @@
   "Major mode for editing Vitte source files."
   :keymap vitte-mode-map
   :syntax-table vitte-mode-syntax-table
-  (setq font-lock-defaults '(vitte-font-lock-keywords))
+  (setq-local indent-tabs-mode nil)
+  (setq-local font-lock-defaults '(vitte-font-lock-keywords))
   (setq-local comment-start "// ")
   (setq-local comment-end "")
   (setq-local comment-start-skip "//+\\s-*")

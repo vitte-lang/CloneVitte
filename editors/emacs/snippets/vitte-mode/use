@@ -1,5 +1,5 @@
 # -*- mode: snippet -*-
-# name: use
+# name: Use module
 # key: use
 # --
-use ${1:std/core/types};
+use ${1:module}::{${2:item}};

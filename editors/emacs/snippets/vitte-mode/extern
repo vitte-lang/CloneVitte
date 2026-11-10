@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: Extern procedure
+# key: extern
+# --
+extern "C" proc ${1:name}(${2:value}: ${3:int}) -> ${4:void};

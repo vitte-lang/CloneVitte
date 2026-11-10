@@ -1,0 +1,9 @@
+# -*- mode: snippet -*-
+# name: Pick
+# key: pick
+# --
+pick ${1:Name} {
+    ${2:Ready},
+    ${3:Failed}(i32),
+    $0
+}

@@ -1,21 +1,20 @@
-# Vitte UltiSnips
-# Filetype: vitte
+# Generated from editors/snippets/catalog.json.
 
 snippet proc "Procedure"
 proc ${1:name}(${2:value}: ${3:int}) -> ${4:void} {
-    ${0}
+    $0
 }
 endsnippet
 
 snippet aproc "Async procedure"
 async proc ${1:name}() {
-    ${0}
+    $0
 }
 endsnippet
 
 snippet uproc "Unsafe procedure"
 unsafe proc ${1:name}() {
-    ${0}
+    $0
 }
 endsnippet
 
@@ -46,14 +45,15 @@ endsnippet
 snippet form "Form"
 form ${1:Name} {
     ${2:field}: ${3:type},
-    ${0}
+    $0
 }
 endsnippet
 
 snippet pick "Pick"
 pick ${1:Name} {
     ${2:Ready},
-    ${3:Failed(${4:i32})},
+    ${3:Failed}(i32),
+    $0
 }
 endsnippet
 
@@ -67,26 +67,27 @@ endsnippet
 
 snippet trait "Trait"
 trait ${1:Name} {
-    ${0}
+    $0
 }
 endsnippet
 
 snippet impl "Implementation"
 impl ${1:Type} {
-    ${0}
+    $0
 }
 endsnippet
 
 snippet match "Match"
-match ${1:expr} {
-    ${2:pattern} => ${3:expression},
-    _ => ${0},
+match ${1:value} {
+    ${2:pattern} => {
+        $0
+    },
 }
 endsnippet
 
 snippet if "If"
 if ${1:condition} {
-    ${0}
+    $0
 }
 endsnippet
 
@@ -94,37 +95,37 @@ snippet ife "If / else"
 if ${1:condition} {
     ${2}
 } else {
-    ${0}
+    $0
 }
 endsnippet
 
 snippet while "While loop"
 while ${1:condition} {
-    ${0}
+    $0
 }
 endsnippet
 
 snippet loop "Loop"
 loop {
-    ${0}
+    $0
 }
 endsnippet
 
 snippet for "For loop"
 for ${1:item} in ${2:items} {
-    ${0}
+    $0
 }
 endsnippet
 
 snippet unsafe "Unsafe block"
 unsafe {
-    ${0}
+    $0
 }
 endsnippet
 
 snippet defer "Defer"
 defer {
-    ${0}
+    $0
 }
 endsnippet
 
@@ -138,7 +139,7 @@ endsnippet
 
 snippet main "Entry procedure"
 proc main() {
-    ${0}
+    $0
 }
 endsnippet
 
@@ -156,13 +157,13 @@ endsnippet
 
 snippet test "Test"
 test ${1:name} {
-    ${0}
+    $0
 }
 endsnippet
 
 snippet macro "Macro"
 macro ${1:name}(${2:value}: ${3:type}) {
-    ${0}
+    $0
 }
 endsnippet
 
@@ -172,4 +173,10 @@ endsnippet
 
 snippet asm "Assembly"
 asm("${1:instruction}");
+endsnippet
+
+snippet entry "Entry procedure"
+proc main() {
+    $0
+}
 endsnippet

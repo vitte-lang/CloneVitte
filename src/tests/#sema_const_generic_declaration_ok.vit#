@@ -1,0 +1,7 @@
+space tests::sema_const_generic_declaration_ok;
+
+export type FixedArray<T, const N: usize> = [T; N];
+
+export proc fixed_array_length<T, const N: usize>() -> usize {
+    return N;
+}

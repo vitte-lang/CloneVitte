@@ -1,8 +1,8 @@
 # -*- mode: snippet -*-
-# name: form
+# name: Form
 # key: form
 # --
 form ${1:Name} {
-  ${2:field}: ${3:type},
-  $0
+    ${2:field}: ${3:type},
+    $0
 }

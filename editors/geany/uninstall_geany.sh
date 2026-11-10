@@ -1,7 +1,4 @@
-#!/usr/bin/env bash
-set -Eeuo pipefail
-
-# Keep one implementation for install and uninstall so both paths share
-# platform detection, atomic writes, backups, dry-run support, and cleanup.
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+#!/usr/bin/env sh
+set -eu
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 exec "$SCRIPT_DIR/install_geany.sh" --uninstall "$@"
