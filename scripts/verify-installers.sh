@@ -300,6 +300,10 @@ verify_bsd_kits() {
 
     for required in \
       root/usr/local/share/vitte/assets/logo.png \
+      root/usr/local/share/vitte/tools/install-unix-integrations.sh \
+      root/usr/local/share/vitte/completions/bash/vitte \
+      root/usr/local/share/vitte/completions/fish/vitte.fish \
+      root/usr/local/share/vitte/completions/zsh/_vitte \
       uninstall.sh \
       install.sh \
       INSTALL.txt
@@ -375,6 +379,10 @@ verify_portable_kits() {
       "$package_dir/bin/vitte-installer-doctor" \
       "$package_dir/libexec/vitte/vitte" \
       "$package_dir/libexec/vitte/vittec" \
+      "$package_dir/share/vitte/tools/install-unix-integrations.sh" \
+      "$package_dir/share/vitte/completions/bash/vitte" \
+      "$package_dir/share/vitte/completions/fish/vitte.fish" \
+      "$package_dir/share/vitte/completions/zsh/_vitte" \
       "$package_dir/README.portable"
     do
       grep -Fx "$required" "$listing" >/dev/null ||
@@ -472,6 +480,7 @@ verify_solaris() {
       postinstall \
       preremove \
       root/usr/local/share/vitte/INSTALLATION.json \
+      root/usr/local/share/vitte/tools/install-unix-integrations.sh \
       install.sh \
       uninstall.sh
     do
@@ -523,6 +532,11 @@ verify_windows() {
       BUILD.txt \
       payload/share/vitte/INSTALLATION.json \
       payload/share/vitte/VERSION \
+      payload/share/vitte/tools/install-unix-integrations.sh \
+      payload/share/vitte/editors/vim/syntax/vitte.vim \
+      payload/share/vitte/completions/bash/vitte \
+      payload/share/vitte/completions/fish/vitte.fish \
+      payload/share/vitte/completions/zsh/_vitte \
       payload/share/vitte/assets/logo.png
     do
       tar -tzf "$windows_kit" |

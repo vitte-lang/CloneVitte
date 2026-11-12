@@ -1407,6 +1407,15 @@ static bool
 vitte_parser_has_generic_form_suffix(
     const vitte_parser_t *parser);
 
+static bool
+vitte_parser_has_generic_bracket_suffix(
+    const vitte_parser_t *parser,
+    vitte_token_kind_t required_follow);
+
+static bool
+vitte_parser_has_generic_variant_pattern_suffix(
+    const vitte_parser_t *parser);
+
 static vitte_ast_node_id_t
 vitte_parser_parse_block(
     vitte_parser_t *parser);
@@ -1982,6 +1991,80 @@ vitte_parser_parse_pattern_atom(
         return pattern;
     }
 
+    if (vitte_parser_token_is_identifier(token) &&
+        vitte_parser_has_generic_variant_pattern_suffix(parser)) {
+        vitte_ast_node_id_t generic_type =
+            vitte_parser_parse_type_expression(parser);
+        vitte_ast_node_id_t variant;
+        vitte_ast_node_id_t head;
+        const vitte_ast_node_t *type_node;
+        const vitte_ast_node_t *variant_node;
+
+        if (generic_type == VITTE_AST_INVALID_ID ||
+            vitte_parser_expect(parser, VITTE_TOKEN_COLON_COLON) == NULL) {
+            return VITTE_AST_INVALID_ID;
+        }
+        variant = vitte_parser_parse_identifier_node(parser);
+        if (variant == VITTE_AST_INVALID_ID) {
+            return variant;
+        }
+        type_node = vitte_parser_get_node(parser, generic_type);
+        variant_node = vitte_parser_get_node(parser, variant);
+        if (type_node == NULL || variant_node == NULL) {
+            return VITTE_AST_INVALID_ID;
+        }
+        head = vitte_parser_add_node(
+            parser,
+            VITTE_AST_NODE_MEMBER_EXPR,
+            vitte_parser_span_join(type_node->span, variant_node->span));
+        if (head == VITTE_AST_INVALID_ID ||
+            !vitte_parser_node_append_child(parser, head, generic_type) ||
+            !vitte_parser_node_append_child(parser, head, variant)) {
+            return VITTE_AST_INVALID_ID;
+        }
+        if (vitte_parser_match(parser, VITTE_TOKEN_LEFT_PAREN)) {
+            vitte_ast_node_id_t arguments =
+                vitte_parser_parse_pattern_sequence(
+                    parser, VITTE_TOKEN_RIGHT_PAREN,
+                    VITTE_AST_FLAG_NONE, begin);
+            vitte_ast_node_id_t constructor;
+            vitte_ast_node_t *arguments_node;
+            vitte_ast_node_t *constructor_node;
+            size_t index;
+
+            if (arguments == VITTE_AST_INVALID_ID) {
+                return arguments;
+            }
+            constructor = vitte_parser_add_node(
+                parser,
+                VITTE_AST_NODE_PATTERN,
+                vitte_parser_span_from_range(parser, begin, parser->position));
+            if (constructor == VITTE_AST_INVALID_ID ||
+                !vitte_parser_node_append_child(parser, constructor, head)) {
+                return VITTE_AST_INVALID_ID;
+            }
+            arguments_node = vitte_parser_get_node_mut(parser, arguments);
+            if (arguments_node == NULL) {
+                return VITTE_AST_INVALID_ID;
+            }
+            for (index = 0u; index < arguments_node->child_count; ++index) {
+                if (!vitte_parser_node_append_child(
+                        parser, constructor, arguments_node->children[index])) {
+                    return VITTE_AST_INVALID_ID;
+                }
+            }
+            /* The wrapper is only a temporary sequence. Move its children
+             * into the constructor so every AST node has exactly one parent. */
+            arguments_node->child_count = 0u;
+            constructor_node = vitte_parser_get_node_mut(parser, constructor);
+            if (constructor_node != NULL) {
+                constructor_node->flags |= VITTE_AST_FLAG_PATTERN_HEAD;
+            }
+            return constructor;
+        }
+        return head;
+    }
+
     if (vitte_parser_token_is_identifier(token) ||
         token->kind == VITTE_TOKEN_KW_SELF) {
         vitte_ast_node_id_t head = vitte_parser_parse_path_mode(parser, false);
@@ -2029,6 +2112,8 @@ vitte_parser_parse_pattern_atom(
                         return VITTE_AST_INVALID_ID;
                     }
                 }
+                /* Constructor patterns own these children from this point. */
+                node->child_count = 0u;
             }
             node = vitte_parser_get_node_mut(parser, constructor);
             if (node != NULL) {
@@ -2891,6 +2976,67 @@ vitte_parser_parse_postfix(
     }
 
     for (;;) {
+        /* Generic form constructors use the same square-bracket syntax as
+         * generic type names, for example `Cell<i64> { ... }` written as
+         * `Cell[i64] { ... }` in Vitte source.  Treat the brackets as type
+         * arguments only when a form body or variant follows. */
+        if (vitte_parser_check(parser, VITTE_TOKEN_LEFT_BRACKET) &&
+            (vitte_parser_has_generic_bracket_suffix(
+                 parser, VITTE_TOKEN_LEFT_BRACE) ||
+             vitte_parser_has_generic_bracket_suffix(
+                 parser, VITTE_TOKEN_COLON_COLON))) {
+            const vitte_ast_node_t *base_node =
+                vitte_parser_get_node(parser, expression);
+            vitte_ast_node_id_t generic;
+            size_t pending_generic_closers = 0u;
+
+            generic = vitte_parser_add_node(
+                parser,
+                VITTE_AST_NODE_TYPE_EXPR,
+                base_node != NULL
+                    ? base_node->span
+                    : vitte_parser_span_invalid());
+            if (generic == VITTE_AST_INVALID_ID ||
+                !vitte_parser_node_append_child(
+                    parser, generic, expression) ||
+                !vitte_parser_match(parser, VITTE_TOKEN_LEFT_BRACKET)) {
+                return VITTE_AST_INVALID_ID;
+            }
+            if (!vitte_parser_check(parser, VITTE_TOKEN_RIGHT_BRACKET)) {
+                for (;;) {
+                    vitte_ast_node_id_t argument =
+                        vitte_parser_parse_type_expression_with_pending(
+                            parser,
+                            &pending_generic_closers);
+                    if (argument == VITTE_AST_INVALID_ID ||
+                        !vitte_parser_node_append_child(
+                            parser, generic, argument)) {
+                        return VITTE_AST_INVALID_ID;
+                    }
+                    if (!vitte_parser_match(parser, VITTE_TOKEN_COMMA) ||
+                        vitte_parser_check(
+                            parser, VITTE_TOKEN_RIGHT_BRACKET)) {
+                        break;
+                    }
+                }
+            }
+            if (!vitte_parser_expect(parser, VITTE_TOKEN_RIGHT_BRACKET)) {
+                return VITTE_AST_INVALID_ID;
+            }
+            {
+                vitte_ast_node_t *generic_node =
+                    vitte_parser_get_node_mut(parser, generic);
+                if (generic_node != NULL) {
+                    generic_node->span = vitte_parser_span_join(
+                        generic_node->span,
+                        vitte_parser_span_from_token(
+                            vitte_parser_previous(parser)));
+                }
+            }
+            expression = generic;
+            continue;
+        }
+
         /* A generic form constructor such as `Box<i64> { ... }` is an
          * expression-level type path.  Reuse the TYPE_EXPR representation so
          * semantic analysis can retain and validate its arguments. */
@@ -2956,6 +3102,40 @@ vitte_parser_parse_postfix(
                 }
             }
             expression = generic;
+            continue;
+        }
+
+        if (vitte_parser_check(parser, VITTE_TOKEN_COLON_COLON)) {
+            const vitte_ast_node_t *type_node =
+                vitte_parser_get_node(parser, expression);
+            vitte_ast_node_id_t member_name;
+            vitte_ast_node_id_t member;
+            const vitte_ast_node_t *name_node;
+
+            if (type_node == NULL ||
+                type_node->kind != VITTE_AST_NODE_TYPE_EXPR ||
+                type_node->child_count < 2u) {
+                break;
+            }
+            (void)vitte_parser_advance(parser);
+            member_name = vitte_parser_parse_identifier_node(parser);
+            if (member_name == VITTE_AST_INVALID_ID) {
+                return member_name;
+            }
+            name_node = vitte_parser_get_node(parser, member_name);
+            if (name_node == NULL) {
+                return VITTE_AST_INVALID_ID;
+            }
+            member = vitte_parser_add_node(
+                parser,
+                VITTE_AST_NODE_MEMBER_EXPR,
+                vitte_parser_span_join(type_node->span, name_node->span));
+            if (member == VITTE_AST_INVALID_ID ||
+                !vitte_parser_node_append_child(parser, member, expression) ||
+                !vitte_parser_node_append_child(parser, member, member_name)) {
+                return VITTE_AST_INVALID_ID;
+            }
+            expression = member;
             continue;
         }
 
@@ -3796,20 +3976,28 @@ vitte_parser_has_generic_closer(
 }
 
 static bool
-vitte_parser_has_generic_form_suffix(
-    const vitte_parser_t *parser)
+vitte_parser_has_generic_suffix(
+    const vitte_parser_t *parser,
+    size_t start_offset,
+    vitte_token_kind_t required_follow)
 {
     size_t index;
     size_t depth;
+    size_t start;
 
-    if (parser == NULL ||
-        parser->position >= parser->token_count ||
-        parser->tokens[parser->position].kind != VITTE_TOKEN_LESS) {
+    if (parser == NULL || parser->position > parser->token_count ||
+        start_offset > parser->token_count - parser->position) {
+        return false;
+    }
+
+    start = parser->position + start_offset;
+    if (start >= parser->token_count ||
+        parser->tokens[start].kind != VITTE_TOKEN_LESS) {
         return false;
     }
 
     depth = 0u;
-    for (index = parser->position;
+    for (index = start;
          index < parser->token_count;
          ++index) {
         vitte_token_kind_t kind = parser->tokens[index].kind;
@@ -3823,7 +4011,7 @@ vitte_parser_has_generic_form_suffix(
             if (depth == 0u) {
                 return index + 1u < parser->token_count &&
                        parser->tokens[index + 1u].kind ==
-                           VITTE_TOKEN_LEFT_BRACE;
+                           required_follow;
             }
         } else if (kind == VITTE_TOKEN_SHIFT_RIGHT) {
             if (depth == 0u) {
@@ -3832,12 +4020,85 @@ vitte_parser_has_generic_form_suffix(
             if (depth <= 2u) {
                 return index + 1u < parser->token_count &&
                        parser->tokens[index + 1u].kind ==
-                           VITTE_TOKEN_LEFT_BRACE;
+                           required_follow;
             }
             depth -= 2u;
         }
     }
     return false;
+}
+
+static bool
+vitte_parser_has_generic_form_suffix(
+    const vitte_parser_t *parser)
+{
+    return vitte_parser_has_generic_suffix(
+               parser, 0u, VITTE_TOKEN_LEFT_BRACE) ||
+           vitte_parser_has_generic_suffix(
+               parser, 0u, VITTE_TOKEN_COLON_COLON);
+}
+
+static bool
+vitte_parser_has_generic_bracket_suffix(
+    const vitte_parser_t *parser,
+    vitte_token_kind_t required_follow)
+{
+    size_t index;
+    size_t depth;
+
+    if (!vitte_parser_check(parser, VITTE_TOKEN_LEFT_BRACKET)) {
+        return false;
+    }
+
+    index = parser->position;
+    depth = 0u;
+    while (index < parser->token_count) {
+        const vitte_token_t *token = &parser->tokens[index];
+
+        if (token->kind == VITTE_TOKEN_LEFT_BRACKET) {
+            ++depth;
+        } else if (token->kind == VITTE_TOKEN_RIGHT_BRACKET) {
+            if (depth == 0u) {
+                return false;
+            }
+            --depth;
+            if (depth == 0u) {
+                const size_t after_closer = index + 1u;
+
+                if (after_closer >= parser->token_count ||
+                    parser->tokens[after_closer].kind != required_follow) {
+                    return false;
+                }
+                if (required_follow == VITTE_TOKEN_LEFT_BRACE) {
+                    const size_t first_field = after_closer + 1u;
+
+                    if (first_field >= parser->token_count) {
+                        return false;
+                    }
+                    if (parser->tokens[first_field].kind ==
+                        VITTE_TOKEN_RIGHT_BRACE) {
+                        return true;
+                    }
+                    return first_field + 1u < parser->token_count &&
+                           vitte_parser_token_is_identifier(
+                               &parser->tokens[first_field]) &&
+                           parser->tokens[first_field + 1u].kind ==
+                               VITTE_TOKEN_COLON;
+                }
+                return true;
+            }
+        }
+        ++index;
+    }
+    return false;
+}
+
+static bool
+vitte_parser_has_generic_variant_pattern_suffix(
+    const vitte_parser_t *parser)
+{
+    return vitte_parser_has_generic_suffix(
+        parser, 1u, VITTE_TOKEN_COLON_COLON);
 }
 
 static bool
@@ -4422,6 +4683,8 @@ vitte_parser_parse_generic_parameters(
         vitte_ast_node_id_t name;
         vitte_parser_list_recovery_t recovery;
         size_t parameter_begin = parser->position;
+        bool is_const_parameter = vitte_parser_match(
+            parser, VITTE_TOKEN_KW_CONST);
 
         name =
             vitte_parser_parse_identifier_node(
@@ -4448,6 +4711,15 @@ vitte_parser_parse_generic_parameters(
                 parameter,
                 name)) {
             return false;
+        }
+
+        if (is_const_parameter) {
+            vitte_ast_node_t *parameter_node =
+                vitte_parser_get_node_mut(parser, parameter);
+            if (parameter_node == NULL) {
+                return false;
+            }
+            parameter_node->flags |= VITTE_AST_FLAG_CONST_GENERIC;
         }
 
         if (vitte_parser_match(

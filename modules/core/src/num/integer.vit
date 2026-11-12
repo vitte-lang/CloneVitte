@@ -1,6 +1,8 @@
 /// Algorithmes entiers sans allocation.
 space core::num::integer;
 
+use core::num::limits::{U64_MAX};
+
 export proc integer_gcd_u64(left: u64, right: u64) -> u64 {
     let mut a: u64 = left;
     let mut b: u64 = right;
@@ -12,12 +14,16 @@ export proc integer_gcd_u64(left: u64, right: u64) -> u64 {
     return a;
 }
 
-export proc integer_lcm_u64(left: u64, right: u64) -> ?u64 {
-    if left == 0 || right == 0 { return 0; }
+export proc integer_lcm_u64(left: u64, right: u64, output: &mut u64) -> bool {
+    if left == 0 || right == 0 {
+        set *output = 0;
+        return true;
+    }
     let divisor: u64 = integer_gcd_u64(left, right);
     let reduced: u64 = left / divisor;
-    if reduced > u64.MAX / right { return null; }
-    return reduced * right;
+    if reduced > U64_MAX / right { return false; }
+    set *output = reduced * right;
+    return true;
 }
 
 export proc integer_sqrt_u64(value: u64) -> u64 {
@@ -40,8 +46,11 @@ export proc integer_is_power_of_two_u64(value: u64) -> bool {
     return (value & (value - 1)) == 0;
 }
 
-export proc integer_next_power_of_two_u64(value: u64) -> ?u64 {
-    if value == 0 { return 1; }
+export proc integer_next_power_of_two_u64(value: u64, output: &mut u64) -> bool {
+    if value == 0 {
+        set *output = 1;
+        return true;
+    }
     let mut result: u64 = value - 1;
     set result = result | (result >> 1);
     set result = result | (result >> 2);
@@ -49,6 +58,7 @@ export proc integer_next_power_of_two_u64(value: u64) -> ?u64 {
     set result = result | (result >> 8);
     set result = result | (result >> 16);
     set result = result | (result >> 32);
-    if result == u64.MAX { return null; }
-    return result + 1;
+    if result == U64_MAX { return false; }
+    set *output = result + 1;
+    return true;
 }

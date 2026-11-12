@@ -9,13 +9,14 @@ import tempfile
 
 
 binary = Path(sys.argv[1]).resolve()
+format_binary = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else binary
 root = Path(__file__).resolve().parents[2]
 registry = root / "src/bootstrap/diagnostic/registry.c"
 
 
 def run_diagnostic(path, fmt):
     command = [
-        str(binary),
+        str(format_binary),
         "check",
         str(path),
         "--quiet",
@@ -67,28 +68,66 @@ def check_explain_for_every_public_code():
     assert codes, "the diagnostic registry contains no public codes"
 
     for code in codes:
+        explanations = []
+        for executable in (binary, format_binary):
+            structured = subprocess.run(
+                [str(executable), "explain", code, "--diagnostic=json"],
+                capture_output=True,
+                text=True,
+            )
+            assert structured.returncode == 0, (
+                executable,
+                code,
+                structured.stdout,
+                structured.stderr,
+            )
+            assert not structured.stderr, (executable, code, structured.stderr)
+            document = json.loads(structured.stdout)
+            entry = document["diagnostic"]
+            required_text = (
+                "internal", "title", "explanation", "severity", "phase",
+                "category", "guidance",
+            )
+            assert entry["code"] == code, (executable, code, document)
+            for field in required_text:
+                assert isinstance(entry.get(field), str) and entry[field].strip(), (
+                    executable,
+                    code,
+                    field,
+                    entry,
+                )
+            assert len(entry["guidance"].strip()) >= 12, (
+                executable,
+                code,
+                entry["guidance"],
+            )
+            assert entry["severity"] in {"error", "fatal", "warning", "note", "help"}, (
+                executable,
+                code,
+                entry,
+            )
+            assert isinstance(entry.get("deprecated"), bool), (executable, code, entry)
+            explanations.append(entry)
+
+        # The bootstrap C frontend and the native Vitte frontend share one
+        # diagnostic contract, including the prose users get from `explain`.
+        fields = (
+            "code", "internal", "title", "explanation", "severity", "phase",
+            "category", "guidance", "deprecated",
+        )
+        assert tuple(explanations[0][field] for field in fields) == tuple(
+            explanations[1][field] for field in fields
+        ), (code, explanations)
+
         text = subprocess.run(
             [str(binary), "explain", code],
             capture_output=True,
             text=True,
         )
         assert text.returncode == 0, (code, text.stdout, text.stderr)
-        assert code in text.stdout, (code, text.stdout)
-
-        structured = subprocess.run(
-            [str(binary), "explain", code, "--diagnostic=json"],
-            capture_output=True,
-            text=True,
-        )
-        assert structured.returncode == 0, (
-            code,
-            structured.stdout,
-            structured.stderr,
-        )
-        document = json.loads(structured.stdout)
-        assert document["diagnostic"]["code"] == code, (code, document)
-        assert document["diagnostic"]["explanation"], (code, document)
-        assert document["diagnostic"]["guidance"], (code, document)
+        entry = explanations[0]
+        for field in ("code", "title", "explanation", "guidance"):
+            assert entry[field] in text.stdout, (code, field, text.stdout)
 
 
 def check_format_parity():

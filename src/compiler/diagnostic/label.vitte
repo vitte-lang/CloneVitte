@@ -120,7 +120,7 @@ export proc vitte_diagnostic_label_set(
        not label_span_is_valid(span) {
         return Status.ErrorInvalidArgument;
     }
-    let text = if message == null { "" } else {
+    let text: string = if message == null { "" } else {
         string.from_bytes(message as *mut u8, cstring_length(message))
     };
     set *label = DiagnosticLabel { style: style, span: *span, message: text };

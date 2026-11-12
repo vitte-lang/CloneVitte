@@ -1,0 +1,11 @@
+space tests::sema::never_type;
+
+type Never = never;
+
+proc diverge() -> Never {
+    return diverge();
+}
+
+proc never_converts_to_integer() -> i64 {
+    return diverge();
+}

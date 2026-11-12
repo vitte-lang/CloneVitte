@@ -1,0 +1,6 @@
+use core::error::panic::{panic};
+
+proc main() -> i32 {
+    panic("core panic trap test");
+    return 0;
+}

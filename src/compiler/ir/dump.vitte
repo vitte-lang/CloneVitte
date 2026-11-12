@@ -116,7 +116,7 @@ proc ir_dump_value(context: &IRContext, id: IRValueId) -> string {
             return "string#" + ir_dump_u64(value.string_value as u64);
         }
         case IRValueKind.Function => {
-            let function = vitte_ir_get_function(context as *mut IRContext, value.function);
+            let function: *IRFunction = vitte_ir_get_function(context as *mut IRContext, value.function);
             if function == null { return "@function#" + ir_dump_u64(value.function as u64); }
             let name = vitte_ir_get_string(context as *mut IRContext, function.name);
             if name == null { return "@function#" + ir_dump_u64(value.function as u64); }
@@ -239,7 +239,7 @@ export proc vitte_ir_dump_text(context: &IRContext) -> string {
     }
     let mut index: usize = 1;
     while index <= context.function_count {
-        let function = vitte_ir_get_function(context as *mut IRContext, index as u64);
+            let function: *IRFunction = vitte_ir_get_function(context as *mut IRContext, index as u64);
         if function == null {
             set output += "  <invalid-function #" + ir_dump_u64(index as u64) + ">\n";
         } else {

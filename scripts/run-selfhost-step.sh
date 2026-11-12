@@ -116,7 +116,7 @@ manifest="$evidence_dir/$slug.txt"
 summary="$evidence_dir/stage-$stage-summary.txt"
 status_file="$evidence_dir/.$slug.$$.status"
 (
-  "$@"
+  env "$@"
   command_status=$?
   printf '%s\n' "$command_status" > "$status_file"
   exit "$command_status"

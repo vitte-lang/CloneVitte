@@ -8,14 +8,14 @@ use core::sync::ordering::{AtomicOrdering, atomic_compare_exchange_orders_are_va
 
 test "core modules compose across parse arithmetic format hash error and order checks" {
     let parsed: ParseI64Result = parse_i64("2147483647", 10);
-    assert parsed.success;
+    assert(parsed.success);
 
     let incremented = checked_i64_add(parsed.value, 1);
-    assert incremented.success;
-    assert incremented.value == 2147483648;
+    assert(incremented.success);
+    assert(incremented.value == 2147483648);
 
     let narrowed = checked_u64_to_u8(256);
-    assert not narrowed.success;
+    assert(not narrowed.success);
 
     let mut output: [u8; 24] = [
         0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
@@ -23,29 +23,29 @@ test "core modules compose across parse arithmetic format hash error and order c
         0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
         0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
     ];
-    let output_pointer: *u8 = (&mut output) as *u8;
+    let output_pointer: *mut u8 = (&mut output) as *mut u8;
     let formatted: FormatResult = format_i64(incremented.value, output_pointer, 24);
-    assert formatted.success;
-    assert formatted.length == 10;
-    assert output[0] == 50;
-    assert output[9] == 56;
+    assert(formatted.success);
+    assert(formatted.length == 10);
+    assert(output[0] == 50);
+    assert(output[9] == 56);
 
     let mut hash_input: [u8] = [];
     let mut index: usize = 0;
     while index < formatted.length {
-        set hash_input.push(output[index]);
+        hash_input.push(output[index]);
         set index = index + 1;
     }
-    assert fnv1a64_bytes(&hash_input) == 0xc9f632a554f029b4;
+    assert(fnv1a64_bytes(&hash_input) == 0xc9f632a554f029b4);
 
     let error: Error = error_new(17, "range overflow", formatted.length);
-    assert error_fingerprint(&error) == error_fingerprint(&error);
-    assert atomic_compare_exchange_orders_are_valid(
+    assert(error_fingerprint(&error) == error_fingerprint(&error));
+    assert(atomic_compare_exchange_orders_are_valid(
         AtomicOrdering.AcqRel,
         AtomicOrdering.Acquire,
-    );
-    assert not atomic_compare_exchange_orders_are_valid(
+    ));
+    assert(not atomic_compare_exchange_orders_are_valid(
         AtomicOrdering.Release,
         AtomicOrdering.Acquire,
-    );
+    ));
 }

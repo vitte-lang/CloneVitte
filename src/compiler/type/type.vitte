@@ -243,7 +243,7 @@ proc type_hash_u64(hash: u64, input: u64) -> u64 {
     let mut value = hash; let mut shift: u32 = 0; while shift < 64 { set value = (value ^ (((input >> shift) & 255) as u8 as u64)) * TYPE_FNV_PRIME; set shift += 8; } return value;
 }
 proc type_hash_descriptor(descriptor: *const TypeDescriptor) -> u64 {
-    let mut hash = TYPE_FNV_OFFSET;
+    let mut hash: u64 = TYPE_FNV_OFFSET;
     set hash = type_hash_u64(hash, (*descriptor).kind as u64); set hash = type_hash_u64(hash, (*descriptor).type_flags);
     set hash = type_hash_u64(hash, (*descriptor).element_type); set hash = type_hash_u64(hash, (*descriptor).return_type);
     set hash = type_hash_u64(hash, (*descriptor).array_length as u64); set hash = type_hash_u64(hash, (*descriptor).symbol_id);
@@ -317,7 +317,7 @@ proc type_blank_descriptor(kind: TypeKind) -> TypeDescriptor {
     return TypeDescriptor { kind: kind, type_flags: 0, element_type: 0, return_type: 0, array_length: 0, symbol_id: 0, generic_index: 0, name: null, name_length: 0, parameters: null, parameter_count: 0 };
 }
 proc type_make_builtin(context: *mut TypeContext, kind: TypeKind, name: str, output: *mut TypeId) -> bool {
-    let mut descriptor = type_blank_descriptor(kind); set descriptor.type_flags = TYPE_FLAG_BUILTIN | TYPE_FLAG_CANONICAL;
+    let mut descriptor: TypeDescriptor = type_blank_descriptor(kind); set descriptor.type_flags = TYPE_FLAG_BUILTIN | TYPE_FLAG_CANONICAL;
     set descriptor.name = name.as_ptr(); set descriptor.name_length = name.length; return type_intern_internal(context, &descriptor, output);
 }
 
@@ -462,7 +462,7 @@ export proc vitte_type_validate(context: *mut TypeContext) -> bool {
 }
 export proc vitte_type_fingerprint(context: *mut TypeContext) -> u64 {
     if not type_context_valid(context) { return 0; } set (*context).stats.hash_runs = type_sat_add((*context).stats.hash_runs, 1);
-    let mut hash = TYPE_FNV_OFFSET; let mut index: usize = 0;
+    let mut hash: u64 = TYPE_FNV_OFFSET; let mut index: usize = 0;
     while index < (*context).type_count { let t = &(*context).types[index]; set hash = type_hash_u64(hash, t.id); set hash = type_hash_u64(hash, t.kind as u64); set hash = type_hash_u64(hash, t.type_flags); set hash = type_hash_u64(hash, t.element_type); set hash = type_hash_u64(hash, t.return_type); set hash = type_hash_u64(hash, t.array_length as u64); set hash = type_hash_u64(hash, t.symbol_id); set hash = type_hash_u64(hash, t.generic_index as u64); set hash = type_hash_u64(hash, t.name_length as u64); let mut n: usize = 0; while n < t.name_length { set hash = (hash ^ (t.name[n] as u64)) * TYPE_FNV_PRIME; set n += 1; } let mut p: usize = 0; while p < t.parameter_count { set hash = type_hash_u64(hash, t.parameters[p]); set p += 1; } set index += 1; }
     return hash;
 }

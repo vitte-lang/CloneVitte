@@ -1,27 +1,27 @@
 use core::sync::ordering::{AtomicOrdering, atomic_load_order_is_valid, atomic_store_order_is_valid, atomic_compare_exchange_orders_are_valid};
 
 test "atomic load and store accept only their allowed orders" {
-    assert atomic_load_order_is_valid(AtomicOrdering.Relaxed);
-    assert atomic_load_order_is_valid(AtomicOrdering.Acquire);
-    assert atomic_load_order_is_valid(AtomicOrdering.SeqCst);
-    assert not atomic_load_order_is_valid(AtomicOrdering.Release);
-    assert not atomic_load_order_is_valid(AtomicOrdering.AcqRel);
+    assert(atomic_load_order_is_valid(AtomicOrdering.Relaxed));
+    assert(atomic_load_order_is_valid(AtomicOrdering.Acquire));
+    assert(atomic_load_order_is_valid(AtomicOrdering.SeqCst));
+    assert(not atomic_load_order_is_valid(AtomicOrdering.Release));
+    assert(not atomic_load_order_is_valid(AtomicOrdering.AcqRel));
 
-    assert atomic_store_order_is_valid(AtomicOrdering.Relaxed);
-    assert atomic_store_order_is_valid(AtomicOrdering.Release);
-    assert atomic_store_order_is_valid(AtomicOrdering.SeqCst);
-    assert not atomic_store_order_is_valid(AtomicOrdering.Acquire);
-    assert not atomic_store_order_is_valid(AtomicOrdering.AcqRel);
+    assert(atomic_store_order_is_valid(AtomicOrdering.Relaxed));
+    assert(atomic_store_order_is_valid(AtomicOrdering.Release));
+    assert(atomic_store_order_is_valid(AtomicOrdering.SeqCst));
+    assert(not atomic_store_order_is_valid(AtomicOrdering.Acquire));
+    assert(not atomic_store_order_is_valid(AtomicOrdering.AcqRel));
 }
 
 test "compare exchange failure order never exceeds success order" {
-    assert atomic_compare_exchange_orders_are_valid(AtomicOrdering.Relaxed, AtomicOrdering.Relaxed);
-    assert atomic_compare_exchange_orders_are_valid(AtomicOrdering.Release, AtomicOrdering.Relaxed);
-    assert atomic_compare_exchange_orders_are_valid(AtomicOrdering.Acquire, AtomicOrdering.Acquire);
-    assert atomic_compare_exchange_orders_are_valid(AtomicOrdering.AcqRel, AtomicOrdering.Acquire);
-    assert atomic_compare_exchange_orders_are_valid(AtomicOrdering.SeqCst, AtomicOrdering.SeqCst);
+    assert(atomic_compare_exchange_orders_are_valid(AtomicOrdering.Relaxed, AtomicOrdering.Relaxed));
+    assert(atomic_compare_exchange_orders_are_valid(AtomicOrdering.Release, AtomicOrdering.Relaxed));
+    assert(atomic_compare_exchange_orders_are_valid(AtomicOrdering.Acquire, AtomicOrdering.Acquire));
+    assert(atomic_compare_exchange_orders_are_valid(AtomicOrdering.AcqRel, AtomicOrdering.Acquire));
+    assert(atomic_compare_exchange_orders_are_valid(AtomicOrdering.SeqCst, AtomicOrdering.SeqCst));
 
-    assert not atomic_compare_exchange_orders_are_valid(AtomicOrdering.Release, AtomicOrdering.Acquire);
-    assert not atomic_compare_exchange_orders_are_valid(AtomicOrdering.Acquire, AtomicOrdering.SeqCst);
-    assert not atomic_compare_exchange_orders_are_valid(AtomicOrdering.Relaxed, AtomicOrdering.Release);
+    assert(not atomic_compare_exchange_orders_are_valid(AtomicOrdering.Release, AtomicOrdering.Acquire));
+    assert(not atomic_compare_exchange_orders_are_valid(AtomicOrdering.Acquire, AtomicOrdering.SeqCst));
+    assert(not atomic_compare_exchange_orders_are_valid(AtomicOrdering.Relaxed, AtomicOrdering.Release));
 }

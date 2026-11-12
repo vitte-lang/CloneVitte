@@ -1,0 +1,1779 @@
+/// JSON encoder.
+///
+/// Converts the canonical `JsonValue` representation into valid JSON text.
+///
+/// Responsibilities:
+/// - encode null, booleans, numbers and strings;
+/// - recursively encode arrays and objects;
+/// - escape JSON strings;
+/// - reject invalid values;
+/// - enforce a maximum nesting depth;
+/// - support compact and pretty output;
+/// - preserve object member ordering;
+/// - expose configurable indentation.
+///
+/// This module depends only on Vitte JSON core values.
+
+space json::encode::encoder;
+
+use json::core::value::*;
+
+const JSON_ENCODER_MAX_DEPTH: usize = 512;
+const JSON_ENCODER_DEFAULT_INDENT: usize = 2;
+
+export pick JsonEncodeError {
+    None,
+    InvalidValue,
+    InvalidNumber,
+    InvalidString,
+    DuplicateKey,
+    DepthExceeded,
+}
+
+export form JsonEncodeOptions {
+    pretty: bool,
+    indent: usize,
+    escape_slash: bool,
+}
+
+export form JsonEncodeResult {
+    ok: bool,
+    text: string,
+    error: JsonEncodeError,
+}
+
+form JsonEncoder {
+    options: JsonEncodeOptions,
+    output: string,
+    depth: usize,
+    failed: bool,
+    error: JsonEncodeError,
+}
+
+/// -------------------------------------------------------------------------
+/// Options
+/// -------------------------------------------------------------------------
+
+proc default_options() -> JsonEncodeOptions {
+    return JsonEncodeOptions {
+        pretty: false,
+        indent: JSON_ENCODER_DEFAULT_INDENT,
+        escape_slash: false,
+    };
+}
+
+proc compact_options() -> JsonEncodeOptions {
+    return JsonEncodeOptions {
+        pretty: false,
+        indent: 0,
+        escape_slash: false,
+    };
+}
+
+proc pretty_options() -> JsonEncodeOptions {
+    return JsonEncodeOptions {
+        pretty: true,
+        indent: JSON_ENCODER_DEFAULT_INDENT,
+        escape_slash: false,
+    };
+}
+
+proc pretty_options_with_indent(
+    indent: usize
+) -> JsonEncodeOptions {
+    return JsonEncodeOptions {
+        pretty: true,
+        indent: indent,
+        escape_slash: false,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Results
+/// -------------------------------------------------------------------------
+
+proc encode_success(
+    text: string
+) -> JsonEncodeResult {
+    return JsonEncodeResult {
+        ok: true,
+        text: text,
+        error: JsonEncodeError.None,
+    };
+}
+
+proc encode_failure(
+    error: JsonEncodeError
+) -> JsonEncodeResult {
+    return JsonEncodeResult {
+        ok: false,
+        text: "",
+        error: error,
+    };
+}
+
+proc error_name(
+    error: JsonEncodeError
+) -> string {
+    if error ==
+       JsonEncodeError.None {
+        return "none";
+    }
+
+    if error ==
+       JsonEncodeError.InvalidValue {
+        return "invalid JSON value";
+    }
+
+    if error ==
+       JsonEncodeError.InvalidNumber {
+        return "invalid JSON number";
+    }
+
+    if error ==
+       JsonEncodeError.InvalidString {
+        return "invalid JSON string";
+    }
+
+    if error ==
+       JsonEncodeError.DuplicateKey {
+        return "duplicate object key";
+    }
+
+    return "maximum JSON encoding depth exceeded";
+}
+
+/// -------------------------------------------------------------------------
+/// Encoder state
+/// -------------------------------------------------------------------------
+
+proc encoder(
+    options: JsonEncodeOptions
+) -> JsonEncoder {
+    return JsonEncoder {
+        options: options,
+        output: "",
+        depth: 0,
+        failed: false,
+        error: JsonEncodeError.None,
+    };
+}
+
+proc encoder_fail(
+    state: &JsonEncoder,
+    error: JsonEncodeError
+) -> JsonEncoder {
+    let mut result: JsonEncoder =
+        *state;
+
+    if not result.failed {
+        set result.failed = true;
+        set result.error = error;
+    }
+
+    return result;
+}
+
+proc append(
+    state: &JsonEncoder,
+    text: string
+) -> JsonEncoder {
+    let mut result: JsonEncoder =
+        *state;
+
+    if result.failed {
+        return result;
+    }
+
+    set result.output =
+        result.output + text;
+
+    return result;
+}
+
+proc append_char(
+    state: &JsonEncoder,
+    value: char
+) -> JsonEncoder {
+    let mut result: JsonEncoder =
+        *state;
+
+    if result.failed {
+        return result;
+    }
+
+    set result.output =
+        result.output + value;
+
+    return result;
+}
+
+/// -------------------------------------------------------------------------
+/// Formatting
+/// -------------------------------------------------------------------------
+
+proc append_newline(
+    state: &JsonEncoder
+) -> JsonEncoder {
+    if not state.options.pretty {
+        return state;
+    }
+
+    return append(
+        state,
+        "\n");
+}
+
+proc append_spaces(
+    state: &JsonEncoder,
+    count: usize
+) -> JsonEncoder {
+    let mut result: JsonEncoder =
+        *state;
+
+    let mut index: usize = 0;
+
+    while index < count {
+        set result =
+            append(
+                &result,
+                " ");
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc append_indent_level(
+    state: &JsonEncoder,
+    level: usize
+) -> JsonEncoder {
+    if not state.options.pretty {
+        return state;
+    }
+
+    return append_spaces(
+        state,
+        level *
+        state.options.indent);
+}
+
+proc append_current_indent(
+    state: &JsonEncoder
+) -> JsonEncoder {
+    return append_indent_level(
+        state,
+        state.depth);
+}
+
+proc append_separator_space(
+    state: &JsonEncoder
+) -> JsonEncoder {
+    if state.options.pretty {
+        return append(
+            state,
+            " ");
+    }
+
+    return state;
+}
+
+/// -------------------------------------------------------------------------
+/// Hexadecimal escaping
+/// -------------------------------------------------------------------------
+
+proc hex_digit(
+    value: u64
+) -> string {
+    if value == 0 {
+        return "0";
+    }
+
+    if value == 1 {
+        return "1";
+    }
+
+    if value == 2 {
+        return "2";
+    }
+
+    if value == 3 {
+        return "3";
+    }
+
+    if value == 4 {
+        return "4";
+    }
+
+    if value == 5 {
+        return "5";
+    }
+
+    if value == 6 {
+        return "6";
+    }
+
+    if value == 7 {
+        return "7";
+    }
+
+    if value == 8 {
+        return "8";
+    }
+
+    if value == 9 {
+        return "9";
+    }
+
+    if value == 10 {
+        return "A";
+    }
+
+    if value == 11 {
+        return "B";
+    }
+
+    if value == 12 {
+        return "C";
+    }
+
+    if value == 13 {
+        return "D";
+    }
+
+    if value == 14 {
+        return "E";
+    }
+
+    return "F";
+}
+
+proc unicode_escape(
+    value: u64
+) -> string {
+    let a: u64 =
+        (value >> 12) & 15;
+
+    let b: u64 =
+        (value >> 8) & 15;
+
+    let c: u64 =
+        (value >> 4) & 15;
+
+    let d: u64 =
+        value & 15;
+
+    return "\\u" +
+         hex_digit(a) +
+         hex_digit(b) +
+         hex_digit(c) +
+         hex_digit(d);
+}
+
+/// -------------------------------------------------------------------------
+/// String escaping
+/// -------------------------------------------------------------------------
+
+proc append_escaped_character(
+    state: &JsonEncoder,
+    value: char
+) -> JsonEncoder {
+    if value == '"' {
+        return append(
+            state,
+            "\\\"");
+    }
+
+    if value == '\\' {
+        return append(
+            state,
+            "\\\\");
+    }
+
+    if value == '/' &&
+       state.options.escape_slash {
+        return append(
+            state,
+            "\\/");
+    }
+
+    if value == '\b' {
+        return append(
+            state,
+            "\\b");
+    }
+
+    if value == '\f' {
+        return append(
+            state,
+            "\\f");
+    }
+
+    if value == '\n' {
+        return append(
+            state,
+            "\\n");
+    }
+
+    if value == '\r' {
+        return append(
+            state,
+            "\\r");
+    }
+
+    if value == '\t' {
+        return append(
+            state,
+            "\\t");
+    }
+
+    let code: u64 =
+        value as u64;
+
+    if code < 32 {
+        return append(
+            state,
+            unicode_escape(code));
+    }
+
+    return append_char(
+        state,
+        value);
+}
+
+proc append_escaped_string(
+    state: &JsonEncoder,
+    value: string
+) -> JsonEncoder {
+    let mut result: JsonEncoder =
+        append(
+            state,
+            "\"");
+
+    let mut index: usize = 0;
+
+    while index <
+          value.length {
+        set result =
+            append_escaped_character(
+                &result,
+                value[index]);
+
+        if result.failed {
+            return result;
+        }
+
+        set index += 1;
+    }
+
+    return append(
+        &result,
+        "\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Integer encoding
+/// -------------------------------------------------------------------------
+
+proc append_unsigned_integer_digits(
+    state: &JsonEncoder,
+    value: u64
+) -> JsonEncoder {
+    if value < 10 {
+        return append(
+            state,
+            hex_digit(
+                value as u64));
+    }
+
+    let mut result: JsonEncoder =
+        append_unsigned_integer_digits(
+            state,
+            value / 10);
+
+    return append(
+        &result,
+        hex_digit(
+            (value % 10)
+                as u64));
+}
+
+proc append_integer(
+    state: &JsonEncoder,
+    value: i64
+) -> JsonEncoder {
+    if value == 0 {
+        return append(
+            state,
+            "0");
+    }
+
+    if value > 0 {
+        return append_unsigned_integer_digits(
+            state,
+            value as u64);
+    }
+
+    let mut result: JsonEncoder =
+        append(
+            state,
+            "-");
+
+    let magnitude: u64 =
+        (-(value + 1)) as u64 +
+        1;
+
+    return append_unsigned_integer_digits(
+        &result,
+        magnitude);
+}
+
+/// -------------------------------------------------------------------------
+/// Floating-point encoding
+///
+/// The conversion primitive used here represents Vitte's canonical
+/// finite-f64-to-decimal operation. The JSON number grammar itself is
+/// validated by the JSON number module before writer integration.
+/// -------------------------------------------------------------------------
+
+proc float_is_nan(
+    value: f64
+) -> bool {
+    return value != value;
+}
+
+proc float_is_positive_infinity(
+    value: f64
+) -> bool {
+    return value >
+         1.7976931348623157e308;
+}
+
+proc float_is_negative_infinity(
+    value: f64
+) -> bool {
+    return value <
+         -1.7976931348623157e308;
+}
+
+proc float_is_finite(
+    value: f64
+) -> bool {
+    return not float_is_nan(value) &&
+         not float_is_positive_infinity(value) &&
+         not float_is_negative_infinity(value);
+}
+
+proc append_float_integer_part(
+    state: &JsonEncoder,
+    value: f64
+) -> JsonEncoder {
+    let integer_part: i64 =
+        value as i64;
+
+    return append_integer(
+        state,
+        integer_part);
+}
+
+proc fractional_digit(
+    value: f64
+) -> i64 {
+    return value as i64;
+}
+
+proc append_fractional_digits(
+    state: &JsonEncoder,
+    fraction: f64,
+    maximum_digits: usize
+) -> JsonEncoder {
+    let mut result: JsonEncoder =
+        *state;
+
+    let mut current: f64 =
+        fraction;
+
+    let mut index: usize = 0;
+
+    while index <
+          maximum_digits {
+        set current =
+            current * 10.0;
+
+        let digit: i64 =
+            fractional_digit(
+                current);
+
+        set result =
+            append_integer(
+                &result,
+                digit);
+
+        set current =
+            current -
+            (digit as f64);
+
+        if current == 0.0 {
+            return result;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc append_simple_float(
+    state: &JsonEncoder,
+    value: f64
+) -> JsonEncoder {
+    if not float_is_finite(value) {
+        return encoder_fail(
+            state,
+            JsonEncodeError.InvalidNumber);
+    }
+
+    if value == 0.0 {
+        return append(
+            state,
+            "0.0");
+    }
+
+    let mut result: JsonEncoder =
+        *state;
+
+    let mut positive: f64 =
+        value;
+
+    if value < 0.0 {
+        set result =
+            append(
+                &result,
+                "-");
+
+        set positive =
+            -value;
+    }
+
+    if positive >
+       9223372036854775807.0 {
+        return encoder_fail(
+            &result,
+            JsonEncodeError.InvalidNumber);
+    }
+
+    let integer_part: i64 =
+        positive as i64;
+
+    set result =
+        append_integer(
+            &result,
+            integer_part);
+
+    let fraction: f64 =
+        positive -
+        (integer_part as f64);
+
+    if fraction == 0.0 {
+        set result =
+            append(
+                &result,
+                ".0");
+
+        return result;
+    }
+
+    set result =
+        append(
+            &result,
+            ".");
+
+    return append_fractional_digits(
+        &result,
+        fraction,
+        17);
+}
+
+/// -------------------------------------------------------------------------
+/// Primitive encoding
+/// -------------------------------------------------------------------------
+
+proc encode_null_into(
+    state: &JsonEncoder
+) -> JsonEncoder {
+    return append(
+        state,
+        "null");
+}
+
+proc encode_bool_into(
+    state: &JsonEncoder,
+    value: bool
+) -> JsonEncoder {
+    if value {
+        return append(
+            state,
+            "true");
+    }
+
+    return append(
+        state,
+        "false");
+}
+
+proc encode_integer_into(
+    state: &JsonEncoder,
+    value: i64
+) -> JsonEncoder {
+    return append_integer(
+        state,
+        value);
+}
+
+proc encode_float_into(
+    state: &JsonEncoder,
+    value: f64
+) -> JsonEncoder {
+    return append_simple_float(
+        state,
+        value);
+}
+
+proc encode_string_into(
+    state: &JsonEncoder,
+    value: string
+) -> JsonEncoder {
+    return append_escaped_string(
+        state,
+        value);
+}
+
+/// -------------------------------------------------------------------------
+/// Array encoding
+/// -------------------------------------------------------------------------
+
+proc encode_array_into(
+    state: &JsonEncoder,
+    values: [JsonValue]
+) -> JsonEncoder {
+    if state.depth >=
+       JSON_ENCODER_MAX_DEPTH {
+        return encoder_fail(
+            state,
+            JsonEncodeError.DepthExceeded);
+    }
+
+    let mut result: JsonEncoder =
+        append(
+            state,
+            "[");
+
+    if values.length == 0 {
+        return append(
+            &result,
+            "]");
+    }
+
+    set result.depth += 1;
+
+    if result.options.pretty {
+        set result =
+            append_newline(
+                &result);
+    }
+
+    let mut index: usize = 0;
+
+    while index <
+          values.length {
+        if result.options.pretty {
+            set result =
+                append_current_indent(
+                    &result);
+        }
+
+        set result =
+            encode_value_into(
+                &result,
+                &values[index]);
+
+        if result.failed {
+            return result;
+        }
+
+        if index + 1 <
+           values.length {
+            set result =
+                append(
+                    &result,
+                    ",");
+
+            if result.options.pretty {
+                set result =
+                    append_newline(
+                        &result);
+            }
+        }
+
+        set index += 1;
+    }
+
+    set result.depth -= 1;
+
+    if result.options.pretty {
+        set result =
+            append_newline(
+                &result);
+
+        set result =
+            append_current_indent(
+                &result);
+    }
+
+    return append(
+        &result,
+        "]");
+}
+
+/// -------------------------------------------------------------------------
+/// Object encoding
+/// -------------------------------------------------------------------------
+
+proc object_has_duplicate_keys(
+    members: [JsonMember]
+) -> bool {
+    let mut left: usize = 0;
+
+    while left <
+          members.length {
+        let mut right: usize =
+            left + 1;
+
+        while right <
+              members.length {
+            if members[left].key ==
+               members[right].key {
+                return true;
+            }
+
+            set right += 1;
+        }
+
+        set left += 1;
+    }
+
+    return false;
+}
+
+proc encode_member_into(
+    state: &JsonEncoder,
+    value: &JsonMember
+) -> JsonEncoder {
+    let mut result: JsonEncoder =
+        encode_string_into(
+            state,
+            value.key);
+
+    if result.failed {
+        return result;
+    }
+
+    set result =
+        append(
+            &result,
+            ":");
+
+    set result =
+        append_separator_space(
+            &result);
+
+    return encode_value_into(
+        &result,
+        &value.value);
+}
+
+proc encode_object_into(
+    state: &JsonEncoder,
+    members: [JsonMember]
+) -> JsonEncoder {
+    if state.depth >=
+       JSON_ENCODER_MAX_DEPTH {
+        return encoder_fail(
+            state,
+            JsonEncodeError.DepthExceeded);
+    }
+
+    if object_has_duplicate_keys(
+        members) {
+        return encoder_fail(
+            state,
+            JsonEncodeError.DuplicateKey);
+    }
+
+    let mut result: JsonEncoder =
+        append(
+            state,
+            "{");
+
+    if members.length == 0 {
+        return append(
+            &result,
+            "}");
+    }
+
+    set result.depth += 1;
+
+    if result.options.pretty {
+        set result =
+            append_newline(
+                &result);
+    }
+
+    let mut index: usize = 0;
+
+    while index <
+          members.length {
+        if result.options.pretty {
+            set result =
+                append_current_indent(
+                    &result);
+        }
+
+        set result =
+            encode_member_into(
+                &result,
+                &members[index]);
+
+        if result.failed {
+            return result;
+        }
+
+        if index + 1 <
+           members.length {
+            set result =
+                append(
+                    &result,
+                    ",");
+
+            if result.options.pretty {
+                set result =
+                    append_newline(
+                        &result);
+            }
+        }
+
+        set index += 1;
+    }
+
+    set result.depth -= 1;
+
+    if result.options.pretty {
+        set result =
+            append_newline(
+                &result);
+
+        set result =
+            append_current_indent(
+                &result);
+    }
+
+    return append(
+        &result,
+        "}");
+}
+
+/// -------------------------------------------------------------------------
+/// Recursive value encoding
+/// -------------------------------------------------------------------------
+
+proc encode_value_into(
+    state: &JsonEncoder,
+    value: &JsonValue
+) -> JsonEncoder {
+    if state.failed {
+        return state;
+    }
+
+    if is_null(value) {
+        return encode_null_into(
+            state);
+    }
+
+    if is_bool(value) {
+        return encode_bool_into(
+            state,
+            value.bool_value);
+    }
+
+    if is_integer(value) {
+        return encode_integer_into(
+            state,
+            value.integer_value);
+    }
+
+    if is_float(value) {
+        return encode_float_into(
+            state,
+            value.float_value);
+    }
+
+    if is_string(value) {
+        return encode_string_into(
+            state,
+            value.string_value);
+    }
+
+    if is_array(value) {
+        return encode_array_into(
+            state,
+            value.array_value);
+    }
+
+    if is_object(value) {
+        return encode_object_into(
+            state,
+            value.object_value);
+    }
+
+    return encoder_fail(
+        state,
+        JsonEncodeError.InvalidValue);
+}
+
+/// -------------------------------------------------------------------------
+/// Public encoding API
+/// -------------------------------------------------------------------------
+
+export proc encode_with_options(
+    value: &JsonValue,
+    options: JsonEncodeOptions
+) -> JsonEncodeResult {
+    if not validate(value) {
+        if has_duplicate_keys(value) {
+            return encode_failure(
+                JsonEncodeError.DuplicateKey);
+        }
+
+        return encode_failure(
+            JsonEncodeError.InvalidValue);
+    }
+
+    if depth(value) >
+       JSON_ENCODER_MAX_DEPTH {
+        return encode_failure(
+            JsonEncodeError.DepthExceeded);
+    }
+
+    let initial: JsonEncoder =
+        encoder(options);
+
+    let result: JsonEncoder =
+        encode_value_into(
+            &initial,
+            value);
+
+    if result.failed {
+        return encode_failure(
+            result.error);
+    }
+
+    return encode_success(
+        result.output);
+}
+
+export proc encode(
+    value: &JsonValue
+) -> JsonEncodeResult {
+    return encode_with_options(
+        value,
+        compact_options());
+}
+
+export proc encode_compact(
+    value: &JsonValue
+) -> JsonEncodeResult {
+    return encode_with_options(
+        value,
+        compact_options());
+}
+
+export proc encode_pretty(
+    value: &JsonValue
+) -> JsonEncodeResult {
+    return encode_with_options(
+        value,
+        pretty_options());
+}
+
+export proc encode_pretty_with_indent(
+    value: &JsonValue,
+    indent: usize
+) -> JsonEncodeResult {
+    return encode_with_options(
+        value,
+        pretty_options_with_indent(
+            indent));
+}
+
+/// -------------------------------------------------------------------------
+/// Primitive convenience API
+/// -------------------------------------------------------------------------
+
+export proc encode_null() -> JsonEncodeResult {
+    let value: JsonValue =
+        null();
+
+    return encode(
+        &value);
+}
+
+export proc encode_bool(
+    value: bool
+) -> JsonEncodeResult {
+    let json_value: JsonValue =
+        boolean(value);
+
+    return encode(
+        &json_value);
+}
+
+export proc encode_integer(
+    value: i64
+) -> JsonEncodeResult {
+    let json_value: JsonValue =
+        integer(value);
+
+    return encode(
+        &json_value);
+}
+
+export proc encode_float(
+    value: f64
+) -> JsonEncodeResult {
+    let json_value: JsonValue =
+        floating(value);
+
+    return encode(
+        &json_value);
+}
+
+export proc encode_string(
+    value: string
+) -> JsonEncodeResult {
+    let json_value: JsonValue =
+        string(value);
+
+    return encode(
+        &json_value);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — primitives
+/// -------------------------------------------------------------------------
+
+test "json encoder null" {
+    let result: JsonEncodeResult =
+        encode_null();
+
+    assert result.ok;
+
+    assert result.text ==
+        "null";
+}
+
+test "json encoder true" {
+    let result: JsonEncodeResult =
+        encode_bool(true);
+
+    assert result.ok;
+
+    assert result.text ==
+        "true";
+}
+
+test "json encoder false" {
+    let result: JsonEncodeResult =
+        encode_bool(false);
+
+    assert result.ok;
+
+    assert result.text ==
+        "false";
+}
+
+test "json encoder positive integer" {
+    let result: JsonEncodeResult =
+        encode_integer(42);
+
+    assert result.ok;
+
+    assert result.text ==
+        "42";
+}
+
+test "json encoder zero integer" {
+    let result: JsonEncodeResult =
+        encode_integer(0);
+
+    assert result.ok;
+
+    assert result.text ==
+        "0";
+}
+
+test "json encoder negative integer" {
+    let result: JsonEncodeResult =
+        encode_integer(-42);
+
+    assert result.ok;
+
+    assert result.text ==
+        "-42";
+}
+
+test "json encoder minimum integer" {
+    let result: JsonEncodeResult =
+        encode_integer(
+            -9223372036854775807 - 1);
+
+    assert result.ok;
+
+    assert result.text ==
+        "-9223372036854775808";
+}
+
+test "json encoder simple float" {
+    let result: JsonEncodeResult =
+        encode_float(42.5);
+
+    assert result.ok;
+
+    assert result.text ==
+        "42.5";
+}
+
+test "json encoder integral float" {
+    let result: JsonEncodeResult =
+        encode_float(42.0);
+
+    assert result.ok;
+
+    assert result.text ==
+        "42.0";
+}
+
+test "json encoder string" {
+    let result: JsonEncodeResult =
+        encode_string("Vitte");
+
+    assert result.ok;
+
+    assert result.text ==
+        "\"Vitte\"";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — string escaping
+/// -------------------------------------------------------------------------
+
+test "json encoder escapes quote" {
+    let result: JsonEncodeResult =
+        encode_string(
+            "Vitte \"JSON\"");
+
+    assert result.ok;
+
+    assert result.text ==
+        "\"Vitte \\\"JSON\\\"\"";
+}
+
+test "json encoder escapes backslash" {
+    let result: JsonEncodeResult =
+        encode_string(
+            "a\\b");
+
+    assert result.ok;
+
+    assert result.text ==
+        "\"a\\\\b\"";
+}
+
+test "json encoder escapes newline" {
+    let result: JsonEncodeResult =
+        encode_string(
+            "first\nsecond");
+
+    assert result.ok;
+
+    assert result.text ==
+        "\"first\\nsecond\"";
+}
+
+test "json encoder escapes tab" {
+    let result: JsonEncodeResult =
+        encode_string(
+            "first\tsecond");
+
+    assert result.ok;
+
+    assert result.text ==
+        "\"first\\tsecond\"";
+}
+
+test "json encoder escapes carriage return" {
+    let result: JsonEncodeResult =
+        encode_string(
+            "first\rsecond");
+
+    assert result.ok;
+
+    assert result.text ==
+        "\"first\\rsecond\"";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — arrays
+/// -------------------------------------------------------------------------
+
+test "json encoder empty array" {
+    let value: JsonValue =
+        empty_array();
+
+    let result: JsonEncodeResult =
+        encode(
+            &value);
+
+    assert result.ok;
+
+    assert result.text ==
+        "[]";
+}
+
+test "json encoder scalar array" {
+    let value: JsonValue =
+        array([
+            integer(20),
+            integer(22),
+            boolean(true),
+            null(),
+            string("Vitte"),
+        ]);
+
+    let result: JsonEncodeResult =
+        encode(
+            &value);
+
+    assert result.ok;
+
+    assert result.text ==
+        "[20,22,true,null,\"Vitte\"]";
+}
+
+test "json encoder nested array" {
+    let value: JsonValue =
+        array([
+            integer(1),
+
+            array([
+                integer(2),
+                integer(3),
+            ]),
+
+            array([
+                array([
+                    integer(4),
+                ]),
+            ]),
+        ]);
+
+    let result: JsonEncodeResult =
+        encode(
+            &value);
+
+    assert result.ok;
+
+    assert result.text ==
+        "[1,[2,3],[[4]]]";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — objects
+/// -------------------------------------------------------------------------
+
+test "json encoder empty object" {
+    let value: JsonValue =
+        empty_object();
+
+    let result: JsonEncodeResult =
+        encode(
+            &value);
+
+    assert result.ok;
+
+    assert result.text ==
+        "{}";
+}
+
+test "json encoder object" {
+    let value: JsonValue =
+        object([
+            member(
+                "name",
+                string("Vitte")),
+
+            member(
+                "answer",
+                integer(42)),
+
+            member(
+                "enabled",
+                boolean(true)),
+        ]);
+
+    let result: JsonEncodeResult =
+        encode(
+            &value);
+
+    assert result.ok;
+
+    assert result.text ==
+        "{\"name\":\"Vitte\",\"answer\":42,\"enabled\":true}";
+}
+
+test "json encoder preserves object order" {
+    let value: JsonValue =
+        object([
+            member(
+                "first",
+                integer(1)),
+
+            member(
+                "second",
+                integer(2)),
+
+            member(
+                "third",
+                integer(3)),
+        ]);
+
+    let result: JsonEncodeResult =
+        encode(
+            &value);
+
+    assert result.ok;
+
+    assert result.text ==
+        "{\"first\":1,\"second\":2,\"third\":3}";
+}
+
+test "json encoder escapes object keys" {
+    let value: JsonValue =
+        object([
+            member(
+                "a\"b",
+                integer(42)),
+        ]);
+
+    let result: JsonEncodeResult =
+        encode(
+            &value);
+
+    assert result.ok;
+
+    assert result.text ==
+        "{\"a\\\"b\":42}";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — nested document
+/// -------------------------------------------------------------------------
+
+test "json encoder nested document" {
+    let value: JsonValue =
+        object([
+            member(
+                "project",
+                string("Vitte")),
+
+            member(
+                "version",
+                integer(1)),
+
+            member(
+                "enabled",
+                boolean(true)),
+
+            member(
+                "numbers",
+                array([
+                    integer(20),
+                    integer(22),
+                    floating(42.5),
+                ])),
+
+            member(
+                "metadata",
+                object([
+                    member(
+                        "backend",
+                        string("C17")),
+
+                    member(
+                        "native",
+                        boolean(true)),
+
+                    member(
+                        "nothing",
+                        null()),
+                ])),
+        ]);
+
+    let result: JsonEncodeResult =
+        encode(
+            &value);
+
+    assert result.ok;
+
+    assert result.text ==
+        "{\"project\":\"Vitte\",\"version\":1,\"enabled\":true,\"numbers\":[20,22,42.5],\"metadata\":{\"backend\":\"C17\",\"native\":true,\"nothing\":null}}";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — pretty printing
+/// -------------------------------------------------------------------------
+
+test "json encoder pretty empty values" {
+    let array_value: JsonValue =
+        empty_array();
+
+    let object_value: JsonValue =
+        empty_object();
+
+    let array_result:
+        JsonEncodeResult =
+            encode_pretty(
+                &array_value);
+
+    let object_result:
+        JsonEncodeResult =
+            encode_pretty(
+                &object_value);
+
+    assert array_result.ok;
+
+    assert object_result.ok;
+
+    assert array_result.text ==
+        "[]";
+
+    assert object_result.text ==
+        "{}";
+}
+
+test "json encoder pretty array" {
+    let value: JsonValue =
+        array([
+            integer(20),
+            integer(22),
+        ]);
+
+    let result: JsonEncodeResult =
+        encode_pretty(
+            &value);
+
+    assert result.ok;
+
+    assert result.text ==
+        "[\n  20,\n  22\n]";
+}
+
+test "json encoder pretty object" {
+    let value: JsonValue =
+        object([
+            member(
+                "first",
+                integer(20)),
+
+            member(
+                "second",
+                integer(22)),
+        ]);
+
+    let result: JsonEncodeResult =
+        encode_pretty(
+            &value);
+
+    assert result.ok;
+
+    assert result.text ==
+        "{\n  \"first\": 20,\n  \"second\": 22\n}";
+}
+
+test "json encoder pretty nested document" {
+    let value: JsonValue =
+        object([
+            member(
+                "project",
+                string("Vitte")),
+
+            member(
+                "numbers",
+                array([
+                    integer(20),
+                    integer(22),
+                ])),
+        ]);
+
+    let result: JsonEncodeResult =
+        encode_pretty(
+            &value);
+
+    assert result.ok;
+
+    assert result.text ==
+        "{\n  \"project\": \"Vitte\",\n  \"numbers\": [\n    20,\n    22\n  ]\n}";
+}
+
+test "json encoder custom indentation" {
+    let value: JsonValue =
+        object([
+            member(
+                "value",
+                array([
+                    integer(42),
+                ])),
+        ]);
+
+    let result: JsonEncodeResult =
+        encode_pretty_with_indent(
+            &value,
+            4);
+
+    assert result.ok;
+
+    assert result.text ==
+        "{\n    \"value\": [\n        42\n    ]\n}";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — duplicate keys
+/// -------------------------------------------------------------------------
+
+test "json encoder rejects duplicate keys" {
+    let value: JsonValue =
+        object([
+            member(
+                "answer",
+                integer(20)),
+
+            member(
+                "answer",
+                integer(22)),
+        ]);
+
+    let result: JsonEncodeResult =
+        encode(
+            &value);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonEncodeError.DuplicateKey;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — complete document
+/// -------------------------------------------------------------------------
+
+test "json encoder complete document" {
+    let document: JsonValue =
+        object([
+            member(
+                "language",
+                string("Vitte")),
+
+            member(
+                "json",
+                boolean(true)),
+
+            member(
+                "version",
+                integer(1)),
+
+            member(
+                "ratio",
+                floating(1.5)),
+
+            member(
+                "nothing",
+                null()),
+
+            member(
+                "targets",
+                array([
+                    string("C17"),
+                    string("native"),
+                ])),
+
+            member(
+                "compiler",
+                object([
+                    member(
+                        "frontend",
+                        string("Vitte")),
+
+                    member(
+                        "backend",
+                        string("C17")),
+
+                    member(
+                        "enabled",
+                        boolean(true)),
+                ])),
+
+            member(
+                "values",
+                array([
+                    object([
+                        member(
+                            "id",
+                            integer(20)),
+
+                        member(
+                            "valid",
+                            boolean(true)),
+                    ]),
+
+                    object([
+                        member(
+                            "id",
+                            integer(22)),
+
+                        member(
+                            "valid",
+                            boolean(true)),
+                    ]),
+                ])),
+        ]);
+
+    let compact:
+        JsonEncodeResult =
+            encode(
+                &document);
+
+    assert compact.ok;
+
+    assert compact.text ==
+        "{\"language\":\"Vitte\",\"json\":true,\"version\":1,\"ratio\":1.5,\"nothing\":null,\"targets\":[\"C17\",\"native\"],\"compiler\":{\"frontend\":\"Vitte\",\"backend\":\"C17\",\"enabled\":true},\"values\":[{\"id\":20,\"valid\":true},{\"id\":22,\"valid\":true}]}";
+
+    let pretty:
+        JsonEncodeResult =
+            encode_pretty(
+                &document);
+
+    assert pretty.ok;
+
+    assert pretty.text.length >
+        compact.text.length;
+}

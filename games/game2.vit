@@ -1,0 +1,3494 @@
+space games::space_trader;
+
+/*
+ * ============================================================================
+ * VITTE SPACE TRADER
+ * ============================================================================
+ *
+ * Jeu terminal 100 % Vitte.
+ *
+ * Objectif :
+ *   - voyager entre les planetes
+ *   - acheter et vendre des marchandises
+ *   - gerer carburant, coque et cargaison
+ *   - gagner des credits
+ *   - survivre aux pirates
+ *   - ameliorer le vaisseau
+ *   - atteindre 100000 credits
+ *
+ * Aucun extern C.
+ *
+ * Intrinsics requis :
+ *   io_print
+ *   io_print_i64
+ *   io_read_i64
+ *   random_i64
+ *
+ * ============================================================================
+ */
+
+
+/* ========================================================================= */
+/* Intrinsics                                                                 */
+/* ========================================================================= */
+
+intrinsic io_print(text: *u8);
+intrinsic io_print_i64(value: i64);
+intrinsic io_read_i64() -> i64;
+intrinsic random_i64(minimum: i64, maximum: i64) -> i64;
+
+
+/* ========================================================================= */
+/* Constants                                                                  */
+/* ========================================================================= */
+
+const START_CREDITS: i64 = 2500;
+
+const START_HULL: i64 = 100;
+const START_FUEL: i64 = 100;
+const START_CARGO: i64 = 30;
+
+const MAX_ENGINE_LEVEL: i64 = 5;
+const MAX_WEAPON_LEVEL: i64 = 5;
+const MAX_SHIELD_LEVEL: i64 = 5;
+const MAX_CARGO_LEVEL: i64 = 5;
+
+const WIN_CREDITS: i64 = 100000;
+
+const BASE_FUEL_PRICE: i64 = 8;
+
+const PIRATE_CHANCE: i64 = 24;
+const EVENT_CHANCE: i64 = 35;
+
+
+/* ========================================================================= */
+/* Enumerations                                                               */
+/* ========================================================================= */
+
+pick GameState {
+    Playing,
+    Victory,
+    Defeat,
+    Quit
+}
+
+pick PlanetKind {
+    Terra,
+    Luna,
+    Mars,
+    Europa,
+    Titan,
+    Vega,
+    Orion
+}
+
+pick CommodityKind {
+    Food,
+    Ore,
+    Medicine,
+    Technology,
+    Crystal
+}
+
+pick Action {
+    Invalid,
+    Market,
+    Travel,
+    Refuel,
+    Repair,
+    Ship,
+    Status,
+    Help,
+    Quit
+}
+
+pick MarketAction {
+    Invalid,
+    Buy,
+    Sell,
+    Prices,
+    Back
+}
+
+pick CombatAction {
+    Invalid,
+    Attack,
+    Defend,
+    Escape
+}
+
+
+/* ========================================================================= */
+/* Cargo                                                                      */
+/* ========================================================================= */
+
+form Cargo {
+    food: i64,
+    ore: i64,
+    medicine: i64,
+    technology: i64,
+    crystal: i64
+}
+
+
+/* ========================================================================= */
+/* Ship                                                                       */
+/* ========================================================================= */
+
+form Ship {
+    hull: i64,
+    max_hull: i64,
+
+    fuel: i64,
+    max_fuel: i64,
+
+    cargo_capacity: i64,
+
+    engine_level: i64,
+    weapon_level: i64,
+    shield_level: i64,
+    cargo_level: i64
+}
+
+
+/* ========================================================================= */
+/* Player                                                                     */
+/* ========================================================================= */
+
+form Player {
+    credits: i64,
+
+    planet: PlanetKind,
+
+    ship: Ship,
+    cargo: Cargo,
+
+    reputation: i64,
+
+    trades: i64,
+    journeys: i64,
+    pirates_destroyed: i64,
+
+    total_profit: i64
+}
+
+
+/* ========================================================================= */
+/* Pirate                                                                     */
+/* ========================================================================= */
+
+form Pirate {
+    health: i64,
+    max_health: i64,
+
+    attack: i64,
+    defense: i64,
+
+    reward: i64
+}
+
+
+/* ========================================================================= */
+/* Game                                                                       */
+/* ========================================================================= */
+
+form Game {
+    player: Player,
+
+    state: GameState,
+
+    day: i64,
+
+    food_market: i64,
+    ore_market: i64,
+    medicine_market: i64,
+    technology_market: i64,
+    crystal_market: i64
+}
+
+
+/* ========================================================================= */
+/* General utilities                                                          */
+/* ========================================================================= */
+
+proc println() {
+    io_print("\n");
+}
+
+
+proc separator() {
+    io_print(
+        "============================================================\n"
+    );
+}
+
+
+proc small_separator() {
+    io_print(
+        "------------------------------------------------------------\n"
+    );
+}
+
+
+proc min_i64(
+    left: i64,
+    right: i64
+) -> i64 {
+    if left < right {
+        return left;
+    }
+
+    return right;
+}
+
+
+proc max_i64(
+    left: i64,
+    right: i64
+) -> i64 {
+    if left > right {
+        return left;
+    }
+
+    return right;
+}
+
+
+proc clamp_i64(
+    value: i64,
+    minimum: i64,
+    maximum: i64
+) -> i64 {
+    if value < minimum {
+        return minimum;
+    }
+
+    if value > maximum {
+        return maximum;
+    }
+
+    return value;
+}
+
+
+/* ========================================================================= */
+/* Cargo                                                                      */
+/* ========================================================================= */
+
+proc create_cargo() -> Cargo {
+    let mut cargo: Cargo;
+
+    cargo.food = 0;
+    cargo.ore = 0;
+    cargo.medicine = 0;
+    cargo.technology = 0;
+    cargo.crystal = 0;
+
+    return cargo;
+}
+
+
+proc cargo_used(
+    cargo: &Cargo
+) -> i64 {
+    return
+        cargo.food +
+        cargo.ore +
+        cargo.medicine +
+        cargo.technology +
+        cargo.crystal;
+}
+
+
+proc cargo_free(
+    player: &Player
+) -> i64 {
+    return
+        player.ship.cargo_capacity -
+        cargo_used(
+            &player.cargo
+        );
+}
+
+
+proc cargo_quantity(
+    cargo: &Cargo,
+    commodity: CommodityKind
+) -> i64 {
+    if commodity ==
+        CommodityKind::Food
+    {
+        return cargo.food;
+    }
+
+    if commodity ==
+        CommodityKind::Ore
+    {
+        return cargo.ore;
+    }
+
+    if commodity ==
+        CommodityKind::Medicine
+    {
+        return cargo.medicine;
+    }
+
+    if commodity ==
+        CommodityKind::Technology
+    {
+        return cargo.technology;
+    }
+
+    return cargo.crystal;
+}
+
+
+proc cargo_add(
+    cargo: &mut Cargo,
+    commodity: CommodityKind,
+    quantity: i64
+) {
+    if quantity <= 0 {
+        return;
+    }
+
+    if commodity ==
+        CommodityKind::Food
+    {
+        cargo.food =
+            cargo.food + quantity;
+
+        return;
+    }
+
+    if commodity ==
+        CommodityKind::Ore
+    {
+        cargo.ore =
+            cargo.ore + quantity;
+
+        return;
+    }
+
+    if commodity ==
+        CommodityKind::Medicine
+    {
+        cargo.medicine =
+            cargo.medicine + quantity;
+
+        return;
+    }
+
+    if commodity ==
+        CommodityKind::Technology
+    {
+        cargo.technology =
+            cargo.technology + quantity;
+
+        return;
+    }
+
+    cargo.crystal =
+        cargo.crystal + quantity;
+}
+
+
+proc cargo_remove(
+    cargo: &mut Cargo,
+    commodity: CommodityKind,
+    quantity: i64
+) {
+    if quantity <= 0 {
+        return;
+    }
+
+    if commodity ==
+        CommodityKind::Food
+    {
+        cargo.food =
+            max_i64(
+                0,
+                cargo.food - quantity
+            );
+
+        return;
+    }
+
+    if commodity ==
+        CommodityKind::Ore
+    {
+        cargo.ore =
+            max_i64(
+                0,
+                cargo.ore - quantity
+            );
+
+        return;
+    }
+
+    if commodity ==
+        CommodityKind::Medicine
+    {
+        cargo.medicine =
+            max_i64(
+                0,
+                cargo.medicine - quantity
+            );
+
+        return;
+    }
+
+    if commodity ==
+        CommodityKind::Technology
+    {
+        cargo.technology =
+            max_i64(
+                0,
+                cargo.technology - quantity
+            );
+
+        return;
+    }
+
+    cargo.crystal =
+        max_i64(
+            0,
+            cargo.crystal - quantity
+        );
+}
+
+
+/* ========================================================================= */
+/* Ship                                                                       */
+/* ========================================================================= */
+
+proc create_ship() -> Ship {
+    let mut ship: Ship;
+
+    ship.hull =
+        START_HULL;
+
+    ship.max_hull =
+        START_HULL;
+
+    ship.fuel =
+        START_FUEL;
+
+    ship.max_fuel =
+        START_FUEL;
+
+    ship.cargo_capacity =
+        START_CARGO;
+
+    ship.engine_level = 1;
+    ship.weapon_level = 1;
+    ship.shield_level = 1;
+    ship.cargo_level = 1;
+
+    return ship;
+}
+
+
+/* ========================================================================= */
+/* Player                                                                     */
+/* ========================================================================= */
+
+proc create_player() -> Player {
+    let mut player: Player;
+
+    player.credits =
+        START_CREDITS;
+
+    player.planet =
+        PlanetKind::Terra;
+
+    player.ship =
+        create_ship();
+
+    player.cargo =
+        create_cargo();
+
+    player.reputation = 0;
+
+    player.trades = 0;
+    player.journeys = 0;
+    player.pirates_destroyed = 0;
+
+    player.total_profit = 0;
+
+    return player;
+}
+
+
+/* ========================================================================= */
+/* Game                                                                       */
+/* ========================================================================= */
+
+proc create_game() -> Game {
+    let mut game: Game;
+
+    game.player =
+        create_player();
+
+    game.state =
+        GameState::Playing;
+
+    game.day = 1;
+
+    game.food_market = 100;
+    game.ore_market = 100;
+    game.medicine_market = 100;
+    game.technology_market = 100;
+    game.crystal_market = 100;
+
+    return game;
+}
+
+
+/* ========================================================================= */
+/* Names                                                                      */
+/* ========================================================================= */
+
+proc print_planet_name(
+    planet: PlanetKind
+) {
+    if planet ==
+        PlanetKind::Terra
+    {
+        io_print("Terra");
+        return;
+    }
+
+    if planet ==
+        PlanetKind::Luna
+    {
+        io_print("Luna");
+        return;
+    }
+
+    if planet ==
+        PlanetKind::Mars
+    {
+        io_print("Mars");
+        return;
+    }
+
+    if planet ==
+        PlanetKind::Europa
+    {
+        io_print("Europa");
+        return;
+    }
+
+    if planet ==
+        PlanetKind::Titan
+    {
+        io_print("Titan");
+        return;
+    }
+
+    if planet ==
+        PlanetKind::Vega
+    {
+        io_print("Vega");
+        return;
+    }
+
+    io_print("Orion");
+}
+
+
+proc print_commodity_name(
+    commodity: CommodityKind
+) {
+    if commodity ==
+        CommodityKind::Food
+    {
+        io_print("Nourriture");
+        return;
+    }
+
+    if commodity ==
+        CommodityKind::Ore
+    {
+        io_print("Minerai");
+        return;
+    }
+
+    if commodity ==
+        CommodityKind::Medicine
+    {
+        io_print("Medicament");
+        return;
+    }
+
+    if commodity ==
+        CommodityKind::Technology
+    {
+        io_print("Technologie");
+        return;
+    }
+
+    io_print("Cristal");
+}
+
+
+/* ========================================================================= */
+/* Planet distances                                                           */
+/* ========================================================================= */
+
+proc planet_index(
+    planet: PlanetKind
+) -> i64 {
+    if planet ==
+        PlanetKind::Terra
+    {
+        return 0;
+    }
+
+    if planet ==
+        PlanetKind::Luna
+    {
+        return 1;
+    }
+
+    if planet ==
+        PlanetKind::Mars
+    {
+        return 2;
+    }
+
+    if planet ==
+        PlanetKind::Europa
+    {
+        return 3;
+    }
+
+    if planet ==
+        PlanetKind::Titan
+    {
+        return 4;
+    }
+
+    if planet ==
+        PlanetKind::Vega
+    {
+        return 5;
+    }
+
+    return 6;
+}
+
+
+proc absolute_i64(
+    value: i64
+) -> i64 {
+    if value < 0 {
+        return -value;
+    }
+
+    return value;
+}
+
+
+proc distance_between(
+    from: PlanetKind,
+    to: PlanetKind
+) -> i64 {
+    let left: i64 =
+        planet_index(from);
+
+    let right: i64 =
+        planet_index(to);
+
+    let base: i64 =
+        absolute_i64(
+            left - right
+        );
+
+    return
+        8 +
+        base * 7;
+}
+
+
+/* ========================================================================= */
+/* Fuel                                                                       */
+/* ========================================================================= */
+
+proc travel_fuel_cost(
+    player: &Player,
+    destination: PlanetKind
+) -> i64 {
+    let distance: i64 =
+        distance_between(
+            player.planet,
+            destination
+        );
+
+    let reduction: i64 =
+        player.ship.engine_level - 1;
+
+    return
+        max_i64(
+            1,
+            distance - reduction * 2
+        );
+}
+
+
+/* ========================================================================= */
+/* Base commodity prices                                                      */
+/* ========================================================================= */
+
+proc base_price(
+    commodity: CommodityKind
+) -> i64 {
+    if commodity ==
+        CommodityKind::Food
+    {
+        return 18;
+    }
+
+    if commodity ==
+        CommodityKind::Ore
+    {
+        return 35;
+    }
+
+    if commodity ==
+        CommodityKind::Medicine
+    {
+        return 80;
+    }
+
+    if commodity ==
+        CommodityKind::Technology
+    {
+        return 150;
+    }
+
+    return 300;
+}
+
+
+/* ========================================================================= */
+/* Planet price modifier                                                      */
+/* ========================================================================= */
+
+proc planet_modifier(
+    planet: PlanetKind,
+    commodity: CommodityKind
+) -> i64 {
+    if planet ==
+        PlanetKind::Terra
+    {
+        if commodity ==
+            CommodityKind::Food
+        {
+            return 70;
+        }
+
+        if commodity ==
+            CommodityKind::Technology
+        {
+            return 125;
+        }
+
+        return 100;
+    }
+
+    if planet ==
+        PlanetKind::Luna
+    {
+        if commodity ==
+            CommodityKind::Food
+        {
+            return 140;
+        }
+
+        if commodity ==
+            CommodityKind::Ore
+        {
+            return 75;
+        }
+
+        return 105;
+    }
+
+    if planet ==
+        PlanetKind::Mars
+    {
+        if commodity ==
+            CommodityKind::Ore
+        {
+            return 65;
+        }
+
+        if commodity ==
+            CommodityKind::Medicine
+        {
+            return 135;
+        }
+
+        return 100;
+    }
+
+    if planet ==
+        PlanetKind::Europa
+    {
+        if commodity ==
+            CommodityKind::Medicine
+        {
+            return 70;
+        }
+
+        if commodity ==
+            CommodityKind::Food
+        {
+            return 130;
+        }
+
+        return 100;
+    }
+
+    if planet ==
+        PlanetKind::Titan
+    {
+        if commodity ==
+            CommodityKind::Technology
+        {
+            return 75;
+        }
+
+        if commodity ==
+            CommodityKind::Crystal
+        {
+            return 135;
+        }
+
+        return 100;
+    }
+
+    if planet ==
+        PlanetKind::Vega
+    {
+        if commodity ==
+            CommodityKind::Crystal
+        {
+            return 70;
+        }
+
+        if commodity ==
+            CommodityKind::Technology
+        {
+            return 140;
+        }
+
+        return 110;
+    }
+
+    if commodity ==
+        CommodityKind::Crystal
+    {
+        return 150;
+    }
+
+    if commodity ==
+        CommodityKind::Medicine
+    {
+        return 120;
+    }
+
+    return 110;
+}
+
+
+/* ========================================================================= */
+/* Dynamic market modifier                                                    */
+/* ========================================================================= */
+
+proc market_modifier(
+    game: &Game,
+    commodity: CommodityKind
+) -> i64 {
+    if commodity ==
+        CommodityKind::Food
+    {
+        return game.food_market;
+    }
+
+    if commodity ==
+        CommodityKind::Ore
+    {
+        return game.ore_market;
+    }
+
+    if commodity ==
+        CommodityKind::Medicine
+    {
+        return game.medicine_market;
+    }
+
+    if commodity ==
+        CommodityKind::Technology
+    {
+        return game.technology_market;
+    }
+
+    return game.crystal_market;
+}
+
+
+/* ========================================================================= */
+/* Final market price                                                         */
+/* ========================================================================= */
+
+proc commodity_price(
+    game: &Game,
+    commodity: CommodityKind
+) -> i64 {
+    let base: i64 =
+        base_price(
+            commodity
+        );
+
+    let planet: i64 =
+        planet_modifier(
+            game.player.planet,
+            commodity
+        );
+
+    let market: i64 =
+        market_modifier(
+            game,
+            commodity
+        );
+
+    let price: i64 =
+        base *
+        planet *
+        market /
+        10000;
+
+    return max_i64(
+        1,
+        price
+    );
+}
+
+
+/* ========================================================================= */
+/* Market fluctuation                                                         */
+/* ========================================================================= */
+
+proc update_market(
+    game: &mut Game
+) {
+    game.food_market =
+        clamp_i64(
+            game.food_market +
+            random_i64(-12, 12),
+            60,
+            160
+        );
+
+    game.ore_market =
+        clamp_i64(
+            game.ore_market +
+            random_i64(-12, 12),
+            60,
+            160
+        );
+
+    game.medicine_market =
+        clamp_i64(
+            game.medicine_market +
+            random_i64(-10, 10),
+            60,
+            160
+        );
+
+    game.technology_market =
+        clamp_i64(
+            game.technology_market +
+            random_i64(-8, 8),
+            60,
+            160
+        );
+
+    game.crystal_market =
+        clamp_i64(
+            game.crystal_market +
+            random_i64(-15, 15),
+            50,
+            180
+        );
+}
+
+
+/* ========================================================================= */
+/* Commodity input                                                            */
+/* ========================================================================= */
+
+proc read_commodity() -> CommodityKind {
+    io_print("1. Nourriture\n");
+    io_print("2. Minerai\n");
+    io_print("3. Medicament\n");
+    io_print("4. Technologie\n");
+    io_print("5. Cristal\n");
+    io_print("> ");
+
+    let value: i64 =
+        io_read_i64();
+
+    if value == 1 {
+        return CommodityKind::Food;
+    }
+
+    if value == 2 {
+        return CommodityKind::Ore;
+    }
+
+    if value == 3 {
+        return CommodityKind::Medicine;
+    }
+
+    if value == 4 {
+        return CommodityKind::Technology;
+    }
+
+    return CommodityKind::Crystal;
+}
+
+
+/* ========================================================================= */
+/* Price display                                                              */
+/* ========================================================================= */
+
+proc print_price(
+    game: &Game,
+    commodity: CommodityKind
+) {
+    print_commodity_name(
+        commodity
+    );
+
+    io_print(" : ");
+
+    io_print_i64(
+        commodity_price(
+            game,
+            commodity
+        )
+    );
+
+    io_print(" credits");
+
+    io_print("   stock: ");
+
+    io_print_i64(
+        cargo_quantity(
+            &game.player.cargo,
+            commodity
+        )
+    );
+
+    println();
+}
+
+
+proc print_market(
+    game: &Game
+) {
+    println();
+    small_separator();
+
+    io_print("MARCHE DE ");
+
+    print_planet_name(
+        game.player.planet
+    );
+
+    println();
+
+    small_separator();
+
+    print_price(
+        game,
+        CommodityKind::Food
+    );
+
+    print_price(
+        game,
+        CommodityKind::Ore
+    );
+
+    print_price(
+        game,
+        CommodityKind::Medicine
+    );
+
+    print_price(
+        game,
+        CommodityKind::Technology
+    );
+
+    print_price(
+        game,
+        CommodityKind::Crystal
+    );
+
+    small_separator();
+
+    io_print("Credits : ");
+    io_print_i64(
+        game.player.credits
+    );
+
+    println();
+
+    io_print("Cargaison libre : ");
+    io_print_i64(
+        cargo_free(
+            &game.player
+        )
+    );
+
+    println();
+}
+
+
+/* ========================================================================= */
+/* Buy                                                                        */
+/* ========================================================================= */
+
+proc buy_commodity(
+    game: &mut Game
+) {
+    io_print("\nAcheter quelle marchandise ?\n");
+
+    let commodity: CommodityKind =
+        read_commodity();
+
+    let price: i64 =
+        commodity_price(
+            game,
+            commodity
+        );
+
+    io_print("Prix unitaire : ");
+    io_print_i64(price);
+    println();
+
+    io_print("Quantite : ");
+
+    let requested: i64 =
+        io_read_i64();
+
+    if requested <= 0 {
+        io_print("Quantite invalide.\n");
+        return;
+    }
+
+    let free: i64 =
+        cargo_free(
+            &game.player
+        );
+
+    if free <= 0 {
+        io_print("Cargaison pleine.\n");
+        return;
+    }
+
+    let affordable: i64 =
+        game.player.credits /
+        price;
+
+    let mut quantity: i64 =
+        requested;
+
+    quantity =
+        min_i64(
+            quantity,
+            free
+        );
+
+    quantity =
+        min_i64(
+            quantity,
+            affordable
+        );
+
+    if quantity <= 0 {
+        io_print("Credits insuffisants.\n");
+        return;
+    }
+
+    let total: i64 =
+        quantity * price;
+
+    game.player.credits =
+        game.player.credits -
+        total;
+
+    cargo_add(
+        &game.player.cargo,
+        commodity,
+        quantity
+    );
+
+    game.player.trades =
+        game.player.trades + 1;
+
+    io_print("Achat : ");
+    io_print_i64(quantity);
+    io_print(" x ");
+
+    print_commodity_name(
+        commodity
+    );
+
+    io_print(" pour ");
+
+    io_print_i64(total);
+
+    io_print(" credits.\n");
+}
+
+
+/* ========================================================================= */
+/* Sell                                                                       */
+/* ========================================================================= */
+
+proc sell_commodity(
+    game: &mut Game
+) {
+    io_print("\nVendre quelle marchandise ?\n");
+
+    let commodity: CommodityKind =
+        read_commodity();
+
+    let owned: i64 =
+        cargo_quantity(
+            &game.player.cargo,
+            commodity
+        );
+
+    if owned <= 0 {
+        io_print("Vous n'en possedez pas.\n");
+        return;
+    }
+
+    let price: i64 =
+        commodity_price(
+            game,
+            commodity
+        );
+
+    io_print("Vous possedez : ");
+    io_print_i64(owned);
+    println();
+
+    io_print("Prix unitaire : ");
+    io_print_i64(price);
+    println();
+
+    io_print("Quantite : ");
+
+    let requested: i64 =
+        io_read_i64();
+
+    if requested <= 0 {
+        io_print("Quantite invalide.\n");
+        return;
+    }
+
+    let quantity: i64 =
+        min_i64(
+            requested,
+            owned
+        );
+
+    let total: i64 =
+        quantity * price;
+
+    cargo_remove(
+        &game.player.cargo,
+        commodity,
+        quantity
+    );
+
+    game.player.credits =
+        game.player.credits +
+        total;
+
+    game.player.total_profit =
+        game.player.total_profit +
+        total;
+
+    game.player.trades =
+        game.player.trades + 1;
+
+    game.player.reputation =
+        game.player.reputation + 1;
+
+    io_print("Vente : ");
+    io_print_i64(quantity);
+    io_print(" x ");
+
+    print_commodity_name(
+        commodity
+    );
+
+    io_print(" pour ");
+
+    io_print_i64(total);
+
+    io_print(" credits.\n");
+}
+
+
+/* ========================================================================= */
+/* Market menu                                                                */
+/* ========================================================================= */
+
+proc market_menu(
+    game: &mut Game
+) {
+    let mut open: bool = true;
+
+    while open {
+        print_market(
+            game
+        );
+
+        io_print("\n");
+        io_print("1. Acheter\n");
+        io_print("2. Vendre\n");
+        io_print("3. Actualiser les prix\n");
+        io_print("4. Retour\n");
+        io_print("> ");
+
+        let choice: i64 =
+            io_read_i64();
+
+        if choice == 1 {
+            buy_commodity(
+                game
+            );
+        } else if choice == 2 {
+            sell_commodity(
+                game
+            );
+        } else if choice == 3 {
+            print_market(
+                game
+            );
+        } else if choice == 4 {
+            open = false;
+        } else {
+            io_print("Commande inconnue.\n");
+        }
+    }
+}
+
+
+/* ========================================================================= */
+/* Planet selection                                                           */
+/* ========================================================================= */
+
+proc read_planet() -> PlanetKind {
+    io_print("\nDestination\n");
+    io_print("1. Terra\n");
+    io_print("2. Luna\n");
+    io_print("3. Mars\n");
+    io_print("4. Europa\n");
+    io_print("5. Titan\n");
+    io_print("6. Vega\n");
+    io_print("7. Orion\n");
+    io_print("> ");
+
+    let value: i64 =
+        io_read_i64();
+
+    if value == 1 {
+        return PlanetKind::Terra;
+    }
+
+    if value == 2 {
+        return PlanetKind::Luna;
+    }
+
+    if value == 3 {
+        return PlanetKind::Mars;
+    }
+
+    if value == 4 {
+        return PlanetKind::Europa;
+    }
+
+    if value == 5 {
+        return PlanetKind::Titan;
+    }
+
+    if value == 6 {
+        return PlanetKind::Vega;
+    }
+
+    return PlanetKind::Orion;
+}
+
+
+/* ========================================================================= */
+/* Pirate creation                                                            */
+/* ========================================================================= */
+
+proc create_pirate(
+    player: &Player
+) -> Pirate {
+    let mut pirate: Pirate;
+
+    let difficulty: i64 =
+        1 +
+        player.journeys / 4;
+
+    pirate.max_health =
+        35 +
+        difficulty * 12;
+
+    pirate.health =
+        pirate.max_health;
+
+    pirate.attack =
+        7 +
+        difficulty * 3;
+
+    pirate.defense =
+        2 +
+        difficulty;
+
+    pirate.reward =
+        150 +
+        difficulty * 75;
+
+    return pirate;
+}
+
+
+/* ========================================================================= */
+/* Pirate helpers                                                             */
+/* ========================================================================= */
+
+proc pirate_alive(
+    pirate: &Pirate
+) -> bool {
+    return pirate.health > 0;
+}
+
+
+proc ship_alive(
+    ship: &Ship
+) -> bool {
+    return ship.hull > 0;
+}
+
+
+proc damage_pirate(
+    pirate: &mut Pirate,
+    damage: i64
+) {
+    if damage >= pirate.health {
+        pirate.health = 0;
+        return;
+    }
+
+    pirate.health =
+        pirate.health -
+        max_i64(0, damage);
+}
+
+
+proc damage_ship(
+    ship: &mut Ship,
+    damage: i64
+) {
+    if damage >= ship.hull {
+        ship.hull = 0;
+        return;
+    }
+
+    ship.hull =
+        ship.hull -
+        max_i64(0, damage);
+}
+
+
+/* ========================================================================= */
+/* Combat                                                                     */
+/* ========================================================================= */
+
+proc player_combat_attack(
+    game: &mut Game,
+    pirate: &mut Pirate
+) {
+    let base: i64 =
+        8 +
+        game.player.ship.weapon_level * 6;
+
+    let variance: i64 =
+        random_i64(-3, 5);
+
+    let mut damage: i64 =
+        base +
+        variance -
+        pirate.defense;
+
+    damage =
+        max_i64(
+            1,
+            damage
+        );
+
+    let critical: i64 =
+        random_i64(1, 100);
+
+    if critical <=
+        10 +
+        game.player.ship.weapon_level * 2
+    {
+        damage =
+            damage * 2;
+
+        io_print("TIR CRITIQUE !\n");
+    }
+
+    damage_pirate(
+        pirate,
+        damage
+    );
+
+    io_print("Vous infligez ");
+    io_print_i64(damage);
+    io_print(" degats.\n");
+}
+
+
+proc pirate_attack(
+    game: &mut Game,
+    pirate: &Pirate,
+    defending: bool
+) {
+    let shield: i64 =
+        game.player.ship.shield_level *
+        2;
+
+    let mut damage: i64 =
+        pirate.attack +
+        random_i64(-2, 4) -
+        shield;
+
+    damage =
+        max_i64(
+            1,
+            damage
+        );
+
+    if defending {
+        damage =
+            max_i64(
+                1,
+                damage / 2
+            );
+    }
+
+    damage_ship(
+        &game.player.ship,
+        damage
+    );
+
+    io_print("Le pirate inflige ");
+    io_print_i64(damage);
+    io_print(" degats a votre coque.\n");
+}
+
+
+/* ========================================================================= */
+/* Escape                                                                     */
+/* ========================================================================= */
+
+proc try_escape(
+    game: &Game
+) -> bool {
+    let chance: i64 =
+        35 +
+        game.player.ship.engine_level *
+        10;
+
+    return
+        random_i64(1, 100) <=
+        chance;
+}
+
+
+/* ========================================================================= */
+/* Pirate combat                                                              */
+/* ========================================================================= */
+
+proc pirate_combat(
+    game: &mut Game
+) {
+    let mut pirate: Pirate =
+        create_pirate(
+            &game.player
+        );
+
+    io_print("\n");
+    separator();
+
+    io_print(
+        "ALERTE : VAISSEAU PIRATE\n"
+    );
+
+    separator();
+
+    let mut combat: bool =
+        true;
+
+    while combat
+        and
+        pirate_alive(
+            &pirate
+        )
+        and
+        ship_alive(
+            &game.player.ship
+        )
+    {
+        io_print("\nVotre coque : ");
+        io_print_i64(
+            game.player.ship.hull
+        );
+
+        io_print("/");
+        io_print_i64(
+            game.player.ship.max_hull
+        );
+
+        println();
+
+        io_print("Pirate : ");
+        io_print_i64(
+            pirate.health
+        );
+
+        io_print("/");
+        io_print_i64(
+            pirate.max_health
+        );
+
+        println();
+
+        io_print("\n");
+        io_print("1. Tirer\n");
+        io_print("2. Defense\n");
+        io_print("3. Fuir\n");
+        io_print("> ");
+
+        let action: i64 =
+            io_read_i64();
+
+        let mut defending: bool =
+            false;
+
+        if action == 1 {
+            player_combat_attack(
+                game,
+                &pirate
+            );
+        } else if action == 2 {
+            defending = true;
+
+            io_print(
+                "Boucliers renforces.\n"
+            );
+        } else if action == 3 {
+            if try_escape(game) {
+                io_print(
+                    "Vous echappez au pirate !\n"
+                );
+
+                combat = false;
+            } else {
+                io_print(
+                    "Impossible de semer le pirate !\n"
+                );
+            }
+        } else {
+            io_print(
+                "Commande invalide.\n"
+            );
+        }
+
+        if combat
+            and
+            pirate_alive(
+                &pirate
+            )
+        {
+            pirate_attack(
+                game,
+                &pirate,
+                defending
+            );
+        }
+    }
+
+    if not ship_alive(
+        &game.player.ship
+    ) {
+        game.state =
+            GameState::Defeat;
+
+        return;
+    }
+
+    if not pirate_alive(
+        &pirate
+    ) {
+        io_print("\nPirate detruit !\n");
+
+        io_print("Prime : ");
+        io_print_i64(
+            pirate.reward
+        );
+        io_print(" credits.\n");
+
+        game.player.credits =
+            game.player.credits +
+            pirate.reward;
+
+        game.player.pirates_destroyed =
+            game.player.pirates_destroyed +
+            1;
+
+        game.player.reputation =
+            game.player.reputation + 3;
+    }
+}
+
+
+/* ========================================================================= */
+/* Travel events                                                              */
+/* ========================================================================= */
+
+proc event_found_credits(
+    game: &mut Game
+) {
+    let credits: i64 =
+        random_i64(100, 600);
+
+    io_print(
+        "Vous trouvez une balise abandonnee contenant "
+    );
+
+    io_print_i64(
+        credits
+    );
+
+    io_print(
+        " credits.\n"
+    );
+
+    game.player.credits =
+        game.player.credits +
+        credits;
+}
+
+
+proc event_fuel_leak(
+    game: &mut Game
+) {
+    let lost: i64 =
+        random_i64(3, 12);
+
+    game.player.ship.fuel =
+        max_i64(
+            0,
+            game.player.ship.fuel -
+            lost
+        );
+
+    io_print(
+        "Fuite de carburant : -"
+    );
+
+    io_print_i64(
+        lost
+    );
+
+    io_print(
+        " carburant.\n"
+    );
+}
+
+
+proc event_asteroid(
+    game: &mut Game
+) {
+    let damage: i64 =
+        random_i64(5, 20);
+
+    damage_ship(
+        &game.player.ship,
+        damage
+    );
+
+    io_print(
+        "Impact d'asteroide : -"
+    );
+
+    io_print_i64(
+        damage
+    );
+
+    io_print(
+        " coque.\n"
+    );
+
+    if not ship_alive(
+        &game.player.ship
+    ) {
+        game.state =
+            GameState::Defeat;
+    }
+}
+
+
+proc event_free_cargo(
+    game: &mut Game
+) {
+    let free: i64 =
+        cargo_free(
+            &game.player
+        );
+
+    if free <= 0 {
+        return;
+    }
+
+    let quantity: i64 =
+        min_i64(
+            free,
+            random_i64(1, 4)
+        );
+
+    cargo_add(
+        &game.player.cargo,
+        CommodityKind::Crystal,
+        quantity
+    );
+
+    io_print(
+        "Vous recuperez "
+    );
+
+    io_print_i64(
+        quantity
+    );
+
+    io_print(
+        " cristaux dans une epave.\n"
+    );
+}
+
+
+proc travel_event(
+    game: &mut Game
+) {
+    let event: i64 =
+        random_i64(1, 100);
+
+    if event > EVENT_CHANCE {
+        return;
+    }
+
+    io_print("\nEVENEMENT DE VOYAGE\n");
+
+    if event <= 8 {
+        event_found_credits(
+            game
+        );
+
+        return;
+    }
+
+    if event <= 16 {
+        event_fuel_leak(
+            game
+        );
+
+        return;
+    }
+
+    if event <= 24 {
+        event_asteroid(
+            game
+        );
+
+        return;
+    }
+
+    event_free_cargo(
+        game
+    );
+}
+
+
+/* ========================================================================= */
+/* Travel                                                                     */
+/* ========================================================================= */
+
+proc travel(
+    game: &mut Game
+) {
+    let destination: PlanetKind =
+        read_planet();
+
+    if destination ==
+        game.player.planet
+    {
+        io_print(
+            "Vous etes deja sur cette planete.\n"
+        );
+
+        return;
+    }
+
+    let cost: i64 =
+        travel_fuel_cost(
+            &game.player,
+            destination
+        );
+
+    io_print("Cout carburant : ");
+    io_print_i64(cost);
+    println();
+
+    if game.player.ship.fuel <
+        cost
+    {
+        io_print(
+            "Carburant insuffisant.\n"
+        );
+
+        return;
+    }
+
+    game.player.ship.fuel =
+        game.player.ship.fuel -
+        cost;
+
+    io_print("\nDepart de ");
+
+    print_planet_name(
+        game.player.planet
+    );
+
+    io_print("...\n");
+
+    game.player.planet =
+        destination;
+
+    game.player.journeys =
+        game.player.journeys + 1;
+
+    game.day =
+        game.day + 1;
+
+    update_market(
+        game
+    );
+
+    travel_event(
+        game
+    );
+
+    if game.state !=
+        GameState::Playing
+    {
+        return;
+    }
+
+    let pirate_roll: i64 =
+        random_i64(1, 100);
+
+    if pirate_roll <=
+        PIRATE_CHANCE
+    {
+        pirate_combat(
+            game
+        );
+    }
+
+    if game.state !=
+        GameState::Playing
+    {
+        return;
+    }
+
+    io_print("\nArrivee sur ");
+
+    print_planet_name(
+        game.player.planet
+    );
+
+    io_print(".\n");
+}
+
+
+/* ========================================================================= */
+/* Refuel                                                                     */
+/* ========================================================================= */
+
+proc fuel_price(
+    game: &Game
+) -> i64 {
+    let variation: i64 =
+        game.food_market /
+        20;
+
+    return
+        BASE_FUEL_PRICE +
+        variation;
+}
+
+
+proc refuel(
+    game: &mut Game
+) {
+    let missing: i64 =
+        game.player.ship.max_fuel -
+        game.player.ship.fuel;
+
+    if missing <= 0 {
+        io_print(
+            "Reservoir deja plein.\n"
+        );
+
+        return;
+    }
+
+    let price: i64 =
+        fuel_price(
+            game
+        );
+
+    io_print("Prix par unite : ");
+    io_print_i64(price);
+    println();
+
+    io_print("Carburant manquant : ");
+    io_print_i64(missing);
+    println();
+
+    io_print("Quantite : ");
+
+    let requested: i64 =
+        io_read_i64();
+
+    if requested <= 0 {
+        return;
+    }
+
+    let affordable: i64 =
+        game.player.credits /
+        price;
+
+    let quantity: i64 =
+        min_i64(
+            missing,
+            min_i64(
+                requested,
+                affordable
+            )
+        );
+
+    if quantity <= 0 {
+        io_print(
+            "Credits insuffisants.\n"
+        );
+
+        return;
+    }
+
+    game.player.ship.fuel =
+        game.player.ship.fuel +
+        quantity;
+
+    game.player.credits =
+        game.player.credits -
+        quantity * price;
+
+    io_print("Carburant +");
+    io_print_i64(quantity);
+    println();
+}
+
+
+/* ========================================================================= */
+/* Repair                                                                     */
+/* ========================================================================= */
+
+proc repair(
+    game: &mut Game
+) {
+    let missing: i64 =
+        game.player.ship.max_hull -
+        game.player.ship.hull;
+
+    if missing <= 0 {
+        io_print(
+            "Coque intacte.\n"
+        );
+
+        return;
+    }
+
+    let unit_price: i64 = 5;
+
+    io_print("Degats : ");
+    io_print_i64(missing);
+    println();
+
+    io_print(
+        "Prix de reparation par point : 5\n"
+    );
+
+    io_print("Points a reparer : ");
+
+    let requested: i64 =
+        io_read_i64();
+
+    if requested <= 0 {
+        return;
+    }
+
+    let affordable: i64 =
+        game.player.credits /
+        unit_price;
+
+    let repaired: i64 =
+        min_i64(
+            missing,
+            min_i64(
+                requested,
+                affordable
+            )
+        );
+
+    if repaired <= 0 {
+        io_print(
+            "Credits insuffisants.\n"
+        );
+
+        return;
+    }
+
+    game.player.ship.hull =
+        game.player.ship.hull +
+        repaired;
+
+    game.player.credits =
+        game.player.credits -
+        repaired * unit_price;
+
+    io_print("Coque reparee : +");
+    io_print_i64(repaired);
+    println();
+}
+
+
+/* ========================================================================= */
+/* Upgrade prices                                                             */
+/* ========================================================================= */
+
+proc engine_upgrade_price(
+    player: &Player
+) -> i64 {
+    return
+        player.ship.engine_level *
+        2500;
+}
+
+
+proc weapon_upgrade_price(
+    player: &Player
+) -> i64 {
+    return
+        player.ship.weapon_level *
+        3000;
+}
+
+
+proc shield_upgrade_price(
+    player: &Player
+) -> i64 {
+    return
+        player.ship.shield_level *
+        2800;
+}
+
+
+proc cargo_upgrade_price(
+    player: &Player
+) -> i64 {
+    return
+        player.ship.cargo_level *
+        2000;
+}
+
+
+/* ========================================================================= */
+/* Engine upgrade                                                             */
+/* ========================================================================= */
+
+proc upgrade_engine(
+    game: &mut Game
+) {
+    if game.player.ship.engine_level >=
+        MAX_ENGINE_LEVEL
+    {
+        io_print(
+            "Moteur deja au niveau maximum.\n"
+        );
+
+        return;
+    }
+
+    let price: i64 =
+        engine_upgrade_price(
+            &game.player
+        );
+
+    if game.player.credits <
+        price
+    {
+        io_print(
+            "Credits insuffisants.\n"
+        );
+
+        return;
+    }
+
+    game.player.credits =
+        game.player.credits -
+        price;
+
+    game.player.ship.engine_level =
+        game.player.ship.engine_level + 1;
+
+    game.player.ship.max_fuel =
+        game.player.ship.max_fuel + 15;
+
+    io_print(
+        "Moteur ameliore !\n"
+    );
+}
+
+
+/* ========================================================================= */
+/* Weapon upgrade                                                             */
+/* ========================================================================= */
+
+proc upgrade_weapon(
+    game: &mut Game
+) {
+    if game.player.ship.weapon_level >=
+        MAX_WEAPON_LEVEL
+    {
+        io_print(
+            "Armes deja au niveau maximum.\n"
+        );
+
+        return;
+    }
+
+    let price: i64 =
+        weapon_upgrade_price(
+            &game.player
+        );
+
+    if game.player.credits <
+        price
+    {
+        io_print(
+            "Credits insuffisants.\n"
+        );
+
+        return;
+    }
+
+    game.player.credits =
+        game.player.credits -
+        price;
+
+    game.player.ship.weapon_level =
+        game.player.ship.weapon_level + 1;
+
+    io_print(
+        "Systeme d'armes ameliore !\n"
+    );
+}
+
+
+/* ========================================================================= */
+/* Shield upgrade                                                             */
+/* ========================================================================= */
+
+proc upgrade_shield(
+    game: &mut Game
+) {
+    if game.player.ship.shield_level >=
+        MAX_SHIELD_LEVEL
+    {
+        io_print(
+            "Bouclier deja au niveau maximum.\n"
+        );
+
+        return;
+    }
+
+    let price: i64 =
+        shield_upgrade_price(
+            &game.player
+        );
+
+    if game.player.credits <
+        price
+    {
+        io_print(
+            "Credits insuffisants.\n"
+        );
+
+        return;
+    }
+
+    game.player.credits =
+        game.player.credits -
+        price;
+
+    game.player.ship.shield_level =
+        game.player.ship.shield_level + 1;
+
+    game.player.ship.max_hull =
+        game.player.ship.max_hull + 15;
+
+    game.player.ship.hull =
+        game.player.ship.hull + 15;
+
+    io_print(
+        "Bouclier ameliore !\n"
+    );
+}
+
+
+/* ========================================================================= */
+/* Cargo upgrade                                                              */
+/* ========================================================================= */
+
+proc upgrade_cargo(
+    game: &mut Game
+) {
+    if game.player.ship.cargo_level >=
+        MAX_CARGO_LEVEL
+    {
+        io_print(
+            "Soute deja au niveau maximum.\n"
+        );
+
+        return;
+    }
+
+    let price: i64 =
+        cargo_upgrade_price(
+            &game.player
+        );
+
+    if game.player.credits <
+        price
+    {
+        io_print(
+            "Credits insuffisants.\n"
+        );
+
+        return;
+    }
+
+    game.player.credits =
+        game.player.credits -
+        price;
+
+    game.player.ship.cargo_level =
+        game.player.ship.cargo_level + 1;
+
+    game.player.ship.cargo_capacity =
+        game.player.ship.cargo_capacity + 15;
+
+    io_print(
+        "Soute agrandie !\n"
+    );
+}
+
+
+/* ========================================================================= */
+/* Shipyard                                                                   */
+/* ========================================================================= */
+
+proc shipyard(
+    game: &mut Game
+) {
+    let mut open: bool = true;
+
+    while open {
+        println();
+        small_separator();
+
+        io_print("CHANTIER SPATIAL\n");
+
+        small_separator();
+
+        io_print("Credits : ");
+        io_print_i64(
+            game.player.credits
+        );
+        println();
+
+        io_print("\n1. Moteur niveau ");
+        io_print_i64(
+            game.player.ship.engine_level
+        );
+
+        io_print(" - ");
+        io_print_i64(
+            engine_upgrade_price(
+                &game.player
+            )
+        );
+
+        io_print(" credits\n");
+
+        io_print("2. Armes niveau ");
+        io_print_i64(
+            game.player.ship.weapon_level
+        );
+
+        io_print(" - ");
+        io_print_i64(
+            weapon_upgrade_price(
+                &game.player
+            )
+        );
+
+        io_print(" credits\n");
+
+        io_print("3. Bouclier niveau ");
+        io_print_i64(
+            game.player.ship.shield_level
+        );
+
+        io_print(" - ");
+        io_print_i64(
+            shield_upgrade_price(
+                &game.player
+            )
+        );
+
+        io_print(" credits\n");
+
+        io_print("4. Soute niveau ");
+        io_print_i64(
+            game.player.ship.cargo_level
+        );
+
+        io_print(" - ");
+        io_print_i64(
+            cargo_upgrade_price(
+                &game.player
+            )
+        );
+
+        io_print(" credits\n");
+
+        io_print("5. Retour\n");
+        io_print("> ");
+
+        let choice: i64 =
+            io_read_i64();
+
+        if choice == 1 {
+            upgrade_engine(
+                game
+            );
+        } else if choice == 2 {
+            upgrade_weapon(
+                game
+            );
+        } else if choice == 3 {
+            upgrade_shield(
+                game
+            );
+        } else if choice == 4 {
+            upgrade_cargo(
+                game
+            );
+        } else if choice == 5 {
+            open = false;
+        } else {
+            io_print(
+                "Commande inconnue.\n"
+            );
+        }
+    }
+}
+
+
+/* ========================================================================= */
+/* Cargo display                                                              */
+/* ========================================================================= */
+
+proc print_cargo(
+    player: &Player
+) {
+    io_print("\nCARGAISON\n");
+
+    io_print("Nourriture : ");
+    io_print_i64(
+        player.cargo.food
+    );
+    println();
+
+    io_print("Minerai : ");
+    io_print_i64(
+        player.cargo.ore
+    );
+    println();
+
+    io_print("Medicament : ");
+    io_print_i64(
+        player.cargo.medicine
+    );
+    println();
+
+    io_print("Technologie : ");
+    io_print_i64(
+        player.cargo.technology
+    );
+    println();
+
+    io_print("Cristal : ");
+    io_print_i64(
+        player.cargo.crystal
+    );
+    println();
+
+    io_print("Utilise : ");
+    io_print_i64(
+        cargo_used(
+            &player.cargo
+        )
+    );
+
+    io_print("/");
+
+    io_print_i64(
+        player.ship.cargo_capacity
+    );
+
+    println();
+}
+
+
+/* ========================================================================= */
+/* Status                                                                     */
+/* ========================================================================= */
+
+proc status(
+    game: &Game
+) {
+    println();
+    separator();
+
+    io_print("CAPITAINE\n");
+
+    separator();
+
+    io_print("Jour : ");
+    io_print_i64(
+        game.day
+    );
+
+    println();
+
+    io_print("Position : ");
+
+    print_planet_name(
+        game.player.planet
+    );
+
+    println();
+
+    io_print("Credits : ");
+    io_print_i64(
+        game.player.credits
+    );
+
+    println();
+
+    io_print("Reputation : ");
+    io_print_i64(
+        game.player.reputation
+    );
+
+    println();
+
+    small_separator();
+
+    io_print("VAISSEAU\n");
+
+    io_print("Coque : ");
+    io_print_i64(
+        game.player.ship.hull
+    );
+
+    io_print("/");
+
+    io_print_i64(
+        game.player.ship.max_hull
+    );
+
+    println();
+
+    io_print("Carburant : ");
+    io_print_i64(
+        game.player.ship.fuel
+    );
+
+    io_print("/");
+
+    io_print_i64(
+        game.player.ship.max_fuel
+    );
+
+    println();
+
+    io_print("Moteur : niveau ");
+    io_print_i64(
+        game.player.ship.engine_level
+    );
+
+    println();
+
+    io_print("Armes : niveau ");
+    io_print_i64(
+        game.player.ship.weapon_level
+    );
+
+    println();
+
+    io_print("Bouclier : niveau ");
+    io_print_i64(
+        game.player.ship.shield_level
+    );
+
+    println();
+
+    print_cargo(
+        &game.player
+    );
+
+    small_separator();
+
+    io_print("Voyages : ");
+    io_print_i64(
+        game.player.journeys
+    );
+
+    println();
+
+    io_print("Transactions : ");
+    io_print_i64(
+        game.player.trades
+    );
+
+    println();
+
+    io_print("Pirates detruits : ");
+    io_print_i64(
+        game.player.pirates_destroyed
+    );
+
+    println();
+
+    separator();
+}
+
+
+/* ========================================================================= */
+/* Help                                                                       */
+/* ========================================================================= */
+
+proc help() {
+    println();
+
+    separator();
+
+    io_print(
+        "VITTE SPACE TRADER - AIDE\n"
+    );
+
+    separator();
+
+    io_print(
+        "OBJECTIF\n"
+    );
+
+    io_print(
+        "Atteignez 100000 credits pour gagner.\n\n"
+    );
+
+    io_print(
+        "COMMERCE\n"
+    );
+
+    io_print(
+        "Chaque planete possede des prix differents.\n"
+    );
+
+    io_print(
+        "Achetez la ou une ressource est bon marche.\n"
+    );
+
+    io_print(
+        "Revendez-la sur une planete ou elle est rare.\n\n"
+    );
+
+    io_print(
+        "VOYAGE\n"
+    );
+
+    io_print(
+        "Chaque trajet consomme du carburant.\n"
+    );
+
+    io_print(
+        "Un meilleur moteur reduit le cout des voyages.\n\n"
+    );
+
+    io_print(
+        "DANGERS\n"
+    );
+
+    io_print(
+        "Pirates, asteroides et pannes peuvent survenir.\n\n"
+    );
+
+    io_print(
+        "VAISSEAU\n"
+    );
+
+    io_print(
+        "Ameliorez moteur, armes, bouclier et soute.\n"
+    );
+
+    separator();
+}
+
+
+/* ========================================================================= */
+/* Main menu                                                                  */
+/* ========================================================================= */
+
+proc print_menu(
+    game: &Game
+) {
+    println();
+
+    small_separator();
+
+    io_print("Jour ");
+    io_print_i64(
+        game.day
+    );
+
+    io_print(" | ");
+
+    print_planet_name(
+        game.player.planet
+    );
+
+    io_print(" | ");
+
+    io_print_i64(
+        game.player.credits
+    );
+
+    io_print(" credits\n");
+
+    small_separator();
+
+    io_print("1. Marche\n");
+    io_print("2. Voyager\n");
+    io_print("3. Carburant\n");
+    io_print("4. Reparer\n");
+    io_print("5. Chantier spatial\n");
+    io_print("6. Statut\n");
+    io_print("7. Aide\n");
+    io_print("8. Quitter\n");
+    io_print("> ");
+}
+
+
+/* ========================================================================= */
+/* Victory                                                                    */
+/* ========================================================================= */
+
+proc check_victory(
+    game: &mut Game
+) {
+    if game.player.credits >=
+        WIN_CREDITS
+    {
+        game.state =
+            GameState::Victory;
+    }
+}
+
+
+/* ========================================================================= */
+/* Introduction                                                               */
+/* ========================================================================= */
+
+proc introduction() {
+    separator();
+
+    io_print(
+        "                 VITTE SPACE TRADER\n"
+    );
+
+    separator();
+
+    io_print(
+        "An 2487.\n"
+    );
+
+    io_print(
+        "Vous prenez le commandement d'un petit cargo spatial.\n"
+    );
+
+    io_print(
+        "Vous possedez 2500 credits et un vieux vaisseau.\n"
+    );
+
+    io_print(
+        "Votre objectif : construire un empire commercial.\n"
+    );
+
+    io_print(
+        "Fortune necessaire pour gagner : 100000 credits.\n"
+    );
+
+    separator();
+}
+
+
+/* ========================================================================= */
+/* Game loop                                                                  */
+/* ========================================================================= */
+
+proc run_game(
+    game: &mut Game
+) {
+    while game.state ==
+        GameState::Playing
+    {
+        print_menu(
+            game
+        );
+
+        let action: i64 =
+            io_read_i64();
+
+        if action == 1 {
+            market_menu(
+                game
+            );
+        } else if action == 2 {
+            travel(
+                game
+            );
+        } else if action == 3 {
+            refuel(
+                game
+            );
+        } else if action == 4 {
+            repair(
+                game
+            );
+        } else if action == 5 {
+            shipyard(
+                game
+            );
+        } else if action == 6 {
+            status(
+                game
+            );
+        } else if action == 7 {
+            help();
+        } else if action == 8 {
+            game.state =
+                GameState::Quit;
+        } else {
+            io_print(
+                "Commande inconnue.\n"
+            );
+        }
+
+        if game.state ==
+            GameState::Playing
+        {
+            check_victory(
+                game
+            );
+        }
+
+        if not ship_alive(
+            &game.player.ship
+        ) {
+            game.state =
+                GameState::Defeat;
+        }
+    }
+}
+
+
+/* ========================================================================= */
+/* Final screen                                                               */
+/* ========================================================================= */
+
+proc final_screen(
+    game: &Game
+) {
+    println();
+
+    separator();
+
+    if game.state ==
+        GameState::Victory
+    {
+        io_print(
+            "                    VICTOIRE\n"
+        );
+
+        separator();
+
+        io_print(
+            "Votre empire commercial domine maintenant les routes stellaires.\n"
+        );
+    } else if game.state ==
+        GameState::Defeat
+    {
+        io_print(
+            "                    DEFAITE\n"
+        );
+
+        separator();
+
+        io_print(
+            "Votre vaisseau a ete detruit.\n"
+        );
+    } else {
+        io_print(
+            "                 FIN DE PARTIE\n"
+        );
+
+        separator();
+    }
+
+    io_print("Credits : ");
+    io_print_i64(
+        game.player.credits
+    );
+
+    println();
+
+    io_print("Jours : ");
+    io_print_i64(
+        game.day
+    );
+
+    println();
+
+    io_print("Voyages : ");
+    io_print_i64(
+        game.player.journeys
+    );
+
+    println();
+
+    io_print("Transactions : ");
+    io_print_i64(
+        game.player.trades
+    );
+
+    println();
+
+    io_print("Pirates detruits : ");
+    io_print_i64(
+        game.player.pirates_destroyed
+    );
+
+    println();
+
+    io_print("Reputation : ");
+    io_print_i64(
+        game.player.reputation
+    );
+
+    println();
+
+    separator();
+}
+
+
+/* ========================================================================= */
+/* Entry                                                                      */
+/* ========================================================================= */
+
+pub proc main() -> i64 {
+    introduction();
+
+    let mut game: Game =
+        create_game();
+
+    run_game(
+        &game
+    );
+
+    final_screen(
+        &game
+    );
+
+    return 0;
+}
+
+
+/* ========================================================================= */
+/* Tests                                                                      */
+/* ========================================================================= */
+
+test "cargo starts empty" {
+    let cargo: Cargo =
+        create_cargo();
+
+    assert(
+        cargo_used(
+            &cargo
+        ) == 0
+    );
+}
+
+
+test "cargo add food" {
+    let mut cargo: Cargo =
+        create_cargo();
+
+    cargo_add(
+        &cargo,
+        CommodityKind::Food,
+        10
+    );
+
+    assert(
+        cargo.food == 10
+    );
+
+    assert(
+        cargo_used(
+            &cargo
+        ) == 10
+    );
+}
+
+
+test "cargo remove" {
+    let mut cargo: Cargo =
+        create_cargo();
+
+    cargo_add(
+        &cargo,
+        CommodityKind::Ore,
+        20
+    );
+
+    cargo_remove(
+        &cargo,
+        CommodityKind::Ore,
+        5
+    );
+
+    assert(
+        cargo.ore == 15
+    );
+}
+
+
+test "cargo cannot become negative" {
+    let mut cargo: Cargo =
+        create_cargo();
+
+    cargo.technology = 5;
+
+    cargo_remove(
+        &cargo,
+        CommodityKind::Technology,
+        100
+    );
+
+    assert(
+        cargo.technology == 0
+    );
+}
+
+
+test "ship creation" {
+    let ship: Ship =
+        create_ship();
+
+    assert(
+        ship.hull ==
+        START_HULL
+    );
+
+    assert(
+        ship.fuel ==
+        START_FUEL
+    );
+
+    assert(
+        ship.cargo_capacity ==
+        START_CARGO
+    );
+
+    assert(
+        ship.engine_level == 1
+    );
+}
+
+
+test "player creation" {
+    let player: Player =
+        create_player();
+
+    assert(
+        player.credits ==
+        START_CREDITS
+    );
+
+    assert(
+        player.planet ==
+        PlanetKind::Terra
+    );
+
+    assert(
+        player.journeys == 0
+    );
+}
+
+
+test "game creation" {
+    let game: Game =
+        create_game();
+
+    assert(
+        game.state ==
+        GameState::Playing
+    );
+
+    assert(
+        game.day == 1
+    );
+}
+
+
+test "distance same planet" {
+    assert(
+        distance_between(
+            PlanetKind::Terra,
+            PlanetKind::Terra
+        ) == 8
+    );
+}
+
+
+test "distance symmetry" {
+    assert(
+        distance_between(
+            PlanetKind::Terra,
+            PlanetKind::Mars
+        ) ==
+        distance_between(
+            PlanetKind::Mars,
+            PlanetKind::Terra
+        )
+    );
+}
+
+
+test "cargo free space" {
+    let mut player: Player =
+        create_player();
+
+    assert(
+        cargo_free(
+            &player
+        ) ==
+        START_CARGO
+    );
+
+    cargo_add(
+        &player.cargo,
+        CommodityKind::Food,
+        10
+    );
+
+    assert(
+        cargo_free(
+            &player
+        ) ==
+        START_CARGO - 10
+    );
+}
+
+
+test "commodity base prices" {
+    assert(
+        base_price(
+            CommodityKind::Food
+        ) == 18
+    );
+
+    assert(
+        base_price(
+            CommodityKind::Ore
+        ) == 35
+    );
+
+    assert(
+        base_price(
+            CommodityKind::Medicine
+        ) == 80
+    );
+
+    assert(
+        base_price(
+            CommodityKind::Technology
+        ) == 150
+    );
+
+    assert(
+        base_price(
+            CommodityKind::Crystal
+        ) == 300
+    );
+}
+
+
+test "ship damage" {
+    let mut ship: Ship =
+        create_ship();
+
+    damage_ship(
+        &ship,
+        20
+    );
+
+    assert(
+        ship.hull ==
+        START_HULL - 20
+    );
+}
+
+
+test "ship destruction" {
+    let mut ship: Ship =
+        create_ship();
+
+    damage_ship(
+        &ship,
+        100000
+    );
+
+    assert(
+        ship.hull == 0
+    );
+
+    assert(
+        not ship_alive(
+            &ship
+        )
+    );
+}
+
+
+test "pirate damage" {
+    let player: Player =
+        create_player();
+
+    let mut pirate: Pirate =
+        create_pirate(
+            &player
+        );
+
+    let previous: i64 =
+        pirate.health;
+
+    damage_pirate(
+        &pirate,
+        10
+    );
+
+    assert(
+        pirate.health ==
+        previous - 10
+    );
+}
+
+
+test "engine upgrade price" {
+    let player: Player =
+        create_player();
+
+    assert(
+        engine_upgrade_price(
+            &player
+        ) == 2500
+    );
+}
+
+
+test "weapon upgrade price" {
+    let player: Player =
+        create_player();
+
+    assert(
+        weapon_upgrade_price(
+            &player
+        ) == 3000
+    );
+}
+
+
+test "shield upgrade price" {
+    let player: Player =
+        create_player();
+
+    assert(
+        shield_upgrade_price(
+            &player
+        ) == 2800
+    );
+}
+
+
+test "cargo upgrade price" {
+    let player: Player =
+        create_player();
+
+    assert(
+        cargo_upgrade_price(
+            &player
+        ) == 2000
+    );
+}
+
+
+test "clamp" {
+    assert(
+        clamp_i64(
+            50,
+            0,
+            100
+        ) == 50
+    );
+
+    assert(
+        clamp_i64(
+            -10,
+            0,
+            100
+        ) == 0
+    );
+
+    assert(
+        clamp_i64(
+            500,
+            0,
+            100
+        ) == 100
+    );
+}
+
+
+test "absolute" {
+    assert(
+        absolute_i64(-100) ==
+        100
+    );
+
+    assert(
+        absolute_i64(100) ==
+        100
+    );
+
+    assert(
+        absolute_i64(0) ==
+        0
+    );
+}
+
+
+test "victory" {
+    let mut game: Game =
+        create_game();
+
+    game.player.credits =
+        WIN_CREDITS;
+
+    check_victory(
+        &game
+    );
+
+    assert(
+        game.state ==
+        GameState::Victory
+    );
+}
+
+
+test "no early victory" {
+    let mut game: Game =
+        create_game();
+
+    game.player.credits =
+        WIN_CREDITS - 1;
+
+    check_victory(
+        &game
+    );
+
+    assert(
+        game.state ==
+        GameState::Playing
+    );
+}

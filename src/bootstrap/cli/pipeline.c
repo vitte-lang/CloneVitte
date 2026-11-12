@@ -22,541 +22,14 @@
 #include "filesystem/filesystem.h"
 #include "hir/lower.h"
 #include "ir/lower.h"
+#include "macro_expansion.h"
 #include "platform/platform.h"
 #include "printer/printer.h"
 #include "unicode/unicode.h"
 #include "util/util.h"
 #include "internal.h"
 
-#ifdef VITTE_NATIVE_FRONTEND_LINKED
-#if defined(_WIN32)
-#include <io.h>
-#include <windows.h>
-#include <wchar.h>
-#elif defined(__APPLE__) || defined(__unix__)
-#include <unistd.h>
-#endif
 
-typedef struct vitte_driver_host_tool_workspace {
-    char source_path[2048];
-    char object_path[2048];
-    char executable_path[2048];
-    const char *compile_output_path;
-    const char *link_output_path;
-    bool emit_object;
-    bool run_program;
-    bool temporary_object;
-    bool owned_object_output;
-    bool debug_info;
-    bool debug_runtime;
-} vitte_driver_host_tool_workspace_t;
-
-enum {
-    VITTE_DRIVER_HOST_TOOL_SUCCESS = 0u,
-    VITTE_DRIVER_HOST_TOOL_INVALID_ARGUMENT = 1u,
-    VITTE_DRIVER_HOST_TOOL_IO_FAILURE = 2u,
-    VITTE_DRIVER_HOST_TOOL_PROCESS_FAILURE = 3u,
-    VITTE_DRIVER_HOST_TOOL_UNSUPPORTED_HOST = 4u,
-    VITTE_DRIVER_HOST_TOOL_OUT_OF_MEMORY = 5u
-};
-
-static char *
-vitte_driver_host_copy_string(
-    const char *source)
-{
-    size_t length;
-    char *copy;
-
-    if (source == NULL) {
-        return NULL;
-    }
-    length = strlen(source);
-    if (length == SIZE_MAX) {
-        return NULL;
-    }
-    copy = (char *)malloc(length + 1u);
-    if (copy == NULL) {
-        return NULL;
-    }
-    memcpy(copy, source, length + 1u);
-    return copy;
-}
-
-#if defined(_WIN32)
-static wchar_t *
-vitte_driver_host_utf8_to_wide(
-    const char *text)
-{
-    int required;
-    wchar_t *wide;
-
-    if (text == NULL) {
-        return NULL;
-    }
-    required = MultiByteToWideChar(
-        CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, NULL, 0);
-    if (required <= 0 ||
-        (size_t)required > SIZE_MAX / sizeof(*wide)) {
-        return NULL;
-    }
-    wide = (wchar_t *)malloc((size_t)required * sizeof(*wide));
-    if (wide == NULL) {
-        return NULL;
-    }
-    if (MultiByteToWideChar(
-            CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, wide, required) !=
-        required) {
-        free(wide);
-        return NULL;
-    }
-    return wide;
-}
-
-static bool
-vitte_driver_host_temp_file(
-    char *path,
-    size_t path_capacity,
-    bool executable)
-{
-    wchar_t directory[MAX_PATH];
-    wchar_t wide_path[MAX_PATH];
-    DWORD directory_length;
-    int utf8_length;
-
-    if (path == NULL || path_capacity == 0u) {
-        return false;
-    }
-    directory_length = GetTempPathW(MAX_PATH, directory);
-    if (directory_length == 0u || directory_length >= MAX_PATH ||
-        GetTempFileNameW(directory, L"vit", 0u, wide_path) == 0u) {
-        return false;
-    }
-    if (executable) {
-        const size_t wide_length = wcslen(wide_path);
-        const wchar_t *extension = L".tmp";
-        wchar_t renamed_path[MAX_PATH];
-        if (wide_length < 4u ||
-            wcscmp(wide_path + wide_length - 4u, extension) != 0) {
-            (void)DeleteFileW(wide_path);
-            return false;
-        }
-        memcpy(
-            renamed_path,
-            wide_path,
-            (wide_length + 1u) * sizeof(*wide_path));
-        renamed_path[wide_length - 3u] = L'e';
-        renamed_path[wide_length - 2u] = L'x';
-        renamed_path[wide_length - 1u] = L'e';
-        if (!MoveFileW(wide_path, renamed_path)) {
-            (void)DeleteFileW(wide_path);
-            return false;
-        }
-        memcpy(
-            wide_path,
-            renamed_path,
-            (wide_length + 1u) * sizeof(*wide_path));
-    }
-    utf8_length = WideCharToMultiByte(
-        CP_UTF8,
-        WC_ERR_INVALID_CHARS,
-        wide_path,
-        -1,
-        path,
-        path_capacity > (size_t)INT_MAX ? INT_MAX : (int)path_capacity,
-        NULL,
-        NULL);
-    if (utf8_length <= 0) {
-        (void)DeleteFileW(wide_path);
-        return false;
-    }
-    return true;
-}
-
-static FILE *
-vitte_driver_host_open_file(
-    const char *path,
-    const wchar_t *mode)
-{
-    wchar_t *wide_path = vitte_driver_host_utf8_to_wide(path);
-    FILE *file;
-
-    if (wide_path == NULL || mode == NULL) {
-        free(wide_path);
-        return NULL;
-    }
-    file = _wfopen(wide_path, mode);
-    free(wide_path);
-    return file;
-}
-
-static int
-vitte_driver_host_remove_file(
-    const char *path)
-{
-    wchar_t *wide_path = vitte_driver_host_utf8_to_wide(path);
-    int result;
-
-    if (wide_path == NULL) {
-        return -1;
-    }
-    result = _wunlink(wide_path);
-    free(wide_path);
-    return result;
-}
-#elif defined(__APPLE__) || defined(__unix__)
-static int
-vitte_driver_host_remove_file(
-    const char *path)
-{
-    return unlink(path);
-}
-#endif
-
-uint32_t
-vitte_driver_host_toolchain_begin(
-    uint8_t *source,
-    size_t source_length,
-    uint8_t *output_path,
-    bool emit_object,
-    bool run_program,
-    bool debug_info,
-    bool debug_runtime,
-    uint8_t **workspace_out)
-{
-    if (workspace_out == NULL || (source == NULL && source_length != 0u) ||
-        (emit_object && run_program)) {
-        return VITTE_DRIVER_HOST_TOOL_INVALID_ARGUMENT;
-    }
-    *workspace_out = NULL;
-#if defined(_WIN32) || defined(__APPLE__) || defined(__unix__)
-    {
-        vitte_driver_host_tool_workspace_t *workspace;
-#if !defined(_WIN32)
-        int descriptor;
-#endif
-        FILE *source_file;
-        const char *resolved_output;
-        const char *requested_output = (const char *)output_path;
-
-        workspace = (vitte_driver_host_tool_workspace_t *)calloc(
-            1u,
-            sizeof(*workspace));
-        if (workspace == NULL) {
-            return VITTE_DRIVER_HOST_TOOL_OUT_OF_MEMORY;
-        }
-        workspace->emit_object = emit_object;
-        workspace->run_program = run_program;
-        workspace->debug_info = debug_info;
-        workspace->debug_runtime = debug_runtime;
-
-#if defined(_WIN32)
-        if (!vitte_driver_host_temp_file(
-                workspace->source_path,
-                sizeof(workspace->source_path),
-                false)) {
-            free(workspace);
-            return VITTE_DRIVER_HOST_TOOL_IO_FAILURE;
-        }
-        source_file = vitte_driver_host_open_file(
-            workspace->source_path, L"wb");
-#else
-        memcpy(workspace->source_path, "/tmp/vitte-driver-c-XXXXXX", 27u);
-        descriptor = mkstemp(workspace->source_path);
-        if (descriptor < 0) {
-            free(workspace);
-            return VITTE_DRIVER_HOST_TOOL_IO_FAILURE;
-        }
-        source_file = fdopen(descriptor, "wb");
-#endif
-        if (source_file == NULL) {
-#if defined(_WIN32)
-            (void)vitte_driver_host_remove_file(workspace->source_path);
-#else
-            (void)close(descriptor);
-#endif
-            free(workspace);
-            return VITTE_DRIVER_HOST_TOOL_IO_FAILURE;
-        }
-        {
-            bool wrote_source = source_length == 0u ||
-                fwrite(source, 1u, source_length, source_file) == source_length;
-            bool closed_source = fclose(source_file) == 0;
-            if (!wrote_source || !closed_source) {
-                (void)vitte_driver_host_remove_file(workspace->source_path);
-                free(workspace);
-                return VITTE_DRIVER_HOST_TOOL_IO_FAILURE;
-            }
-        }
-
-        if (emit_object) {
-            if (requested_output == NULL || requested_output[0] == '\0') {
-                (void)vitte_driver_host_remove_file(workspace->source_path);
-                free(workspace);
-                return VITTE_DRIVER_HOST_TOOL_INVALID_ARGUMENT;
-            }
-            workspace->link_output_path = vitte_driver_host_copy_string(
-                requested_output);
-            if (workspace->link_output_path == NULL) {
-                (void)vitte_driver_host_remove_file(workspace->source_path);
-                free(workspace);
-                return VITTE_DRIVER_HOST_TOOL_OUT_OF_MEMORY;
-            }
-            workspace->compile_output_path = workspace->link_output_path;
-            workspace->owned_object_output = true;
-        } else {
-#if defined(_WIN32)
-            if (!vitte_driver_host_temp_file(
-                    workspace->object_path,
-                    sizeof(workspace->object_path),
-                    false)) {
-                (void)vitte_driver_host_remove_file(workspace->source_path);
-                free(workspace);
-                return VITTE_DRIVER_HOST_TOOL_IO_FAILURE;
-            }
-#else
-            memcpy(workspace->object_path, "/tmp/vitte-driver-o-XXXXXX", 27u);
-            descriptor = mkstemp(workspace->object_path);
-            if (descriptor < 0 || close(descriptor) != 0) {
-                if (descriptor >= 0) {
-                    (void)vitte_driver_host_remove_file(
-                        workspace->object_path);
-                }
-                (void)vitte_driver_host_remove_file(workspace->source_path);
-                free(workspace);
-                return VITTE_DRIVER_HOST_TOOL_IO_FAILURE;
-            }
-#endif
-            workspace->temporary_object = true;
-            workspace->compile_output_path = workspace->object_path;
-
-            if (run_program) {
-#if defined(_WIN32)
-                if (!vitte_driver_host_temp_file(
-                        workspace->executable_path,
-                        sizeof(workspace->executable_path),
-                        true)) {
-                    (void)vitte_driver_host_remove_file(
-                        workspace->source_path);
-                    (void)vitte_driver_host_remove_file(
-                        workspace->object_path);
-                    free(workspace);
-                    return VITTE_DRIVER_HOST_TOOL_IO_FAILURE;
-                }
-                if (vitte_driver_host_remove_file(
-                        workspace->executable_path) != 0) {
-                    (void)vitte_driver_host_remove_file(
-                        workspace->executable_path);
-                    (void)vitte_driver_host_remove_file(
-                        workspace->source_path);
-                    (void)vitte_driver_host_remove_file(
-                        workspace->object_path);
-                    free(workspace);
-                    return VITTE_DRIVER_HOST_TOOL_IO_FAILURE;
-                }
-#else
-                memcpy(workspace->executable_path, "/tmp/vitte-driver-x-XXXXXX", 27u);
-                descriptor = mkstemp(workspace->executable_path);
-                if (descriptor < 0) {
-                    (void)vitte_driver_host_remove_file(
-                        workspace->source_path);
-                    (void)vitte_driver_host_remove_file(
-                        workspace->object_path);
-                    free(workspace);
-                    return VITTE_DRIVER_HOST_TOOL_IO_FAILURE;
-                }
-                if (close(descriptor) != 0 ||
-                    vitte_driver_host_remove_file(
-                        workspace->executable_path) != 0) {
-                    (void)vitte_driver_host_remove_file(
-                        workspace->source_path);
-                    (void)vitte_driver_host_remove_file(
-                        workspace->object_path);
-                    (void)vitte_driver_host_remove_file(
-                        workspace->executable_path);
-                    free(workspace);
-                    return VITTE_DRIVER_HOST_TOOL_IO_FAILURE;
-                }
-#endif
-                workspace->link_output_path = workspace->executable_path;
-            } else {
-                resolved_output = requested_output;
-                if (resolved_output == NULL) {
-                    resolved_output = "a.out";
-                }
-                if (resolved_output[0] == '\0') {
-                    (void)vitte_driver_host_remove_file(
-                        workspace->source_path);
-                    (void)vitte_driver_host_remove_file(
-                        workspace->object_path);
-                    free(workspace);
-                    return VITTE_DRIVER_HOST_TOOL_INVALID_ARGUMENT;
-                }
-                workspace->link_output_path = vitte_driver_host_copy_string(
-                    resolved_output);
-                if (workspace->link_output_path == NULL) {
-                    (void)vitte_driver_host_remove_file(
-                        workspace->source_path);
-                    (void)vitte_driver_host_remove_file(
-                        workspace->object_path);
-                    free(workspace);
-                    return VITTE_DRIVER_HOST_TOOL_OUT_OF_MEMORY;
-                }
-            }
-        }
-
-        *workspace_out = (uint8_t *)workspace;
-        return VITTE_DRIVER_HOST_TOOL_SUCCESS;
-    }
-#else
-    (void)source;
-    (void)source_length;
-    (void)output_path;
-    (void)emit_object;
-    (void)run_program;
-    return VITTE_DRIVER_HOST_TOOL_UNSUPPORTED_HOST;
-#endif
-}
-
-uint32_t
-vitte_driver_host_toolchain_compile(
-    uint8_t *opaque_workspace)
-{
-#if defined(_WIN32) || defined(__APPLE__) || defined(__unix__)
-    vitte_driver_host_tool_workspace_t *workspace =
-        (vitte_driver_host_tool_workspace_t *)(void *)opaque_workspace;
-    const char *arguments[16];
-    size_t count = 0u;
-    if (workspace == NULL) {
-        return VITTE_DRIVER_HOST_TOOL_INVALID_ARGUMENT;
-    }
-    arguments[count++] = "cc";
-    if (workspace->debug_info) {
-        arguments[count++] = "-g";
-        arguments[count++] = "-O0";
-        arguments[count++] = "-fno-omit-frame-pointer";
-        arguments[count++] = "-fno-inline";
-        if (workspace->debug_runtime) {
-            arguments[count++] = "-DVITTE_DEBUG_RUNTIME";
-        }
-    }
-    arguments[count++] = "-std=c17";
-    arguments[count++] = "-x";
-    arguments[count++] = "c";
-    arguments[count++] = "-c";
-    arguments[count++] = workspace->source_path;
-    arguments[count++] = "-o";
-    arguments[count++] = workspace->compile_output_path;
-    arguments[count] = NULL;
-    if (!vitte_platform_run(arguments, true)) {
-        if (workspace->emit_object) {
-            (void)vitte_driver_host_remove_file(
-                workspace->compile_output_path);
-        }
-        return VITTE_DRIVER_HOST_TOOL_PROCESS_FAILURE;
-    }
-    return VITTE_DRIVER_HOST_TOOL_SUCCESS;
-#else
-    (void)opaque_workspace;
-    return VITTE_DRIVER_HOST_TOOL_UNSUPPORTED_HOST;
-#endif
-}
-
-uint32_t
-vitte_driver_host_toolchain_link(
-    uint8_t *opaque_workspace)
-{
-#if defined(_WIN32) || defined(__APPLE__) || defined(__unix__)
-    vitte_driver_host_tool_workspace_t *workspace =
-        (vitte_driver_host_tool_workspace_t *)(void *)opaque_workspace;
-    const char *arguments[5];
-    if (workspace == NULL || workspace->emit_object ||
-        workspace->link_output_path == NULL) {
-        return VITTE_DRIVER_HOST_TOOL_INVALID_ARGUMENT;
-    }
-    arguments[0] = "cc";
-    arguments[1] = workspace->object_path;
-    arguments[2] = "-o";
-    arguments[3] = workspace->link_output_path;
-    arguments[4] = NULL;
-    return vitte_platform_run(arguments, true)
-        ? VITTE_DRIVER_HOST_TOOL_SUCCESS
-        : VITTE_DRIVER_HOST_TOOL_PROCESS_FAILURE;
-#else
-    (void)opaque_workspace;
-    return VITTE_DRIVER_HOST_TOOL_UNSUPPORTED_HOST;
-#endif
-}
-
-uint32_t
-vitte_driver_host_toolchain_execute(
-    uint8_t *opaque_workspace,
-    int32_t run_argc,
-    uint8_t **run_argv)
-{
-#if defined(_WIN32) || defined(__APPLE__) || defined(__unix__)
-    vitte_driver_host_tool_workspace_t *workspace =
-        (vitte_driver_host_tool_workspace_t *)(void *)opaque_workspace;
-    char **arguments;
-    size_t index;
-    bool succeeded;
-    if (workspace == NULL || !workspace->run_program ||
-        workspace->link_output_path == NULL || run_argc < 0 ||
-        (run_argc != 0 && run_argv == NULL) ||
-        (size_t)run_argc > SIZE_MAX / sizeof(*arguments) - 2u) {
-        return VITTE_DRIVER_HOST_TOOL_INVALID_ARGUMENT;
-    }
-    arguments = (char **)calloc((size_t)run_argc + 2u, sizeof(*arguments));
-    if (arguments == NULL) {
-        return VITTE_DRIVER_HOST_TOOL_OUT_OF_MEMORY;
-    }
-    arguments[0] = (char *)workspace->link_output_path;
-    for (index = 0u; index < (size_t)run_argc; ++index) {
-        arguments[index + 1u] = (char *)run_argv[index];
-    }
-    succeeded = vitte_platform_run(
-        (const char *const *)arguments,
-        true);
-    free(arguments);
-    return succeeded
-        ? VITTE_DRIVER_HOST_TOOL_SUCCESS
-        : VITTE_DRIVER_HOST_TOOL_PROCESS_FAILURE;
-#else
-    (void)opaque_workspace;
-    (void)run_argc;
-    (void)run_argv;
-    return VITTE_DRIVER_HOST_TOOL_UNSUPPORTED_HOST;
-#endif
-}
-
-void
-vitte_driver_host_toolchain_destroy(
-    uint8_t *opaque_workspace)
-{
-    vitte_driver_host_tool_workspace_t *workspace =
-        (vitte_driver_host_tool_workspace_t *)(void *)opaque_workspace;
-    if (workspace == NULL) {
-        return;
-    }
-#if defined(_WIN32) || defined(__APPLE__) || defined(__unix__)
-    (void)vitte_driver_host_remove_file(workspace->source_path);
-    if (workspace->temporary_object) {
-        (void)vitte_driver_host_remove_file(workspace->object_path);
-    }
-    if (workspace->run_program && workspace->executable_path[0] != '\0') {
-        (void)vitte_driver_host_remove_file(workspace->executable_path);
-    }
-#endif
-    if (workspace->link_output_path != NULL &&
-        workspace->link_output_path != workspace->executable_path) {
-        free((void *)workspace->link_output_path);
-    }
-    if (workspace->owned_object_output &&
-        workspace->compile_output_path != workspace->link_output_path) {
-        free((void *)workspace->compile_output_path);
-    }
-    free(workspace);
-}
-#endif
 
 static bool vitte_main_origin_offset(
     const vitte_main_driver_context_t *context,
@@ -576,10 +49,12 @@ static bool vitte_main_origin_span(
 static void vitte_main_diagnostic_map_span(
     const vitte_main_driver_context_t *context,
     vitte_cli_diagnostic_span_t *span);
+#ifdef VITTE_NATIVE_FRONTEND_LINKED
 static void vitte_main_diagnostic_map_native_batch(
     const vitte_main_driver_context_t *context,
     vitte_cli_diagnostic_t *diagnostics,
     size_t diagnostic_count);
+#endif
 static bool vitte_main_render_diagnostic(
     const vitte_main_driver_context_t *context,
     vitte_cli_diagnostic_severity_t severity,
@@ -832,6 +307,7 @@ vitte_main_driver_load_source(
     return true;
 }
 
+#ifdef VITTE_NATIVE_FRONTEND_LINKED
 static bool
 vitte_main_source_has_import_keyword(
     const unsigned char *source,
@@ -868,7 +344,9 @@ vitte_main_source_has_import_keyword(
 
     return false;
 }
+#endif
 
+#ifdef VITTE_NATIVE_FRONTEND_LINKED
 static bool
 vitte_main_source_identifier_byte(unsigned char byte)
 {
@@ -1225,8 +703,11 @@ vitte_main_source_requires_compatibility_frontend(
            vitte_main_source_has_named_call(source, length, "starts_with") ||
            vitte_main_source_has_named_call(source, length, "ends_with") ||
            vitte_main_source_has_borrowed_call(source, length) ||
-           vitte_main_source_has_if_block_local(source, length);
+           vitte_main_source_has_if_block_local(source, length) ||
+           vitte_main_source_has_word(source, length, "comptime") ||
+           vitte_main_source_has_word(source, length, "unsafe");
 }
+#endif
 
 bool
 vitte_main_driver_lex(
@@ -2000,10 +1481,13 @@ vitte_main_render_lexer_diagnostic(
             code = "VITTE_LEXER_E_INVALID_CHARACTER";
             break;
 
+        case VITTE_LEXER_ERROR_OVERFLOW:
+            code = "VITTE_LEXER_E_NUMBER_OVERFLOW";
+            break;
+
         case VITTE_LEXER_ERROR_COMMENT_DEPTH:
         case VITTE_LEXER_ERROR_TOKEN_LIMIT:
         case VITTE_LEXER_ERROR_SOURCE_TOO_LARGE:
-        case VITTE_LEXER_ERROR_OVERFLOW:
             code = "VITTE_INFRA_E_LIMIT";
             break;
 
@@ -3014,10 +2498,39 @@ vitte_main_driver_parse(
 
     vitte_main_verbose(context->options, "parsing");
 
+    {
+        vitte_macro_expansion_result_t expansion;
+        if (!vitte_macro_expand_tokens(context->lexer.tokens,
+                context->lexer.token_count, &expansion)) {
+            const char *code = expansion.error == VITTE_MACRO_EXPANSION_ERROR_RECURSION
+                ? "E1802" : "E1801";
+            const char *message = expansion.error == VITTE_MACRO_EXPANSION_ERROR_RECURSION
+                ? "macro expansion recursion limit reached" : "macro expansion failed";
+            const char *details = expansion.error == VITTE_MACRO_EXPANSION_ERROR_RECURSION
+                ? "A macro expands itself or exceeds the supported expansion depth."
+                : expansion.error == VITTE_MACRO_EXPANSION_ERROR_INVALID_INVOCATION
+                    ? "Check that the macro exists and that its invocation supplies the declared number of arguments."
+                    : "Macro expansion exceeded an implementation resource limit.";
+            vitte_parser_span_t span;
+            span.file_id = expansion.error_span.file_id;
+            span.begin = expansion.error_span.begin;
+            span.end = expansion.error_span.end;
+            span.line = 0u;
+            span.column = 0u;
+            span.valid = expansion.error_span.valid;
+            (void)vitte_main_render_diagnostic(context, VITTE_CLI_DIAGNOSTIC_ERROR,
+                code, message, details, &span, NULL, "macro expansion");
+            vitte_macro_expansion_result_destroy(&expansion);
+            return false;
+        }
+        context->expanded_tokens = expansion.tokens;
+        context->expanded_token_count = expansion.token_count;
+    }
+
     if (!vitte_parser_init(
             &context->parser,
-            context->lexer.tokens,
-            context->lexer.token_count)) {
+            context->expanded_tokens,
+            context->expanded_token_count)) {
         vitte_main_error("failed to initialize parser");
         return false;
     }
@@ -3130,6 +2643,48 @@ vitte_main_sema_diagnostic_code(
         case VITTE_SEMA_DIAGNOSTIC_UNKNOWN_MEMBER:
             return "VITTE_TYPE_E_NO_MEMBER";
 
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_REQUIRES:
+            return "VITTE_CONTRACT_E_REQUIRES";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_ENSURES:
+            return "VITTE_CONTRACT_E_ENSURES";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_RESULT:
+            return "VITTE_CONTRACT_E_RESULT";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_CONTRADICTION:
+            return "VITTE_CONTRACT_E_CONTRADICTION";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_POSTCONDITION:
+            return "VITTE_CONTRACT_E_POSTCONDITION";
+        case VITTE_SEMA_DIAGNOSTIC_MISSING_RETURN:
+            return "VITTE_CONTROL_E_MISSING_RETURN";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_PRECONDITION:
+            return "VITTE_CONTRACT_E_PRECONDITION";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_OVERFLOW:
+            return "VITTE_CONST_E_OVERFLOW";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_DIVIDE_BY_ZERO:
+            return "VITTE_CONST_E_DIVIDE_BY_ZERO";
+        case VITTE_SEMA_DIAGNOSTIC_INDEX_OUT_OF_BOUNDS:
+            return "VITTE_MEMORY_E_INVALID_ACCESS";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_EFFECT:
+            return "VITTE_CONTRACT_E_EFFECT";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_NON_EXHAUSTIVE:
+            return "VITTE_PATTERN_E_NON_EXHAUSTIVE";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_UNREACHABLE:
+            return "VITTE_PATTERN_E_UNREACHABLE";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_CYCLE:
+            return "VITTE_CONST_E_CYCLE";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_TYPE:
+            return "VITTE_PATTERN_E_TYPE";
+        case VITTE_SEMA_DIAGNOSTIC_UNSAFE_REQUIRED:
+            return "VITTE_UNSAFE_E_REQUIRED";
+        case VITTE_SEMA_DIAGNOSTIC_REFERENCE_ESCAPE:
+            return "VITTE_MEMORY_E_REFERENCE_ESCAPE";
+        case VITTE_SEMA_DIAGNOSTIC_BORROW_CONFLICT:
+            return "VITTE_MEMORY_E_BORROW_CONFLICT";
+        case VITTE_SEMA_DIAGNOSTIC_BORROWED_MUTATION:
+            return "VITTE_MEMORY_E_BORROWED_MUTATION";
+        case VITTE_SEMA_DIAGNOSTIC_MOVE_BORROWED:
+            return "VITTE_MEMORY_E_MOVE_BORROWED";
+        case VITTE_SEMA_DIAGNOSTIC_USE_AFTER_MOVE:
+            return "VITTE_MEMORY_E_USE_AFTER_MOVE";
         case VITTE_SEMA_DIAGNOSTIC_CONDITION_NOT_BOOL:
             return "VITTE_TYPE_E_CONDITION_NOT_BOOL";
 
@@ -3505,6 +3060,7 @@ vitte_main_diagnostic_map_span(
     span->end_column = end.column - 1u;
 }
 
+#ifdef VITTE_NATIVE_FRONTEND_LINKED
 static void
 vitte_main_diagnostic_map_native_batch(
     const vitte_main_driver_context_t *context,
@@ -3555,6 +3111,7 @@ vitte_main_diagnostic_map_native_batch(
         diagnostic->end_column = span.end_column;
     }
 }
+#endif
 
 static bool
 vitte_main_sema_symbol_origin_location(
@@ -4048,6 +3605,60 @@ vitte_main_render_sema_diagnostics(
                 diagnostic->symbol = context_symbol->name;
             }
         }
+        if (sema_diagnostic->contract_span.valid &&
+            sema_diagnostic->contract_span.begin <= sema_diagnostic->contract_span.end &&
+            sema_diagnostic->contract_span.end <= context->file.length) {
+            const vitte_symbol_t *procedure_symbol = vitte_scope_get_symbol(
+                &context->sema.scopes, sema_diagnostic->contract_symbol_id);
+            vitte_cli_diagnostic_t clause;
+            size_t expression_length = sema_diagnostic->contract_span.end -
+                sema_diagnostic->contract_span.begin;
+            bool ensures = (sema_diagnostic->contract_flags &
+                VITTE_AST_FLAG_CONTRACT_ENSURES) != 0u;
+            if (expression_length >= sizeof(type_contexts[index])) {
+                expression_length = sizeof(type_contexts[index]) - 1u;
+            }
+            memcpy(type_contexts[index],
+                context->file.data + sema_diagnostic->contract_span.begin,
+                expression_length);
+            type_contexts[index][expression_length] = '\0';
+            diagnostic->context = ensures ? "ensures clause" : "requires clause";
+            diagnostic->procedure = procedure_symbol != NULL ? procedure_symbol->name : NULL;
+            diagnostic->has_contract = true;
+            diagnostic->contract.kind = ensures
+                ? VITTE_CLI_DIAGNOSTIC_CONTRACT_ENSURES
+                : VITTE_CLI_DIAGNOSTIC_CONTRACT_REQUIRES;
+            diagnostic->contract.expression = type_contexts[index];
+            diagnostic->contract.procedure = diagnostic->procedure;
+            diagnostic->contract.reason =
+                sema_diagnostic->code == VITTE_SEMA_DIAGNOSTIC_CONTRACT_PRECONDITION
+                    ? "the known call arguments do not satisfy the precondition"
+                    : sema_diagnostic->code == VITTE_SEMA_DIAGNOSTIC_CONTRACT_RESULT
+                    ? "result is available only in an ensures clause of a procedure returning a value"
+                    : sema_diagnostic->code == VITTE_SEMA_DIAGNOSTIC_CONTRACT_CONTRADICTION ||
+                      sema_diagnostic->code == VITTE_SEMA_DIAGNOSTIC_CONTRACT_POSTCONDITION
+                        ? "the contract condition evaluates to false for the known values"
+                        : "the contract expression must be valid and have type bool";
+            diagnostic->probable_cause = diagnostic->contract.reason;
+            if (vitte_main_make_cli_diagnostic(
+                    context, &clause, diagnostic->severity, diagnostic->code,
+                    NULL, NULL, &sema_diagnostic->contract_span, NULL, NULL) &&
+                clause.has_span) {
+                diagnostic->contract.has_contract_span = true;
+                diagnostic->contract.contract_span.valid = true;
+                diagnostic->contract.contract_span.source_name = clause.source_name;
+                diagnostic->contract.contract_span.source_id = clause.source_id;
+                diagnostic->contract.contract_span.file_id = clause.file_id;
+                diagnostic->contract.contract_span.start_offset = clause.start_offset;
+                diagnostic->contract.contract_span.end_offset = clause.end_offset;
+                diagnostic->contract.contract_span.start_line = clause.start_line;
+                diagnostic->contract.contract_span.start_column = clause.start_column;
+                diagnostic->contract.contract_span.end_line = clause.end_line;
+                diagnostic->contract.contract_span.end_column = clause.end_column;
+            }
+        }
+        if (sema_diagnostic->code == VITTE_SEMA_DIAGNOSTIC_INDEX_OUT_OF_BOUNDS)
+            diagnostic->message = "array index out of bounds";
         diagnostic->help = sema_diagnostic->help;
         details_length = 0;
         if (expected_type != NULL &&
@@ -4099,6 +3710,15 @@ vitte_main_render_sema_diagnostics(
                        source_name,
                        diagnostic,
                        &related_locations[index])) {
+            diagnostic->related = &related_locations[index];
+            diagnostic->related_count = 1u;
+        }
+        if (diagnostic->has_contract && diagnostic->contract.has_contract_span &&
+            (sema_diagnostic->span.begin != sema_diagnostic->contract_span.begin ||
+             sema_diagnostic->span.end != sema_diagnostic->contract_span.end)) {
+            related_locations[index].kind = VITTE_CLI_DIAGNOSTIC_LOCATION_DECLARATION;
+            related_locations[index].span = diagnostic->contract.contract_span;
+            related_locations[index].label = "contract declared here";
             diagnostic->related = &related_locations[index];
             diagnostic->related_count = 1u;
         }
@@ -4394,7 +4014,7 @@ vitte_main_driver_compile_ast(
                     details = "the external linker could not create the requested executable; see its diagnostics above";
                     break;
                 case VITTE_C17_COMPILE_RUNTIME_FAILED:
-                    code = "VITTE_INFRA_E_PHASE";
+                    code = "VITTE_BACKEND_E_EXECUTION";
                     message = "compiled program exited unsuccessfully";
                     details = "C17 compilation and linking succeeded, but program execution returned a failure status";
                     break;
@@ -4405,8 +4025,8 @@ vitte_main_driver_compile_ast(
                     break;
                 case VITTE_C17_COMPILE_UNSUPPORTED_FEATURE:
                     code = "VITTE_BACKEND_E_UNSUPPORTED";
-                    message = "async procedures and await are not supported by the C17 backend";
-                    details = "task/future and coroutine lowering are not implemented; no C17 output was emitted";
+                    message = "the requested language construct is not supported by the C17 backend";
+                    details = "the selected construct has no C17 lowering; no output was emitted";
                     break;
                 case VITTE_C17_COMPILE_SUCCESS:
                 default:
@@ -4637,7 +4257,7 @@ vitte_main_driver_codegen_ir(
                 details = "the external linker could not create the requested executable; see its diagnostics above";
                 break;
             case VITTE_C17_IR_COMPILE_RUNTIME_FAILED:
-                code = "VITTE_INFRA_E_PHASE";
+                code = "VITTE_BACKEND_E_EXECUTION";
                 message = "compiled program exited unsuccessfully";
                 details = "C17 compilation and linking succeeded, but program execution returned a failure status";
                 break;
@@ -4710,6 +4330,10 @@ vitte_main_driver_context_destroy(
         context->parser_initialized = false;
     }
 
+    free(context->expanded_tokens);
+    context->expanded_tokens = NULL;
+    context->expanded_token_count = 0u;
+
     if (context->lexer_initialized) {
         vitte_lexer_destroy(&context->lexer);
         context->lexer_initialized = false;
@@ -4734,4 +4358,3 @@ vitte_main_driver_context_destroy(
  * Keeping this bridge isolated means changes to driver.h affect one small
  * section of main.c rather than CLI parsing and process management.
  */
-

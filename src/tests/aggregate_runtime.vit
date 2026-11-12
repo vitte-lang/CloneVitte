@@ -1874,9 +1874,10 @@ proc test_forward_aggregate_values() -> bool {
 }
 
 proc test_call_result_aggregate() -> bool {
+    let answer: Point = make_answer_point();
     let point: Point =
         point_copy(
-            &make_answer_point());
+            &answer);
 
     return point_sum(
         &point) == FORTY_TWO;

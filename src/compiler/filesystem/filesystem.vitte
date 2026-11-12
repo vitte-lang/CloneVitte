@@ -1,7 +1,7 @@
 /// Vitte declarations ported from `src/src/filesystem/filesystem.h`.
 space compiler::filesystem::filesystem;
 
-use vitte::core::memory::{deallocate};
+use vitte::core::memory::{allocate, deallocate};
 
 const FILESYSTEM_FNV_OFFSET: u64 = 14695981039346656037;
 const FILESYSTEM_FNV_PRIME: u64 = 1099511628211;
@@ -78,7 +78,7 @@ export form FilesystemDirectoryList {
 
 export form FilesystemResult {
     error: FilesystemError,
-    system_error: i64
+    system_error: i32
 }
 
 export form FilesystemStats {
@@ -146,19 +146,133 @@ export proc vitte_filesystem_kind_name(kind: FilesystemKind) -> string {
 
 export extern proc vitte_filesystem_stat(path: string, follow_symlink: bool, metadata: *FilesystemMetadata) -> FilesystemResult;
 
-export extern proc vitte_filesystem_exists(path: string) -> bool;
+extern proc vitte_native_fs_path_kind(path: *const u8) -> i32;
+extern proc vitte_native_fs_file_open(path: *const u8, mode: *const u8) -> *mut u8;
+extern proc vitte_native_fs_file_read(data: *mut u8, length: usize, file: *mut u8) -> usize;
+extern proc vitte_native_fs_file_error(file: *mut u8) -> i32;
+extern proc vitte_native_fs_file_close(file: *mut u8) -> i32;
+extern proc vitte_native_fs_file_size(file: *mut u8, size: *mut usize) -> bool;
+extern proc vitte_native_fs_file_write(data: *const u8, length: usize, file: *mut u8) -> usize;
+extern proc vitte_native_fs_file_flush(file: *mut u8) -> i32;
+extern proc vitte_native_fs_file_sync(file: *mut u8) -> i32;
+extern proc vitte_native_fs_remove(path: *const u8) -> i32;
+extern proc vitte_native_fs_rename_replace(source: *const u8, destination: *const u8) -> i32;
+extern proc vitte_native_fs_process_id() -> u64;
 
-export extern proc vitte_filesystem_is_file(path: string) -> bool;
+export proc vitte_filesystem_exists(path: string) -> bool {
+    return vitte_native_fs_path_kind(path.as_ptr() as *const u8) != 0;
+}
+
+export proc vitte_filesystem_is_file(path: string) -> bool {
+    return vitte_native_fs_path_kind(path.as_ptr() as *const u8) == 1;
+}
 
 export extern proc vitte_filesystem_is_directory(path: string) -> bool;
 
 export extern proc vitte_filesystem_is_symlink(path: string) -> bool;
 
-export extern proc vitte_filesystem_read_file(path: string, max_bytes: usize, buffer: *FilesystemBuffer) -> FilesystemResult;
+export proc vitte_filesystem_read_file(path: string, max_bytes: usize, buffer: *mut FilesystemBuffer) -> FilesystemResult {
+    if buffer == null { return FilesystemResult { error: FilesystemError.InvalidArgument, system_error: 0 }; }
+    set *buffer = FilesystemBuffer { data: null, length: 0, capacity: 0 };
+    if path.len() == 0 { return FilesystemResult { error: FilesystemError.InvalidPath, system_error: 0 }; }
 
-export extern proc vitte_filesystem_write_file(path: string, data: *u8, length: usize) -> FilesystemResult;
+    let file = vitte_native_fs_file_open(path.as_ptr() as *const u8, "rb".as_ptr() as *const u8);
+    if file == null { return FilesystemResult { error: FilesystemError.Open, system_error: 0 }; }
+    let mut length: usize = 0;
+    if not vitte_native_fs_file_size(file, &mut length) {
+        vitte_native_fs_file_close(file);
+        return FilesystemResult { error: FilesystemError.Stat, system_error: 0 };
+    }
+    if max_bytes != 0 and length > max_bytes {
+        vitte_native_fs_file_close(file);
+        return FilesystemResult { error: FilesystemError.TooLarge, system_error: 0 };
+    }
+    if length == (0 as usize) - 1 {
+        vitte_native_fs_file_close(file);
+        return FilesystemResult { error: FilesystemError.Overflow, system_error: 0 };
+    }
+    let capacity: usize = if length == 0 { 1 as usize } else { length + 1 };
+    let data = allocate(capacity) as *mut u8;
+    if data == null {
+        vitte_native_fs_file_close(file);
+        return FilesystemResult { error: FilesystemError.OutOfMemory, system_error: 0 };
+    }
+    let read_count = vitte_native_fs_file_read(data, length, file);
+    let read_failed = vitte_native_fs_file_error(file) != 0 or read_count != length;
+    let close_status = vitte_native_fs_file_close(file);
+    if read_failed {
+        deallocate(data);
+        return FilesystemResult { error: FilesystemError.Read, system_error: 0 };
+    }
+    if close_status != 0 {
+        deallocate(data);
+        return FilesystemResult { error: FilesystemError.Close, system_error: 0 };
+    }
+    set (*buffer).data = data;
+    set (*buffer).length = length;
+    set (*buffer).capacity = capacity;
+    return FilesystemResult { error: FilesystemError.None, system_error: 0 };
+}
 
-export extern proc vitte_filesystem_write_file_atomic(path: string, data: *u8, length: usize) -> FilesystemResult;
+export proc vitte_filesystem_write_file(path: string, data: *u8, length: usize) -> FilesystemResult {
+    if path.len() == 0 { return FilesystemResult { error: FilesystemError.InvalidPath, system_error: 0 }; }
+    if data == null and length != 0 { return FilesystemResult { error: FilesystemError.InvalidArgument, system_error: 0 }; }
+    let file = vitte_native_fs_file_open(path.as_ptr() as *const u8, "wb".as_ptr() as *const u8);
+    if file == null { return FilesystemResult { error: FilesystemError.Open, system_error: 0 }; }
+    let written = vitte_native_fs_file_write(data as *const u8, length, file);
+    let write_failed = written != length;
+    let flush_failed = not write_failed and vitte_native_fs_file_flush(file) != 0;
+    let close_failed = vitte_native_fs_file_close(file) != 0;
+    if write_failed { return FilesystemResult { error: FilesystemError.Write, system_error: 0 }; }
+    if flush_failed { return FilesystemResult { error: FilesystemError.Flush, system_error: 0 }; }
+    if close_failed { return FilesystemResult { error: FilesystemError.Close, system_error: 0 }; }
+    return FilesystemResult { error: FilesystemError.None, system_error: 0 };
+}
+
+export proc vitte_filesystem_write_file_atomic(path: string, data: *u8, length: usize) -> FilesystemResult {
+    if path.len() == 0 { return FilesystemResult { error: FilesystemError.InvalidPath, system_error: 0 }; }
+    if data == null and length != 0 { return FilesystemResult { error: FilesystemError.InvalidArgument, system_error: 0 }; }
+    let process_id = vitte_native_fs_process_id();
+    let mut attempt: usize = 0;
+    let mut temp_path: string = "";
+    let mut file: *mut u8 = null;
+    while attempt < 128 and file == null {
+        set temp_path = path;
+        set temp_path += ".vitte-tmp-";
+        set temp_path += process_id.to_string();
+        set temp_path += "-";
+        set temp_path += attempt.to_string();
+        if temp_path.len() > 32768 { return FilesystemResult { error: FilesystemError.PathTooLong, system_error: 0 }; }
+        set file = vitte_native_fs_file_open(temp_path.as_ptr() as *const u8, "wbx".as_ptr() as *const u8);
+        if file == null { set attempt += 1; }
+    }
+    if file == null { return FilesystemResult { error: FilesystemError.Open, system_error: 0 }; }
+    let written = vitte_native_fs_file_write(data as *const u8, length, file);
+    if written != length {
+        vitte_native_fs_file_close(file);
+        vitte_native_fs_remove(temp_path.as_ptr() as *const u8);
+        return FilesystemResult { error: FilesystemError.Write, system_error: 0 };
+    }
+    if vitte_native_fs_file_flush(file) != 0 {
+        vitte_native_fs_file_close(file);
+        vitte_native_fs_remove(temp_path.as_ptr() as *const u8);
+        return FilesystemResult { error: FilesystemError.Flush, system_error: 0 };
+    }
+    if vitte_native_fs_file_sync(file) != 0 {
+        vitte_native_fs_file_close(file);
+        vitte_native_fs_remove(temp_path.as_ptr() as *const u8);
+        return FilesystemResult { error: FilesystemError.Write, system_error: 0 };
+    }
+    if vitte_native_fs_file_close(file) != 0 {
+        vitte_native_fs_remove(temp_path.as_ptr() as *const u8);
+        return FilesystemResult { error: FilesystemError.Close, system_error: 0 };
+    }
+    if vitte_native_fs_rename_replace(temp_path.as_ptr() as *const u8, path.as_ptr() as *const u8) != 0 {
+        vitte_native_fs_remove(temp_path.as_ptr() as *const u8);
+        return FilesystemResult { error: FilesystemError.Rename, system_error: 0 };
+    }
+    return FilesystemResult { error: FilesystemError.None, system_error: 0 };
+}
 
 export extern proc vitte_filesystem_create_directory(path: string) -> FilesystemResult;
 
@@ -172,9 +286,99 @@ export extern proc vitte_filesystem_rename(source: string, destination: string) 
 
 export extern proc vitte_filesystem_list_directory(path: string, max_entries: usize, list: *FilesystemDirectoryList) -> FilesystemResult;
 
-export extern proc vitte_filesystem_join(left: string, right: string, result: *string) -> FilesystemResult;
+export proc vitte_filesystem_join(left: string, right: string) -> string {
+    if right.len() == 0 { return vitte_filesystem_normalize(left); }
+    if vitte_filesystem_path_is_absolute(right) { return vitte_filesystem_normalize(right); }
+    if left.len() == 0 { return vitte_filesystem_normalize(right); }
+    let left_bytes = left.as_bytes();
+    let mut joined: string = left;
+    if not filesystem_path_separator(left_bytes[left_bytes.len() - 1]) { set joined += "/"; }
+    set joined += right;
+    return vitte_filesystem_normalize(joined);
+}
 
-export extern proc vitte_filesystem_normalize(path: string, result: *string) -> FilesystemResult;
+export proc vitte_filesystem_normalize(path: string) -> string {
+    if path.len() > 32768 { return ""; }
+    let bytes = path.as_bytes();
+    let length: usize = bytes.len();
+    let mut output = allocate(length + 2) as *mut u8;
+    let mut stack_offsets = allocate((length + 1) * sizeof(usize)) as *mut usize;
+    if output == null or stack_offsets == null {
+        if output != null { deallocate(output); }
+        if stack_offsets != null { deallocate(stack_offsets as *mut u8); }
+        return "";
+    }
+    let mut output_length: usize = 0;
+    let mut stack_count: usize = 0;
+    let mut absolute = length != 0 and filesystem_path_separator(bytes[0]);
+    let mut index: usize = 0;
+    if length >= 3 {
+        let drive: u8 = bytes[0];
+        let drive_letter = (drive >= 65 and drive <= 90) or (drive >= 97 and drive <= 122);
+        if drive_letter and bytes[1] == 58 and filesystem_path_separator(bytes[2]) {
+            set output[0] = bytes[0];
+            set output[1] = 58;
+            set output[2] = 47;
+            set output_length = 3;
+            set index = 3;
+            set absolute = true;
+        }
+    }
+    if index == 0 and length >= 2 and filesystem_path_separator(bytes[0]) and filesystem_path_separator(bytes[1]) {
+        set output[0] = 47;
+        set output[1] = 47;
+        set output_length = 2;
+        set index = 2;
+        set absolute = true;
+    } elif index == 0 and absolute {
+        set output[0] = 47;
+        set output_length = 1;
+        set index = 1;
+    }
+
+    while index < length {
+        while index < length and filesystem_path_separator(bytes[index]) { set index += 1; }
+        let begin: usize = index;
+        while index < length and not filesystem_path_separator(bytes[index]) { set index += 1; }
+        let component_length: usize = index - begin;
+        if component_length == 0 { continue; }
+        if component_length == 1 and bytes[begin] == 46 { continue; }
+        if component_length == 2 and bytes[begin] == 46 and bytes[begin + 1] == 46 {
+            if stack_count != 0 {
+                let mut segment_start: usize = output_length;
+                while segment_start > 0 and output[segment_start - 1] != 47 { set segment_start -= 1; }
+                let last_is_parent = output_length - segment_start == 2 and output[segment_start] == 46 and output[segment_start + 1] == 46;
+                if not last_is_parent {
+                    set output_length = stack_offsets[stack_count - 1];
+                    set stack_count -= 1;
+                    continue;
+                }
+            }
+            if absolute { continue; }
+        }
+        set stack_offsets[stack_count] = output_length;
+        set stack_count += 1;
+        if output_length != 0 and output[output_length - 1] != 47 {
+            set output[output_length] = 47;
+            set output_length += 1;
+        }
+        let mut copy_index: usize = 0;
+        while copy_index < component_length {
+            set output[output_length] = bytes[begin + copy_index];
+            set output_length += 1;
+            set copy_index += 1;
+        }
+    }
+    if output_length == 0 {
+        set output[0] = 46;
+        set output_length = 1;
+    }
+    set output[output_length] = 0;
+    let normalized = string.from_bytes(output, output_length);
+    deallocate(output);
+    deallocate(stack_offsets as *mut u8);
+    return normalized;
+}
 
 export extern proc vitte_filesystem_canonicalize(path: string, result: *string) -> FilesystemResult;
 
@@ -189,14 +393,14 @@ export proc vitte_filesystem_path_is_absolute(path: string) -> bool {
     if bytes.len() == 0 { return false; }
     if filesystem_path_separator(bytes[0]) { return true; }
     if bytes.len() < 3 { return false; }
-    let drive = bytes[0];
+    let drive: u8 = bytes[0];
     let has_drive = (drive >= 65 and drive <= 90) or (drive >= 97 and drive <= 122);
     return has_drive and bytes[1] == 58 and filesystem_path_separator(bytes[2]);
 }
 
 export proc vitte_filesystem_path_hash(path: string) -> u64 {
     let bytes = path.as_bytes();
-    let mut hash = FILESYSTEM_FNV_OFFSET;
+    let mut hash: u64 = FILESYSTEM_FNV_OFFSET;
     let mut index: usize = 0;
     while index < bytes.len() {
         set hash = (hash ^ (bytes[index] as u64)).wrapping_mul(FILESYSTEM_FNV_PRIME);

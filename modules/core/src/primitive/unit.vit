@@ -1,4 +1,9 @@
-/// Nom explicite du type unité intégré au langage.
+/// Type sans donnée, utilisable comme valeur unité nommée.
 space core::primitive::unit;
 
-export type Unit = unit;
+export form Unit {}
+
+/// Construit l'unique valeur du type sans donnée `Unit`.
+export proc unit_value() -> Unit {
+    return Unit {};
+}

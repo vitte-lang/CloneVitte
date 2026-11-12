@@ -1,8 +1,8 @@
 /// Contrats d'égalité entre valeurs.
 space core::traits::equal;
 
-export trait PartialEq<Rhs> {
-    proc eq(&self, other: &Rhs) -> bool;
+export trait PartialEq<Receiver, Rhs> {
+    proc eq(receiver: &Receiver, other: &Rhs) -> bool;
 }
 
-export trait Eq {}
+export trait Eq<Receiver> {}

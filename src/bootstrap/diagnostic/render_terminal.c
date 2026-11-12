@@ -3519,6 +3519,51 @@ vitte_diagnostic_render_cli_batch_ex(
             diagnostic, input->expected, input->found);
         vitte_diagnostic_set_probable_cause(
             diagnostic, input->probable_cause);
+        if (input->has_contract) {
+            const vitte_cli_diagnostic_contract_t *contract = &input->contract;
+            const vitte_cli_diagnostic_span_t *input_spans[3] = {
+                &contract->contract_span, &contract->call_span,
+                &contract->declaration_span
+            };
+            bool present[3] = {
+                contract->has_contract_span, contract->has_call_span,
+                contract->has_declaration_span
+            };
+            vitte_ast_span_t contract_spans[3];
+            size_t span_index;
+            if (contract->kind < VITTE_CLI_DIAGNOSTIC_CONTRACT_REQUIRES ||
+                contract->kind > VITTE_CLI_DIAGNOSTIC_CONTRACT_ASSERTION) {
+                goto cleanup;
+            }
+            memset(contract_spans, 0, sizeof(contract_spans));
+            for (span_index = 0u; span_index < 3u; ++span_index) {
+                const vitte_cli_diagnostic_span_t *from = input_spans[span_index];
+                vitte_ast_span_t *to = &contract_spans[span_index];
+                if (!present[span_index]) continue;
+                if (!from->valid || from->start_offset > from->end_offset ||
+                    from->start_line > UINT_MAX || from->start_column > UINT_MAX ||
+                    from->end_line > UINT_MAX || from->end_column > UINT_MAX) {
+                    goto cleanup;
+                }
+                to->file_id = from->file_id;
+                to->source_id = from->source_id;
+                to->source_name = from->source_name;
+                to->start_offset = from->start_offset;
+                to->end_offset = from->end_offset;
+                to->start_line = (unsigned int)from->start_line;
+                to->start_column = (unsigned int)from->start_column;
+                to->end_line = (unsigned int)from->end_line;
+                to->end_column = (unsigned int)from->end_column;
+                to->valid = true;
+            }
+            status = vitte_diagnostic_set_contract(
+                diagnostic, (vitte_diagnostic_contract_kind_t)contract->kind,
+                contract->expression, contract->procedure, contract->reason,
+                present[0] ? &contract_spans[0] : NULL,
+                present[1] ? &contract_spans[1] : NULL,
+                present[2] ? &contract_spans[2] : NULL);
+            if (status != VITTE_STATUS_OK) goto cleanup;
+        }
         {
             char help[VITTE_DIAGNOSTIC_MESSAGE_CAPACITY];
             if (vitte_terminal_text_present(input->help)) {

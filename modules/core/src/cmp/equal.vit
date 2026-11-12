@@ -303,7 +303,7 @@ export proc approx_equal_f32(a: f32, b: f32, epsilon: f32) -> bool {
         return true;
     }
 
-    let difference: f32 = a - b;
+    let mut difference: f32 = a - b;
 
     if difference < 0.0 {
         return -difference <= epsilon;
@@ -345,14 +345,14 @@ export proc relative_equal_f32(a: f32, b: f32, epsilon: f32) -> bool {
         return true;
     }
 
-    let difference: f32 = a - b;
+    let mut difference: f32 = a - b;
 
     if difference < 0.0 {
         set difference = -difference;
     }
 
-    let abs_a: f32 = a;
-    let abs_b: f32 = b;
+    let mut abs_a: f32 = a;
+    let mut abs_b: f32 = b;
 
     if abs_a < 0.0 {
         set abs_a = -abs_a;
@@ -362,7 +362,7 @@ export proc relative_equal_f32(a: f32, b: f32, epsilon: f32) -> bool {
         set abs_b = -abs_b;
     }
 
-    let scale: f32 = abs_a;
+    let mut scale: f32 = abs_a;
 
     if abs_b > scale {
         set scale = abs_b;
@@ -380,18 +380,24 @@ export proc relative_equal_f64(a: f64, b: f64, epsilon: f64) -> bool {
         return true;
     }
 
-    let difference: f64 = a - b;
+    let mut difference: f64 = a - b;
 
     if difference < 0.0 {
         set difference = -difference;
     }
 
-    let abs_a: f64 = a;
-    let abs_b: f64 = b;
+    let mut abs_a: f64 = a;
+    let mut abs_b: f64 = b;
 
     if abs_a < 0.0 {
         set abs_a = -abs_a;
     }
+
+    if abs_b < 0.0 {
+        set abs_b = -abs_b;
+    }
+
+    let mut scale: f64 = abs_a;
 
     if abs_b > scale {
         set scale = abs_b;

@@ -22,7 +22,7 @@ export proc runtime_name() -> string {
 }
 
 export proc runtime_version() -> string {
-    return "0.1.0";
+    return "0.1.1";
 }
 
 export proc runtime_ready() -> bool {

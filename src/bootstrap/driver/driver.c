@@ -663,6 +663,7 @@ vitte_driver_size_mul(
 static uint64_t
 vitte_driver_now_nanoseconds(void)
 {
+#if defined(TIME_UTC)
     struct timespec value;
     uint64_t seconds;
     uint64_t nanoseconds;
@@ -689,6 +690,29 @@ vitte_driver_now_nanoseconds(void)
     }
 
     return seconds + nanoseconds;
+#else
+    clock_t value = clock();
+    uint64_t ticks;
+    uint64_t frequency = (uint64_t)CLOCKS_PER_SEC;
+    uint64_t seconds;
+    uint64_t remainder;
+    uint64_t fractional_nanoseconds;
+
+    if (value == (clock_t)-1 || frequency == 0u) {
+        return UINT64_C(0);
+    }
+
+    ticks = (uint64_t)value;
+    seconds = ticks / frequency;
+    remainder = ticks % frequency;
+    if (seconds > UINT64_MAX / UINT64_C(1000000000)) {
+        return UINT64_MAX;
+    }
+
+    fractional_nanoseconds = (uint64_t)(
+        ((long double)remainder * 1000000000.0L) / (long double)frequency);
+    return seconds * UINT64_C(1000000000) + fractional_nanoseconds;
+#endif
 }
 
 static uint64_t

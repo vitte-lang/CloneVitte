@@ -3,6 +3,8 @@
 space compiler::lexer::lexer;
 
 use compiler::unicode::unicode::{UnicodeError, vitte_unicode_decode_utf8, vitte_unicode_is_identifier_continue, vitte_unicode_is_identifier_start};
+use vitte::core::memory::{allocate, copy};
+use vitte::core::pointer;
 
 const LEXER_MAGIC: u64 = 0x564954544c455821;
 const LEXER_DEAD_MAGIC: u64 = 0x444541444c455821;
@@ -122,8 +124,21 @@ proc lexer_peek(lexer: &Lexer, lookahead: usize) -> u8 {
 }
 
 proc lexer_starts_with(lexer: &Lexer, text: string) -> bool {
-    if lexer.offset > lexer.source_length  or  text.len() > lexer.source_length - lexer.offset { return false; }
-    return lexer.source.slice(lexer.offset, lexer.offset + text.len()) == text;
+    let bytes = text.as_bytes();
+    let length: usize = bytes.len();
+    if lexer.offset > lexer.source_length or
+       length > lexer.source_length - lexer.offset {
+        return false;
+    }
+
+    let mut index: usize = 0;
+    while index < length {
+        if lexer.source[lexer.offset + index] as u8 != bytes[index] {
+            return false;
+        }
+        set index += 1;
+    }
+    return true;
 }
 
 proc lexer_advance_byte(lexer: &mut Lexer) {
@@ -190,17 +205,48 @@ proc lexer_reserve_tokens(lexer: &mut Lexer, required: usize) -> bool {
     return true;
 }
 
+proc lexer_copy_source_range(
+    lexer: &mut Lexer,
+    begin: usize,
+    end: usize,
+    output: &mut string
+) -> bool {
+    if begin > end or end > lexer.source_length {
+        return lexer_fail(lexer as ?&mut Lexer, LexerError.InvalidToken, begin, end);
+    }
+    let length = end - begin;
+    if length == usize.MAX {
+        return lexer_fail(lexer as ?&mut Lexer, LexerError.Overflow, begin, end);
+    }
+    let storage = allocate(length + 1);
+    if storage == null {
+        return lexer_fail(lexer as ?&mut Lexer, LexerError.OutOfMemory, begin, end);
+    }
+    if length != 0 and not copy(
+        storage,
+        pointer.add_bytes_const(lexer.source as *const u8, begin),
+        length
+    ) {
+        return lexer_fail(lexer as ?&mut Lexer, LexerError.InvalidToken, begin, end);
+    }
+    set storage[length] = 0;
+    set *output = pointer.add_bytes(storage, 0) as string;
+    return true;
+}
+
 proc lexer_emit(lexer: &mut Lexer, kind: TokenKind, begin: usize, end: usize, line: usize, column: usize) -> bool {
     if begin > end  or  end > lexer.source_length { return lexer_fail(lexer, LexerError.InvalidToken, begin, end); }
     if lexer.token_count >= lexer.max_tokens { return lexer_fail(lexer, LexerError.TokenLimit, begin, end); }
     let required: usize = lexer.token_count + 1;
     if not lexer_reserve_tokens(lexer, required) { return false; }
+    let mut lexeme: string = "";
+    if not lexer_copy_source_range(lexer, begin, end, &mut lexeme) { return false; }
     let token: Token = Token {
         kind: kind,
         span: LexerSpan { file_id: lexer.file_id, begin: begin, end: end, valid: true },
         line: line,
         column: column,
-        lexeme: lexer.source.slice(begin, end),
+        lexeme: lexeme,
         length: end - begin
     };
     if not lexer.tokens.push(token) { return lexer_fail(lexer, LexerError.OutOfMemory, begin, end); }
@@ -260,6 +306,8 @@ proc lexer_keyword(text: string) -> TokenKind {
     if text == "false" { return TokenKind.KwFalse; }
     if text == "null" { return TokenKind.KwNull; }
     if text == "assert" { return TokenKind.KwAssert; }
+    if text == "sizeof" { return TokenKind.KwSizeof; }
+    if text == "alignof" { return TokenKind.KwAlignof; }
     if text == "print" { return TokenKind.KwPrint; }
     if text == "share"  or  text == "region"  or  text == "compiler"  or
        text == "diagnostic"  or  text == "bench"  or  text == "entry"  or
@@ -353,7 +401,9 @@ proc lexer_scan_identifier(lexer: &mut Lexer) -> bool {
             lexer_advance_n(lexer, width);
         }
     }
-    let kind: TokenKind = lexer_keyword(lexer.source.slice(begin, lexer.offset));
+    let mut identifier: string = "";
+    if not lexer_copy_source_range(lexer, begin, lexer.offset, &mut identifier) { return false; }
+    let kind: TokenKind = lexer_keyword(identifier);
     if not lexer_emit(lexer, kind, begin, lexer.offset, line, column) { return false; }
     if kind == TokenKind.Identifier { set lexer.stats.identifiers = lexer_sat_add(lexer.stats.identifiers, 1); }
     else { set lexer.stats.keywords = lexer_sat_add(lexer.stats.keywords, 1); }
@@ -722,8 +772,27 @@ export proc vitte_lexer_token_count(lexer: ?&Lexer) -> usize {
 export proc vitte_token_text_equal(token: ?&Token, text: ?str, length: usize) -> bool {
     if token == null  or  (text == null  and  length != 0)  or  token.length != length { return false; }
     if length == 0 { return true; }
-    if text.length < length { return false; }
-    return token.lexeme == text.slice(0, length);
+    let token_value = token?;
+    let lexeme_bytes = token_value.lexeme.as_bytes();
+    let expected_bytes = text?.as_bytes();
+    if lexeme_bytes.len() < length or expected_bytes.len() < length { return false; }
+    let mut index: usize = 0;
+    while index < length {
+        if lexeme_bytes[index] != expected_bytes[index] { return false; }
+        set index += 1;
+    }
+    return true;
+}
+
+proc lexer_token_text_matches_source(lexer: *const Lexer, token: *const Token) -> bool {
+    let mut index: usize = 0;
+    while index < token.length {
+        if token.lexeme[index] != lexer.source[token.span.begin + index] {
+            return false;
+        }
+        set index += 1;
+    }
+    return true;
 }
 
 export proc vitte_lexer_validate(lexer: &mut Lexer) -> bool {
@@ -737,7 +806,7 @@ export proc vitte_lexer_validate(lexer: &mut Lexer) -> bool {
            not token.span.valid  or  token.span.file_id != lexer.file_id  or
            token.span.begin > token.span.end  or  token.span.end > lexer.source_length  or
            token.span.begin < previous_end  or  token.length != token.span.end - token.span.begin  or
-           token.lexeme != lexer.source.slice(token.span.begin, token.span.end)  or
+           not lexer_token_text_matches_source(lexer as *const Lexer, token)  or
            token.line == 0  or  token.column == 0 {
             set lexer.stats.validation_failures = lexer_sat_add(lexer.stats.validation_failures, 1);
             set lexer.last_error = LexerError.Validation; return false;

@@ -5,7 +5,7 @@ use core::convert::format::{FormatResult, FormatError, format_failure, format_su
 use core::primitive::float::{f64_is_nan, f64_is_infinite};
 use core::convert::cast::{cast_f32_to_f64};
 
-export proc fmt_f64_fixed(value: f64, precision: usize, buffer: *u8, capacity: usize) -> FormatResult {
+export proc fmt_f64_fixed(value: f64, precision: usize, buffer: *mut u8, capacity: usize) -> FormatResult {
     if precision > 6 { return format_failure(FormatError.InvalidArgument); }
     if buffer == null { return format_failure(FormatError.NullBuffer); }
     if f64_is_nan(value) || f64_is_infinite(value) { return format_failure(FormatError.InvalidArgument); }
@@ -73,6 +73,6 @@ export proc fmt_f64_fixed(value: f64, precision: usize, buffer: *u8, capacity: u
     return format_success(required);
 }
 
-export proc fmt_f32_fixed(value: f32, precision: usize, buffer: *u8, capacity: usize) -> FormatResult {
+export proc fmt_f32_fixed(value: f32, precision: usize, buffer: *mut u8, capacity: usize) -> FormatResult {
     return fmt_f64_fixed(cast_f32_to_f64(value), precision, buffer, capacity);
 }

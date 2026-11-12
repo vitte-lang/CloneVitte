@@ -10,11 +10,15 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+MAKEFILE = ROOT / "Makefile"
 NATIVE_REGISTRY = ROOT / "src/compiler/diagnostic/registry.vitte"
 C_REGISTRY = ROOT / "src/bootstrap/diagnostic/registry.c"
 PIPELINE = ROOT / "src/compiler/driver/pipeline.vitte"
 FRONTEND_TEST = ROOT / "src/tests/native_frontend_subset_test.py"
 PARSER_TEST = ROOT / "src/tests/native_parser_parity_test.c"
+BOOTSTRAP_PARITY_TEST = ROOT / "src/tests/native_bootstrap_parity_test.py"
+ROBUSTNESS_TEST = ROOT / "src/tests/robustness_test.c"
+DIAGNOSTIC_CONTRACT_TEST = ROOT / "src/tests/diagnostic_contract_test.py"
 
 
 def fail(message: str) -> None:
@@ -228,6 +232,8 @@ def check_frontend_paths() -> None:
     pipeline = PIPELINE.read_text(encoding="utf-8")
     frontend_test = FRONTEND_TEST.read_text(encoding="utf-8")
     parser_test = PARSER_TEST.read_text(encoding="utf-8")
+    parity_test = BOOTSTRAP_PARITY_TEST.read_text(encoding="utf-8")
+    makefile = MAKEFILE.read_text(encoding="utf-8")
 
     action_witnesses = {
         "NATIVE_FRONTEND_ACTION_COMPILE": '"compile", str(source_path)',
@@ -259,15 +265,189 @@ def check_frontend_paths() -> None:
         if case_name not in frontend_test or source_marker not in frontend_test:
             fail(f"AST compatibility fallback path has no checked fixture: {kind} ({case_name})")
 
+    selector_witnesses = {
+        "native_pipeline_has_module_alias_import": (
+            "module alias import compatibility fallback",
+            "llvm_imports_runtime.vit",
+            'use tests::import_export_coverage::runtime_import_lib as imported;',
+        ),
+        "native_pipeline_has_string_intrinsic_call": (
+            "string intrinsic compatibility fallback",
+            "string_intrinsics_runtime.vit",
+            'trim("  fn(int) -> bool  ")',
+        ),
+        "native_pipeline_has_print_call": (
+            "native print compatibility fallback",
+            'print("native-print-fallback")',
+            'print("native-print-fallback")',
+        ),
+        "native_pipeline_requires_generic_pick_ast_codegen": (
+            "generic pick compatibility fallback",
+            "generic_pick_runtime.vit",
+            "pick Maybe<T>",
+        ),
+        "native_pipeline_requires_reference_codegen": (
+            "postfix optional unwrap returns its payload",
+            "vitte_optional_require",
+            "present? - 42",
+        ),
+        "native_pipeline_requires_attribute_codegen": (
+            "procedure attribute compatibility fallback",
+            "procedure attribute compatibility fallback",
+            "#[cold] proc main()",
+        ),
+        "native_pipeline_has_generic_proc_call": (
+            "generic procedure falls back when native IR cannot specialize",
+            "generic procedure falls back when native IR cannot specialize",
+            "proc identity<T>(value: T) -> T",
+        ),
+    }
+    run_function = pipeline.split("proc native_pipeline_run_with_config", 1)
+    if len(run_function) != 2:
+        fail("native frontend pipeline entry point is missing")
+    run_body = run_function[1].split("\nproc ", 1)[0]
+    for selector, (case_name, fixture_or_marker, source_marker) in selector_witnesses.items():
+        if selector not in run_body:
+            fail(f"native frontend pipeline no longer routes through {selector}")
+        if case_name not in frontend_test:
+            fail(f"native fallback selector has no checked test case: {selector} ({case_name})")
+        if fixture_or_marker.endswith(".vit"):
+            fixture_path = ROOT / "src/tests" / fixture_or_marker
+            if not fixture_path.is_file():
+                fail(f"native fallback runtime fixture is missing: {fixture_or_marker}")
+            if fixture_or_marker not in frontend_test:
+                fail(f"native fallback fixture is not invoked by the frontend test: {fixture_or_marker}")
+            runtime_candidates = makefile.split("RUNTIME_CANDIDATES :=", 1)[1].split(
+                "RUNTIME_KNOWN_GAPS :=", 1
+            )[0]
+            if fixture_or_marker not in runtime_candidates:
+                fail(f"native fallback fixture is not run by test-runtime: {fixture_or_marker}")
+            fixture_text = fixture_path.read_text(encoding="utf-8")
+            if source_marker not in fixture_text:
+                fail(f"native fallback fixture lost its source witness: {fixture_or_marker}")
+        elif source_marker not in frontend_test:
+            fail(f"native fallback test case lost its source witness: {selector} ({source_marker})")
+
+    # The broad AST selector must retain a checked witness for each compatibility
+    # branch, including branches that reject unsupported forms at codegen time.
+    ast_markers = (
+        "node.attribute_count != 0",
+        "PARSER_AST_FLAG_COMPTIME",
+        '(*declaration_token).lexeme == "intrinsic"',
+        "ASTNodeKind.AwaitExpr",
+        "PARSER_AST_FLAG_ASYNC",
+        "ASTNodeKind.AssertStmt",
+        "ASTNodeKind.DeferStmt",
+        "ASTNodeKind.UnsafeBlock",
+        "ASTNodeKind.AsmStmt",
+    )
+    for marker in ast_markers:
+        if marker not in fallback_body:
+            fail(f"AST compatibility selector lost a fallback branch: {marker}")
+    if "comptime" not in parity_test or "unknown_attribute" not in parity_test:
+        fail("comptime/attribute compatibility rejections have no parity test witness")
+    runtime_section = makefile.split("RUNTIME_CANDIDATES :=", 1)[1].split(
+        "RUNTIME_KNOWN_GAPS :=", 1
+    )[0]
+    known_gaps = makefile.split("RUNTIME_KNOWN_GAPS :=", 1)[1].split(
+        "RUNTIME_EXECUTABLE_CANDIDATES :=", 1
+    )[0]
+    ast_runtime_witnesses = {
+        "async_runtime.vit": ("async proc", "await "),
+        "assert_runtime.vit": ("assert(", "unsafe {"),
+        "asm_runtime.vit": ("asm ",),
+        "defer_runtime.vit": ("defer",),
+        "intrinsic_runtime.vit": ("intrinsic ",),
+    }
+    for fixture, markers in ast_runtime_witnesses.items():
+        fixture_path = ROOT / "src/tests" / fixture
+        if not fixture_path.is_file() or fixture not in runtime_section:
+            fail(f"AST compatibility runtime branch is not tested: {fixture}")
+        if fixture in known_gaps:
+            fail(f"AST compatibility runtime witness is marked as a known gap: {fixture}")
+        fixture_text = fixture_path.read_text(encoding="utf-8")
+        if any(marker not in fixture_text for marker in markers):
+            fail(f"AST compatibility runtime fixture lost its branch witness: {fixture}")
+    if "test-runtime" not in makefile.split("compiler-power-gate:", 1)[1].split(
+        "# Maximum fast local gate", 1
+    )[0]:
+        fail("compiler-power-gate does not execute native runtime fallback witnesses")
+
+
+def check_filesystem_ownership_witnesses() -> None:
+    robustness_test = ROBUSTNESS_TEST.read_text(encoding="utf-8")
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+    active_filesystem_imports = (
+        "vitte_filesystem_create_directories",
+        "vitte_filesystem_current_directory",
+        "vitte_filesystem_directory_list_destroy",
+        "vitte_filesystem_list_directory",
+        "vitte_filesystem_remove_directory",
+        "vitte_filesystem_remove_file",
+        "vitte_filesystem_rename",
+        "vitte_filesystem_stat",
+    )
+    for symbol in active_filesystem_imports:
+        if symbol not in robustness_test:
+            fail(f"active filesystem C ABI has no robustness-test witness: {symbol}")
+    test_target = makefile.split(".PHONY: test-robustness", 1)[1].split("\n", 2)[1]
+    if "ROBUSTNESS_TEST_BIN" not in test_target:
+        fail("filesystem ABI robustness test is not connected to test-robustness")
+    power_gate = makefile.split("compiler-power-gate:", 1)[1].split(
+        "# Maximum fast local gate", 1
+    )[0]
+    if "test-robustness" not in power_gate:
+        fail("compiler-power-gate does not execute filesystem ABI witnesses")
+
+
+def check_diagnostic_contract_gate() -> None:
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+    test = DIAGNOSTIC_CONTRACT_TEST.read_text(encoding="utf-8")
+    power_gate = makefile.split("compiler-power-gate:", 1)[1].split(
+        "# Maximum fast local gate", 1
+    )[0]
+    full_suite = makefile.split(".PHONY: test\ntest:", 1)[1].split(
+        "# ----------------------------------------------------------------------------", 1
+    )[0]
+    contract_target = makefile.split(
+        ".PHONY: test-diagnostic-contract", 1
+    )[1].split(".PHONY:", 1)[0]
+    if "diagnostic_contract_test.py" not in contract_target:
+        fail("bootstrap diagnostic contract target does not execute its source matrix")
+    if "test-diagnostic-contract" not in power_gate:
+        fail("compiler-power-gate omits exact bootstrap diagnostic contracts")
+    if "test-diagnostic-contract" not in full_suite:
+        fail("complete test suite omits exact bootstrap diagnostic contracts")
+    for witness in (
+        "ACTIVE_BOOTSTRAP_SOURCE_CODES",
+        "check_source_code_inventory",
+        "c_api_only_codes",
+        "expected_codes",
+        'position["start_byte"]',
+        'position["end_byte"]',
+        'diagnostic["phase"]',
+        'diagnostic["severity"]',
+        'diagnostic["annotations"]',
+        "check_invalid_utf8",
+        "check_private_import",
+        "check_import_cycle",
+    ):
+        if witness not in test:
+            fail(f"bootstrap diagnostic contract lost its assertion: {witness}")
+
 def main() -> int:
     native = parse_native_registry()
     c_rows = parse_c_registry()
     check_diagnostic_ownership(native, c_rows)
     check_frontend_paths()
+    check_filesystem_ownership_witnesses()
+    check_diagnostic_contract_gate()
     print(
         "Release criteria passed: "
         f"{len(native)} owned diagnostics, matched C/native codes, "
-        "all frontend actions and AST compatibility fallbacks have test witnesses."
+        "all frontend actions, fallback routes and exact bootstrap error "
+        "contracts have test witnesses, and active bootstrap filesystem ABI "
+        "imports are covered."
     )
     return 0
 

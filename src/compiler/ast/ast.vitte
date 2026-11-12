@@ -66,7 +66,8 @@ pub const AST_NODE_FLAG_PATTERN_HEAD: AstNodeFlags = ((1 as AstNodeFlags) << 23)
 pub const AST_NODE_FLAG_PATTERN_OR: AstNodeFlags = ((1 as AstNodeFlags) << 24) as AstNodeFlags;
 pub const AST_NODE_FLAG_PATTERN_RANGE: AstNodeFlags = ((1 as AstNodeFlags) << 25) as AstNodeFlags;
 pub const AST_NODE_FLAG_PATTERN_STRUCT: AstNodeFlags = ((1 as AstNodeFlags) << 26) as AstNodeFlags;
-pub const AST_NODE_FLAG_ALL_KNOWN: AstNodeFlags = (((1 as AstNodeFlags) << 27) - 1) as AstNodeFlags;
+pub const AST_NODE_FLAG_CONST_GENERIC: AstNodeFlags = ((1 as AstNodeFlags) << 27) as AstNodeFlags;
+pub const AST_NODE_FLAG_ALL_KNOWN: AstNodeFlags = (((1 as AstNodeFlags) << 28) - 1) as AstNodeFlags;
 
 const AST_MAGIC: u64 = 0x5649545445415354;
 const AST_DEAD_MAGIC: u64 = 0x4445414441535421;

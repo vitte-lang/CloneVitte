@@ -1093,6 +1093,64 @@ vitte_lexer_scan_digit_sequence(
 }
 
 static bool
+vitte_lexer_integer_fits_u64(
+    const vitte_lexer_t *lexer,
+    size_t begin,
+    size_t end,
+    unsigned int base)
+{
+    size_t index;
+    uint64_t value;
+
+    if (lexer == NULL || lexer->source == NULL || begin > end ||
+        end > lexer->source_length || base < 2u || base > 16u) {
+        return false;
+    }
+
+    index = begin;
+    if (base != 10u) {
+        if (end - begin < 2u) {
+            return false;
+        }
+        index += 2u;
+    }
+    if (index > end) {
+        return false;
+    }
+
+    value = UINT64_C(0);
+    for (; index < end; ++index) {
+        unsigned int digit;
+        unsigned char character;
+
+        character = (unsigned char)lexer->source[index];
+        if (character == (unsigned char)'_') {
+            continue;
+        }
+        if (character >= (unsigned char)'0' &&
+            character <= (unsigned char)'9') {
+            digit = (unsigned int)(character - (unsigned char)'0');
+        } else if (character >= (unsigned char)'a' &&
+                   character <= (unsigned char)'f') {
+            digit = (unsigned int)(character - (unsigned char)'a') + 10u;
+        } else if (character >= (unsigned char)'A' &&
+                   character <= (unsigned char)'F') {
+            digit = (unsigned int)(character - (unsigned char)'A') + 10u;
+        } else {
+            return false;
+        }
+
+        if (digit >= base ||
+            value > (UINT64_MAX - (uint64_t)digit) / (uint64_t)base) {
+            return false;
+        }
+        value = value * (uint64_t)base + (uint64_t)digit;
+    }
+
+    return true;
+}
+
+static bool
 vitte_lexer_scan_number(vitte_lexer_t *lexer)
 {
     size_t begin;
@@ -1340,6 +1398,19 @@ vitte_lexer_scan_number(vitte_lexer_t *lexer)
                 begin,
                 lexer->offset + 1u);
         }
+    }
+
+    if (!is_float &&
+        !vitte_lexer_integer_fits_u64(
+            lexer,
+            begin,
+            lexer->offset,
+            (unsigned int)base)) {
+        return vitte_lexer_fail(
+            lexer,
+            VITTE_LEXER_ERROR_OVERFLOW,
+            begin,
+            lexer->offset);
     }
 
     if (!vitte_lexer_emit(

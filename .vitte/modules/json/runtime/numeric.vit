@@ -1,0 +1,3347 @@
+/// JSON numeric runtime.
+///
+/// Low-level numeric support shared by the JSON lexer, parser,
+/// value layer, decoder and encoder.
+///
+/// This module deliberately separates:
+///
+/// - lexical JSON number validation
+/// - integer conversion
+/// - floating-point conversion
+/// - checked integer arithmetic
+/// - decimal exponent handling
+/// - numeric classification
+/// - finite/range checks
+/// - canonical JSON number formatting helpers
+///
+/// JSON numeric grammar:
+///
+///     number = [ "-" ] int [ frac ] [ exp ]
+///     int    = "0" | digit1-9 *digit
+///     frac   = "." 1*digit
+///     exp    = ("e" | "E") ["-" | "+"] 1*digit
+///
+/// Leading `+` is forbidden.
+/// Leading zeroes are forbidden except for zero itself.
+/// NaN and infinities are not valid JSON numbers.
+
+space json::runtime::numeric;
+
+const JSON_NUMERIC_DECIMAL_BASE: u64 = 10;
+
+const JSON_NUMERIC_MAX_EXPONENT_ABS: i64 = 100000;
+
+const JSON_NUMERIC_MAX_FORMAT_FRACTION_DIGITS: usize = 17;
+
+const JSON_NUMERIC_DEFAULT_FORMAT_FRACTION_DIGITS: usize = 17;
+
+export const JSON_NUMERIC_I64_MAX: i64 = 9223372036854775807;
+
+export const JSON_NUMERIC_I64_MIN: i64 =
+    -9223372036854775807 - 1;
+
+const JSON_NUMERIC_U64_MAX: u64 =
+    (9223372036854775807 as u64) *
+    2 +
+    1;
+
+export pick JsonNumericKind {
+    Invalid,
+    Integer,
+    Float,
+}
+
+export pick JsonNumericError {
+    None,
+
+    Empty,
+
+    InvalidCharacter,
+    InvalidSign,
+    InvalidInteger,
+    InvalidFraction,
+    InvalidExponent,
+
+    LeadingPlus,
+    LeadingZero,
+
+    MissingIntegerDigits,
+    MissingFractionDigits,
+    MissingExponentDigits,
+
+    IntegerOverflow,
+    IntegerUnderflow,
+    UnsignedOverflow,
+    NegativeUnsigned,
+
+    FloatOverflow,
+    FloatUnderflow,
+    NonFinite,
+
+    DivisionByZero,
+    RemainderByZero,
+
+    ExponentTooLarge,
+
+    InvalidPrecision,
+
+    Internal,
+}
+
+pick JsonNumericClass {
+    Invalid,
+
+    Zero,
+    Positive,
+    Negative,
+}
+
+export form JsonNumericScan {
+    ok: bool,
+
+    kind: JsonNumericKind,
+
+    error: JsonNumericError,
+
+    error_index: usize,
+
+    negative: bool,
+
+    integer_begin: usize,
+    integer_end: usize,
+
+    fraction_begin: usize,
+    fraction_end: usize,
+
+    exponent_begin: usize,
+    exponent_end: usize,
+
+    exponent_negative: bool,
+
+    integer_digits: usize,
+    fraction_digits: usize,
+    exponent_digits: usize,
+
+    has_fraction: bool,
+    has_exponent: bool,
+}
+
+form JsonI64Result {
+    ok: bool,
+
+    value: i64,
+
+    error: JsonNumericError,
+
+    error_index: usize,
+}
+
+form JsonU64Result {
+    ok: bool,
+
+    value: u64,
+
+    error: JsonNumericError,
+
+    error_index: usize,
+}
+
+form JsonF64Result {
+    ok: bool,
+
+    value: f64,
+
+    error: JsonNumericError,
+
+    error_index: usize,
+}
+
+form JsonNumericComparison {
+    comparable: bool,
+
+    less: bool,
+    equal: bool,
+    greater: bool,
+}
+
+form JsonNumericFormatOptions {
+    fraction_digits: usize,
+
+    trim_fraction_zeroes: bool,
+
+    preserve_negative_zero: bool,
+
+    force_decimal_point: bool,
+
+    uppercase_exponent: bool,
+}
+
+form JsonNumericFormatResult {
+    ok: bool,
+
+    text: string,
+
+    error: JsonNumericError,
+}
+
+/// -------------------------------------------------------------------------
+/// Error metadata
+/// -------------------------------------------------------------------------
+
+proc error_name(
+    error: JsonNumericError
+) -> string {
+    if error == JsonNumericError.None {
+        return "none";
+    }
+
+    if error == JsonNumericError.Empty {
+        return "empty";
+    }
+
+    if error == JsonNumericError.InvalidCharacter {
+        return "invalid-character";
+    }
+
+    if error == JsonNumericError.InvalidSign {
+        return "invalid-sign";
+    }
+
+    if error == JsonNumericError.InvalidInteger {
+        return "invalid-integer";
+    }
+
+    if error == JsonNumericError.InvalidFraction {
+        return "invalid-fraction";
+    }
+
+    if error == JsonNumericError.InvalidExponent {
+        return "invalid-exponent";
+    }
+
+    if error == JsonNumericError.LeadingPlus {
+        return "leading-plus";
+    }
+
+    if error == JsonNumericError.LeadingZero {
+        return "leading-zero";
+    }
+
+    if error == JsonNumericError.MissingIntegerDigits {
+        return "missing-integer-digits";
+    }
+
+    if error == JsonNumericError.MissingFractionDigits {
+        return "missing-fraction-digits";
+    }
+
+    if error == JsonNumericError.MissingExponentDigits {
+        return "missing-exponent-digits";
+    }
+
+    if error == JsonNumericError.IntegerOverflow {
+        return "integer-overflow";
+    }
+
+    if error == JsonNumericError.IntegerUnderflow {
+        return "integer-underflow";
+    }
+
+    if error == JsonNumericError.UnsignedOverflow {
+        return "unsigned-overflow";
+    }
+
+    if error == JsonNumericError.NegativeUnsigned {
+        return "negative-unsigned";
+    }
+
+    if error == JsonNumericError.FloatOverflow {
+        return "float-overflow";
+    }
+
+    if error == JsonNumericError.FloatUnderflow {
+        return "float-underflow";
+    }
+
+    if error == JsonNumericError.NonFinite {
+        return "non-finite";
+    }
+
+    if error == JsonNumericError.DivisionByZero {
+        return "division-by-zero";
+    }
+
+    if error == JsonNumericError.RemainderByZero {
+        return "remainder-by-zero";
+    }
+
+    if error == JsonNumericError.ExponentTooLarge {
+        return "exponent-too-large";
+    }
+
+    if error == JsonNumericError.InvalidPrecision {
+        return "invalid-precision";
+    }
+
+    return "internal";
+}
+
+proc kind_name(
+    kind: JsonNumericKind
+) -> string {
+    if kind == JsonNumericKind.Invalid {
+        return "invalid";
+    }
+
+    if kind == JsonNumericKind.Integer {
+        return "integer";
+    }
+
+    return "float";
+}
+
+proc class_name(
+    class_value: JsonNumericClass
+) -> string {
+    if class_value == JsonNumericClass.Invalid {
+        return "invalid";
+    }
+
+    if class_value == JsonNumericClass.Zero {
+        return "zero";
+    }
+
+    if class_value == JsonNumericClass.Positive {
+        return "positive";
+    }
+
+    return "negative";
+}
+
+/// -------------------------------------------------------------------------
+/// ASCII decimal helpers
+/// -------------------------------------------------------------------------
+
+proc is_digit(
+    value: char
+) -> bool {
+    return value >= '0' &&
+         value <= '9';
+}
+
+proc is_nonzero_digit(
+    value: char
+) -> bool {
+    return value >= '1' &&
+         value <= '9';
+}
+
+proc is_sign(
+    value: char
+) -> bool {
+    return value == '-' ||
+         value == '+';
+}
+
+proc is_exponent_marker(
+    value: char
+) -> bool {
+    return value == 'e' ||
+         value == 'E';
+}
+
+proc digit_value(
+    value: char
+) -> u64 {
+    if value == '0' {
+        return 0;
+    }
+
+    if value == '1' {
+        return 1;
+    }
+
+    if value == '2' {
+        return 2;
+    }
+
+    if value == '3' {
+        return 3;
+    }
+
+    if value == '4' {
+        return 4;
+    }
+
+    if value == '5' {
+        return 5;
+    }
+
+    if value == '6' {
+        return 6;
+    }
+
+    if value == '7' {
+        return 7;
+    }
+
+    if value == '8' {
+        return 8;
+    }
+
+    if value == '9' {
+        return 9;
+    }
+
+    return 0;
+}
+
+proc digit_char(
+    value: u64
+) -> char {
+    if value == 0 {
+        return '0';
+    }
+
+    if value == 1 {
+        return '1';
+    }
+
+    if value == 2 {
+        return '2';
+    }
+
+    if value == 3 {
+        return '3';
+    }
+
+    if value == 4 {
+        return '4';
+    }
+
+    if value == 5 {
+        return '5';
+    }
+
+    if value == 6 {
+        return '6';
+    }
+
+    if value == 7 {
+        return '7';
+    }
+
+    if value == 8 {
+        return '8';
+    }
+
+    return '9';
+}
+
+/// -------------------------------------------------------------------------
+/// Scan result constructors
+/// -------------------------------------------------------------------------
+
+proc empty_scan() -> JsonNumericScan {
+    return JsonNumericScan {
+        ok: false,
+
+        kind:
+            JsonNumericKind.Invalid,
+
+        error:
+            JsonNumericError.Empty,
+
+        error_index: 0,
+
+        negative: false,
+
+        integer_begin: 0,
+        integer_end: 0,
+
+        fraction_begin: 0,
+        fraction_end: 0,
+
+        exponent_begin: 0,
+        exponent_end: 0,
+
+        exponent_negative: false,
+
+        integer_digits: 0,
+        fraction_digits: 0,
+        exponent_digits: 0,
+
+        has_fraction: false,
+        has_exponent: false,
+    };
+}
+
+proc scan_failure(
+    scan_value: JsonNumericScan,
+    error: JsonNumericError,
+    index: usize
+) -> JsonNumericScan {
+    let mut result:
+        JsonNumericScan =
+            scan_value;
+
+    set result.ok = false;
+
+    set result.kind =
+        JsonNumericKind.Invalid;
+
+    set result.error =
+        error;
+
+    set result.error_index =
+        index;
+
+    return result;
+}
+
+proc scan_success(
+    scan_value: JsonNumericScan
+) -> JsonNumericScan {
+    let mut result:
+        JsonNumericScan =
+            scan_value;
+
+    set result.ok = true;
+
+    set result.error =
+        JsonNumericError.None;
+
+    set result.error_index = 0;
+
+    if result.has_fraction ||
+       result.has_exponent {
+        set result.kind =
+            JsonNumericKind.Float;
+    } else {
+        set result.kind =
+            JsonNumericKind.Integer;
+    }
+
+    return result;
+}
+
+/// -------------------------------------------------------------------------
+/// JSON number scanner
+/// -------------------------------------------------------------------------
+
+export proc scan(
+    source: string
+) -> JsonNumericScan {
+    let mut result:
+        JsonNumericScan =
+            empty_scan();
+
+    if source.length == 0 {
+        return result;
+    }
+
+    let mut index: usize = 0;
+
+    if source[index] == '+' {
+        return scan_failure(
+            result,
+            JsonNumericError.LeadingPlus,
+            index);
+    }
+
+    if source[index] == '-' {
+        set result.negative = true;
+        set index += 1;
+
+        if index >= source.length {
+            return scan_failure(
+                result,
+                JsonNumericError.MissingIntegerDigits,
+                index);
+        }
+    }
+
+    set result.integer_begin =
+        index;
+
+    if source[index] == '0' {
+        set index += 1;
+
+        set result.integer_digits =
+            1;
+
+        if index < source.length &&
+           is_digit(source[index]) {
+            return scan_failure(
+                result,
+                JsonNumericError.LeadingZero,
+                index);
+        }
+    } else {
+        if not is_nonzero_digit(
+            source[index]) {
+            return scan_failure(
+                result,
+                JsonNumericError.MissingIntegerDigits,
+                index);
+        }
+
+        while index < source.length &&
+              is_digit(source[index]) {
+            set result.integer_digits += 1;
+            set index += 1;
+        }
+    }
+
+    set result.integer_end =
+        index;
+
+    if index < source.length &&
+       source[index] == '.' {
+        set result.has_fraction =
+            true;
+
+        set index += 1;
+
+        set result.fraction_begin =
+            index;
+
+        if index >= source.length ||
+           not is_digit(source[index]) {
+            return scan_failure(
+                result,
+                JsonNumericError.MissingFractionDigits,
+                index);
+        }
+
+        while index < source.length &&
+              is_digit(source[index]) {
+            set result.fraction_digits += 1;
+            set index += 1;
+        }
+
+        set result.fraction_end =
+            index;
+    }
+
+    if index < source.length &&
+       is_exponent_marker(
+           source[index]) {
+        set result.has_exponent =
+            true;
+
+        set index += 1;
+
+        if index >= source.length {
+            return scan_failure(
+                result,
+                JsonNumericError.MissingExponentDigits,
+                index);
+        }
+
+        if source[index] == '+' {
+            set index += 1;
+        } else if source[index] == '-' {
+            set result.exponent_negative =
+                true;
+
+            set index += 1;
+        }
+
+        set result.exponent_begin =
+            index;
+
+        if index >= source.length ||
+           not is_digit(source[index]) {
+            return scan_failure(
+                result,
+                JsonNumericError.MissingExponentDigits,
+                index);
+        }
+
+        while index < source.length &&
+              is_digit(source[index]) {
+            set result.exponent_digits += 1;
+            set index += 1;
+        }
+
+        set result.exponent_end =
+            index;
+    }
+
+    if index != source.length {
+        return scan_failure(
+            result,
+            JsonNumericError.InvalidCharacter,
+            index);
+    }
+
+    return scan_success(
+        result);
+}
+
+export proc valid(
+    source: string
+) -> bool {
+    return scan(source).ok;
+}
+
+export proc classify(
+    source: string
+) -> JsonNumericKind {
+    return scan(source).kind;
+}
+
+proc is_integer_literal(
+    source: string
+) -> bool {
+    let result:
+        JsonNumericScan =
+            scan(source);
+
+    return result.ok &&
+         result.kind ==
+             JsonNumericKind.Integer;
+}
+
+proc is_float_literal(
+    source: string
+) -> bool {
+    let result:
+        JsonNumericScan =
+            scan(source);
+
+    return result.ok &&
+         result.kind ==
+             JsonNumericKind.Float;
+}
+
+proc is_negative_literal(
+    source: string
+) -> bool {
+    let result:
+        JsonNumericScan =
+            scan(source);
+
+    return result.ok &&
+         result.negative;
+}
+
+proc has_fraction(
+    source: string
+) -> bool {
+    let result:
+        JsonNumericScan =
+            scan(source);
+
+    return result.ok &&
+         result.has_fraction;
+}
+
+proc has_exponent(
+    source: string
+) -> bool {
+    let result:
+        JsonNumericScan =
+            scan(source);
+
+    return result.ok &&
+         result.has_exponent;
+}
+
+/// -------------------------------------------------------------------------
+/// Checked decimal accumulation
+/// -------------------------------------------------------------------------
+
+proc u64_append_digit_checked(
+    current: u64,
+    digit: u64
+) -> JsonU64Result {
+    if digit > 9 {
+        return JsonU64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.InvalidCharacter,
+            error_index: 0,
+        };
+    }
+
+    if current >
+       JSON_NUMERIC_U64_MAX / 10 {
+        return JsonU64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.UnsignedOverflow,
+            error_index: 0,
+        };
+    }
+
+    let multiplied:
+        u64 =
+            current * 10;
+
+    if multiplied >
+       JSON_NUMERIC_U64_MAX - digit {
+        return JsonU64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.UnsignedOverflow,
+            error_index: 0,
+        };
+    }
+
+    return JsonU64Result {
+        ok: true,
+        value:
+            multiplied + digit,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Unsigned conversion
+/// -------------------------------------------------------------------------
+
+export proc parse_u64(
+    source: string
+) -> JsonU64Result {
+    let scanned:
+        JsonNumericScan =
+            scan(source);
+
+    if not scanned.ok {
+        return JsonU64Result {
+            ok: false,
+            value: 0,
+            error:
+                scanned.error,
+            error_index:
+                scanned.error_index,
+        };
+    }
+
+    if scanned.kind !=
+       JsonNumericKind.Integer {
+        return JsonU64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.InvalidInteger,
+            error_index: 0,
+        };
+    }
+
+    if scanned.negative {
+        return JsonU64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.NegativeUnsigned,
+            error_index: 0,
+        };
+    }
+
+    let mut result: u64 = 0;
+
+    let mut index: usize =
+        scanned.integer_begin;
+
+    while index <
+          scanned.integer_end {
+        let digit:
+            u64 =
+                digit_value(
+                    source[index]);
+
+        let next:
+            JsonU64Result =
+                u64_append_digit_checked(
+                    result,
+                    digit);
+
+        if not next.ok {
+            let mut failure:
+                JsonU64Result =
+                    next;
+
+            set failure.error_index =
+                index;
+
+            return failure;
+        }
+
+        set result =
+            next.value;
+
+        set index += 1;
+    }
+
+    return JsonU64Result {
+        ok: true,
+        value: result,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Signed conversion
+/// -------------------------------------------------------------------------
+
+export proc parse_i64(
+    source: string
+) -> JsonI64Result {
+    let scanned:
+        JsonNumericScan =
+            scan(source);
+
+    if not scanned.ok {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                scanned.error,
+            error_index:
+                scanned.error_index,
+        };
+    }
+
+    if scanned.kind !=
+       JsonNumericKind.Integer {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.InvalidInteger,
+            error_index: 0,
+        };
+    }
+
+    let positive_limit:
+        u64 =
+            JSON_NUMERIC_I64_MAX as u64;
+
+    let negative_limit:
+        u64 =
+            (JSON_NUMERIC_I64_MAX as u64) +
+            1;
+
+    let limit:
+        u64 =
+            if scanned.negative {
+                negative_limit
+            } else {
+                positive_limit
+            };
+
+    let mut magnitude: u64 = 0;
+
+    let mut index: usize =
+        scanned.integer_begin;
+
+    while index <
+          scanned.integer_end {
+        let digit:
+            u64 =
+                digit_value(
+                    source[index]);
+
+        if magnitude >
+           limit / 10 {
+            return JsonI64Result {
+                ok: false,
+                value: 0,
+                error:
+                    if scanned.negative {
+                        JsonNumericError.IntegerUnderflow
+                    } else {
+                        JsonNumericError.IntegerOverflow
+                    },
+                error_index:
+                    index,
+            };
+        }
+
+        let multiplied:
+            u64 =
+                magnitude * 10;
+
+        if multiplied >
+           limit - digit {
+            return JsonI64Result {
+                ok: false,
+                value: 0,
+                error:
+                    if scanned.negative {
+                        JsonNumericError.IntegerUnderflow
+                    } else {
+                        JsonNumericError.IntegerOverflow
+                    },
+                error_index:
+                    index,
+            };
+        }
+
+        set magnitude =
+            multiplied + digit;
+
+        set index += 1;
+    }
+
+    if scanned.negative {
+        if magnitude ==
+           negative_limit {
+            return JsonI64Result {
+                ok: true,
+                value:
+                    JSON_NUMERIC_I64_MIN,
+                error:
+                    JsonNumericError.None,
+                error_index: 0,
+            };
+        }
+
+        return JsonI64Result {
+            ok: true,
+            value:
+                -(magnitude as i64),
+            error:
+                JsonNumericError.None,
+            error_index: 0,
+        };
+    }
+
+    return JsonI64Result {
+        ok: true,
+        value:
+            magnitude as i64,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Decimal exponent parsing
+/// -------------------------------------------------------------------------
+
+proc parse_exponent(
+    source: string,
+    scanned: &JsonNumericScan
+) -> JsonI64Result {
+    if not scanned.has_exponent {
+        return JsonI64Result {
+            ok: true,
+            value: 0,
+            error:
+                JsonNumericError.None,
+            error_index: 0,
+        };
+    }
+
+    let mut value: i64 = 0;
+
+    let mut index: usize =
+        scanned.exponent_begin;
+
+    while index <
+          scanned.exponent_end {
+        let digit:
+            i64 =
+                digit_value(
+                    source[index]) as i64;
+
+        if value >
+           JSON_NUMERIC_MAX_EXPONENT_ABS / 10 {
+            return JsonI64Result {
+                ok: false,
+                value: 0,
+                error:
+                    JsonNumericError.ExponentTooLarge,
+                error_index:
+                    index,
+            };
+        }
+
+        set value =
+            value * 10 + digit;
+
+        if value >
+           JSON_NUMERIC_MAX_EXPONENT_ABS {
+            return JsonI64Result {
+                ok: false,
+                value: 0,
+                error:
+                    JsonNumericError.ExponentTooLarge,
+                error_index:
+                    index,
+            };
+        }
+
+        set index += 1;
+    }
+
+    if scanned.exponent_negative {
+        set value = -value;
+    }
+
+    return JsonI64Result {
+        ok: true,
+        value: value,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Decimal powers
+/// -------------------------------------------------------------------------
+
+proc pow10_positive(
+    exponent: usize
+) -> f64 {
+    let mut result: f64 = 1.0;
+
+    let mut index: usize = 0;
+
+    while index < exponent {
+        set result *= 10.0;
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc pow10_negative(
+    exponent: usize
+) -> f64 {
+    let mut result: f64 = 1.0;
+
+    let mut index: usize = 0;
+
+    while index < exponent {
+        set result /= 10.0;
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc pow10(
+    exponent: i64
+) -> f64 {
+    if exponent == 0 {
+        return 1.0;
+    }
+
+    if exponent > 0 {
+        return pow10_positive(
+            exponent as usize);
+    }
+
+    return pow10_negative(
+        (-exponent) as usize);
+}
+
+/// -------------------------------------------------------------------------
+/// Floating conversion
+/// -------------------------------------------------------------------------
+
+export proc parse_f64(
+    source: string
+) -> JsonF64Result {
+    let scanned:
+        JsonNumericScan =
+            scan(source);
+
+    if not scanned.ok {
+        return JsonF64Result {
+            ok: false,
+            value: 0.0,
+            error:
+                scanned.error,
+            error_index:
+                scanned.error_index,
+        };
+    }
+
+    let exponent_result:
+        JsonI64Result =
+            parse_exponent(
+                source,
+                &scanned);
+
+    if not exponent_result.ok {
+        return JsonF64Result {
+            ok: false,
+            value: 0.0,
+            error:
+                exponent_result.error,
+            error_index:
+                exponent_result.error_index,
+        };
+    }
+
+    let mut value: f64 = 0.0;
+
+    let mut fraction_digits: i64 = 0;
+
+    let mut index: usize =
+        scanned.integer_begin;
+
+    while index <
+          scanned.integer_end {
+        let digit:
+            u64 =
+                digit_value(
+                    source[index]);
+
+        set value =
+            value * 10.0 +
+            (digit as f64);
+
+        set index += 1;
+    }
+
+    if scanned.has_fraction {
+        set index =
+            scanned.fraction_begin;
+
+        while index <
+              scanned.fraction_end {
+            let digit:
+                u64 =
+                digit_value(
+                    source[index]);
+
+            set value =
+                value * 10.0 +
+                (digit as f64);
+
+            set fraction_digits += 1;
+
+            set index += 1;
+        }
+    }
+
+    let effective_exponent: i64 =
+        exponent_result.value -
+        fraction_digits;
+
+    if effective_exponent != 0 {
+        set value *=
+            pow10(
+                effective_exponent);
+    }
+
+    if scanned.negative {
+        set value = -value;
+    }
+
+    return JsonF64Result {
+        ok: true,
+        value: value,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Generic literal conversion
+/// -------------------------------------------------------------------------
+
+proc as_i64(
+    source: string,
+    fallback: i64
+) -> i64 {
+    let result:
+        JsonI64Result =
+            parse_i64(source);
+
+    if not result.ok {
+        return fallback;
+    }
+
+    return result.value;
+}
+
+proc as_u64(
+    source: string,
+    fallback: u64
+) -> u64 {
+    let result:
+        JsonU64Result =
+            parse_u64(source);
+
+    if not result.ok {
+        return fallback;
+    }
+
+    return result.value;
+}
+
+proc as_f64(
+    source: string,
+    fallback: f64
+) -> f64 {
+    let result:
+        JsonF64Result =
+            parse_f64(source);
+
+    if not result.ok {
+        return fallback;
+    }
+
+    return result.value;
+}
+
+/// -------------------------------------------------------------------------
+/// Numeric classification
+/// -------------------------------------------------------------------------
+
+proc classify_i64(
+    value: i64
+) -> JsonNumericClass {
+    if value == 0 {
+        return JsonNumericClass.Zero;
+    }
+
+    if value > 0 {
+        return JsonNumericClass.Positive;
+    }
+
+    return JsonNumericClass.Negative;
+}
+
+proc classify_u64(
+    value: u64
+) -> JsonNumericClass {
+    if value == 0 {
+        return JsonNumericClass.Zero;
+    }
+
+    return JsonNumericClass.Positive;
+}
+
+proc classify_f64(
+    value: f64
+) -> JsonNumericClass {
+    if value != value {
+        return JsonNumericClass.Invalid;
+    }
+
+    if value == 0.0 {
+        return JsonNumericClass.Zero;
+    }
+
+    if value > 0.0 {
+        return JsonNumericClass.Positive;
+    }
+
+    return JsonNumericClass.Negative;
+}
+
+/// -------------------------------------------------------------------------
+/// Floating-point helpers
+/// -------------------------------------------------------------------------
+
+proc is_nan(
+    value: f64
+) -> bool {
+    return value != value;
+}
+
+proc is_positive_infinity(
+    value: f64
+) -> bool {
+    if is_nan(value) {
+        return false;
+    }
+
+    return value > 0.0 &&
+         value + value == value;
+}
+
+proc is_negative_infinity(
+    value: f64
+) -> bool {
+    if is_nan(value) {
+        return false;
+    }
+
+    return value < 0.0 &&
+         value + value == value;
+}
+
+proc is_infinite(
+    value: f64
+) -> bool {
+    return is_positive_infinity(value) ||
+         is_negative_infinity(value);
+}
+
+proc is_finite(
+    value: f64
+) -> bool {
+    return not is_nan(value) &&
+         not is_infinite(value);
+}
+
+proc is_zero_f64(
+    value: f64
+) -> bool {
+    return is_finite(value) &&
+         value == 0.0;
+}
+
+proc is_integer_f64(
+    value: f64
+) -> bool {
+    if not is_finite(value) {
+        return false;
+    }
+
+    if value >
+           (JSON_NUMERIC_I64_MAX as f64) ||
+       value <
+           (JSON_NUMERIC_I64_MIN as f64) {
+        return false;
+    }
+
+    let integer_value:
+        i64 =
+            value as i64;
+
+    return (integer_value as f64) ==
+         value;
+}
+
+/// -------------------------------------------------------------------------
+/// Absolute values
+/// -------------------------------------------------------------------------
+
+proc abs_i64_magnitude(
+    value: i64
+) -> u64 {
+    if value >= 0 {
+        return value as u64;
+    }
+
+    if value ==
+       JSON_NUMERIC_I64_MIN {
+        return (JSON_NUMERIC_I64_MAX as u64) +
+             1;
+    }
+
+    return (-value) as u64;
+}
+
+proc abs_f64(
+    value: f64
+) -> f64 {
+    if value < 0.0 {
+        return -value;
+    }
+
+    return value;
+}
+
+/// -------------------------------------------------------------------------
+/// Checked i64 arithmetic
+/// -------------------------------------------------------------------------
+
+proc checked_add_i64(
+    left: i64,
+    right: i64
+) -> JsonI64Result {
+    if right > 0 &&
+       left >
+           JSON_NUMERIC_I64_MAX - right {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.IntegerOverflow,
+            error_index: 0,
+        };
+    }
+
+    if right < 0 &&
+       left <
+           JSON_NUMERIC_I64_MIN - right {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.IntegerUnderflow,
+            error_index: 0,
+        };
+    }
+
+    return JsonI64Result {
+        ok: true,
+        value:
+            left + right,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+proc checked_sub_i64(
+    left: i64,
+    right: i64
+) -> JsonI64Result {
+    if right > 0 &&
+       left <
+           JSON_NUMERIC_I64_MIN + right {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.IntegerUnderflow,
+            error_index: 0,
+        };
+    }
+
+    if right < 0 &&
+       left >
+           JSON_NUMERIC_I64_MAX + right {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.IntegerOverflow,
+            error_index: 0,
+        };
+    }
+
+    return JsonI64Result {
+        ok: true,
+        value:
+            left - right,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+proc checked_mul_i64(
+    left: i64,
+    right: i64
+) -> JsonI64Result {
+    if left == 0 ||
+       right == 0 {
+        return JsonI64Result {
+            ok: true,
+            value: 0,
+            error:
+                JsonNumericError.None,
+            error_index: 0,
+        };
+    }
+
+    if left ==
+           JSON_NUMERIC_I64_MIN &&
+       right == -1 {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.IntegerOverflow,
+            error_index: 0,
+        };
+    }
+
+    if right ==
+           JSON_NUMERIC_I64_MIN &&
+       left == -1 {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.IntegerOverflow,
+            error_index: 0,
+        };
+    }
+
+    if left > 0 {
+        if right > 0 {
+            if left >
+               JSON_NUMERIC_I64_MAX / right {
+                return JsonI64Result {
+                    ok: false,
+                    value: 0,
+                    error:
+                        JsonNumericError.IntegerOverflow,
+                    error_index: 0,
+                };
+            }
+        } else {
+            if right <
+               JSON_NUMERIC_I64_MIN / left {
+                return JsonI64Result {
+                    ok: false,
+                    value: 0,
+                    error:
+                        JsonNumericError.IntegerUnderflow,
+                    error_index: 0,
+                };
+            }
+        }
+    } else {
+        if right > 0 {
+            if left <
+               JSON_NUMERIC_I64_MIN / right {
+                return JsonI64Result {
+                    ok: false,
+                    value: 0,
+                    error:
+                        JsonNumericError.IntegerUnderflow,
+                    error_index: 0,
+                };
+            }
+        } else {
+            if left <
+               JSON_NUMERIC_I64_MAX / right {
+                return JsonI64Result {
+                    ok: false,
+                    value: 0,
+                    error:
+                        JsonNumericError.IntegerOverflow,
+                    error_index: 0,
+                };
+            }
+        }
+    }
+
+    return JsonI64Result {
+        ok: true,
+        value:
+            left * right,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+proc checked_div_i64(
+    left: i64,
+    right: i64
+) -> JsonI64Result {
+    if right == 0 {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.DivisionByZero,
+            error_index: 0,
+        };
+    }
+
+    if left ==
+           JSON_NUMERIC_I64_MIN &&
+       right == -1 {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.IntegerOverflow,
+            error_index: 0,
+        };
+    }
+
+    return JsonI64Result {
+        ok: true,
+        value:
+            left / right,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+proc checked_rem_i64(
+    left: i64,
+    right: i64
+) -> JsonI64Result {
+    if right == 0 {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.RemainderByZero,
+            error_index: 0,
+        };
+    }
+
+    if left ==
+           JSON_NUMERIC_I64_MIN &&
+       right == -1 {
+        return JsonI64Result {
+            ok: true,
+            value: 0,
+            error:
+                JsonNumericError.None,
+            error_index: 0,
+        };
+    }
+
+    return JsonI64Result {
+        ok: true,
+        value:
+            left % right,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+proc checked_neg_i64(
+    value: i64
+) -> JsonI64Result {
+    if value ==
+       JSON_NUMERIC_I64_MIN {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.IntegerOverflow,
+            error_index: 0,
+        };
+    }
+
+    return JsonI64Result {
+        ok: true,
+        value: -value,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Checked u64 arithmetic
+/// -------------------------------------------------------------------------
+
+proc checked_add_u64(
+    left: u64,
+    right: u64
+) -> JsonU64Result {
+    if left >
+       JSON_NUMERIC_U64_MAX - right {
+        return JsonU64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.UnsignedOverflow,
+            error_index: 0,
+        };
+    }
+
+    return JsonU64Result {
+        ok: true,
+        value:
+            left + right,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+proc checked_mul_u64(
+    left: u64,
+    right: u64
+) -> JsonU64Result {
+    if left == 0 ||
+       right == 0 {
+        return JsonU64Result {
+            ok: true,
+            value: 0,
+            error:
+                JsonNumericError.None,
+            error_index: 0,
+        };
+    }
+
+    if left >
+       JSON_NUMERIC_U64_MAX / right {
+        return JsonU64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.UnsignedOverflow,
+            error_index: 0,
+        };
+    }
+
+    return JsonU64Result {
+        ok: true,
+        value:
+            left * right,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Comparison
+/// -------------------------------------------------------------------------
+
+proc compare_i64(
+    left: i64,
+    right: i64
+) -> JsonNumericComparison {
+    return JsonNumericComparison {
+        comparable: true,
+
+        less:
+            left < right,
+
+        equal:
+            left == right,
+
+        greater:
+            left > right,
+    };
+}
+
+proc compare_u64(
+    left: u64,
+    right: u64
+) -> JsonNumericComparison {
+    return JsonNumericComparison {
+        comparable: true,
+
+        less:
+            left < right,
+
+        equal:
+            left == right,
+
+        greater:
+            left > right,
+    };
+}
+
+proc compare_f64(
+    left: f64,
+    right: f64
+) -> JsonNumericComparison {
+    if is_nan(left) ||
+       is_nan(right) {
+        return JsonNumericComparison {
+            comparable: false,
+            less: false,
+            equal: false,
+            greater: false,
+        };
+    }
+
+    return JsonNumericComparison {
+        comparable: true,
+
+        less:
+            left < right,
+
+        equal:
+            left == right,
+
+        greater:
+            left > right,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Range / clamp helpers
+/// -------------------------------------------------------------------------
+
+proc min_i64(
+    left: i64,
+    right: i64
+) -> i64 {
+    if left < right {
+        return left;
+    }
+
+    return right;
+}
+
+proc max_i64(
+    left: i64,
+    right: i64
+) -> i64 {
+    if left > right {
+        return left;
+    }
+
+    return right;
+}
+
+proc clamp_i64(
+    value: i64,
+    minimum: i64,
+    maximum: i64
+) -> i64 {
+    if value < minimum {
+        return minimum;
+    }
+
+    if value > maximum {
+        return maximum;
+    }
+
+    return value;
+}
+
+proc min_f64(
+    left: f64,
+    right: f64
+) -> f64 {
+    if left < right {
+        return left;
+    }
+
+    return right;
+}
+
+proc max_f64(
+    left: f64,
+    right: f64
+) -> f64 {
+    if left > right {
+        return left;
+    }
+
+    return right;
+}
+
+proc clamp_f64(
+    value: f64,
+    minimum: f64,
+    maximum: f64
+) -> f64 {
+    if value < minimum {
+        return minimum;
+    }
+
+    if value > maximum {
+        return maximum;
+    }
+
+    return value;
+}
+
+/// -------------------------------------------------------------------------
+/// Integer formatting
+/// -------------------------------------------------------------------------
+
+proc reverse_ascii(
+    source: string
+) -> string {
+    let mut result: string = "";
+
+    let mut index: usize =
+        source.length;
+
+    while index > 0 {
+        set index -= 1;
+
+        set result =
+            result +
+            source[index];
+    }
+
+    return result;
+}
+
+export proc format_u64(
+    value: u64
+) -> string {
+    if value == 0 {
+        return "0";
+    }
+
+    let mut current:
+        u64 =
+            value;
+
+    let mut reversed:
+        string =
+            "";
+
+    while current > 0 {
+        let digit:
+            u64 =
+                current % 10;
+
+        set reversed =
+            reversed +
+            digit_char(digit);
+
+        set current /=
+            10;
+    }
+
+    return reverse_ascii(
+        reversed);
+}
+
+export proc format_i64(
+    value: i64
+) -> string {
+    if value == 0 {
+        return "0";
+    }
+
+    if value < 0 {
+        return "-" +
+             format_u64(
+                 abs_i64_magnitude(
+                     value));
+    }
+
+    return format_u64(
+        value as u64);
+}
+
+/// -------------------------------------------------------------------------
+/// Formatting options
+/// -------------------------------------------------------------------------
+
+proc default_format_options()
+    -> JsonNumericFormatOptions {
+    return JsonNumericFormatOptions {
+        fraction_digits:
+            JSON_NUMERIC_DEFAULT_FORMAT_FRACTION_DIGITS,
+
+        trim_fraction_zeroes:
+            true,
+
+        preserve_negative_zero:
+            false,
+
+        force_decimal_point:
+            false,
+
+        uppercase_exponent:
+            false,
+    };
+}
+
+proc fixed_format_options(
+    fraction_digits: usize
+) -> JsonNumericFormatOptions {
+    return JsonNumericFormatOptions {
+        fraction_digits:
+            fraction_digits,
+
+        trim_fraction_zeroes:
+            false,
+
+        preserve_negative_zero:
+            false,
+
+        force_decimal_point:
+            true,
+
+        uppercase_exponent:
+            false,
+    };
+}
+
+proc format_failure(
+    error: JsonNumericError
+) -> JsonNumericFormatResult {
+    return JsonNumericFormatResult {
+        ok: false,
+        text: "",
+        error: error,
+    };
+}
+
+proc format_success(
+    text: string
+) -> JsonNumericFormatResult {
+    return JsonNumericFormatResult {
+        ok: true,
+        text: text,
+        error:
+            JsonNumericError.None,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Decimal string cleanup
+/// -------------------------------------------------------------------------
+
+proc contains_decimal_point(
+    source: string
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < source.length {
+        if source[index] == '.' {
+            return true;
+        }
+
+        set index += 1;
+    }
+
+    return false;
+}
+
+proc contains_exponent_marker(
+    source: string
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < source.length {
+        if source[index] == 'e' ||
+           source[index] == 'E' {
+            return true;
+        }
+
+        set index += 1;
+    }
+
+    return false;
+}
+
+proc trim_fraction_zeroes(
+    source: string
+) -> string {
+    if source.length == 0 {
+        return source;
+    }
+
+    if contains_exponent_marker(
+        source) {
+        return source;
+    }
+
+    if not contains_decimal_point(
+        source) {
+        return source;
+    }
+
+    let mut end_index:
+        usize =
+            source.length;
+
+    while end_index > 0 &&
+          source[end_index - 1] == '0' {
+        set end_index -= 1;
+    }
+
+    if end_index > 0 &&
+       source[end_index - 1] == '.' {
+        set end_index -= 1;
+    }
+
+    let mut result: string = "";
+
+    let mut index: usize = 0;
+
+    while index < end_index {
+        set result =
+            result +
+            source[index];
+
+        set index += 1;
+    }
+
+    if result == "-0" {
+        return "0";
+    }
+
+    if result.length == 0 {
+        return "0";
+    }
+
+    return result;
+}
+
+/// -------------------------------------------------------------------------
+/// Simple finite f64 formatting
+///
+/// This is deterministic runtime formatting intended for JSON support.
+/// A dedicated shortest-roundtrip dtoa implementation may replace this
+/// layer without changing the higher-level JSON API.
+/// -------------------------------------------------------------------------
+
+proc format_f64_with_options(
+    value: f64,
+    options: JsonNumericFormatOptions
+) -> JsonNumericFormatResult {
+    if options.fraction_digits >
+       JSON_NUMERIC_MAX_FORMAT_FRACTION_DIGITS {
+        return format_failure(
+            JsonNumericError.InvalidPrecision);
+    }
+
+    if is_nan(value) ||
+       is_infinite(value) {
+        return format_failure(
+            JsonNumericError.NonFinite);
+    }
+
+    if value == 0.0 {
+        if options.force_decimal_point {
+            if options.fraction_digits == 0 {
+                return format_success(
+                    "0.0");
+            }
+
+            let mut zero_result:
+                string =
+                    "0.";
+
+            let mut zero_index:
+                usize = 0;
+
+            while zero_index <
+                  options.fraction_digits {
+                set zero_result =
+                    zero_result + '0';
+
+                set zero_index += 1;
+            }
+
+            return format_success(
+                zero_result);
+        }
+
+        return format_success(
+            "0");
+    }
+
+    let negative:
+        bool =
+            value < 0.0;
+
+    let absolute:
+        f64 =
+            abs_f64(value);
+
+    if absolute >
+       (JSON_NUMERIC_I64_MAX as f64) {
+        return format_failure(
+            JsonNumericError.FloatOverflow);
+    }
+
+    let whole:
+        u64 =
+            absolute as u64;
+
+    let mut result:
+        string =
+            format_u64(whole);
+
+    let mut fraction:
+        f64 =
+            absolute -
+            (whole as f64);
+
+    if options.fraction_digits > 0 {
+        set result =
+            result + ".";
+
+        let mut index:
+            usize = 0;
+
+        while index <
+              options.fraction_digits {
+            set fraction *= 10.0;
+
+            let digit:
+                u64 =
+                    fraction as u64;
+
+            set result =
+                result +
+                digit_char(
+                    digit % 10);
+
+            set fraction -=
+                digit as f64;
+
+            set index += 1;
+        }
+    } else if options.force_decimal_point {
+        set result =
+            result + ".0";
+    }
+
+    if options.trim_fraction_zeroes {
+        set result =
+            trim_fraction_zeroes(
+                result);
+
+        if options.force_decimal_point &&
+           not contains_decimal_point(
+               result) {
+            set result =
+                result + ".0";
+        }
+    }
+
+    if negative {
+        set result =
+            "-" + result;
+    }
+
+    return format_success(
+        result);
+}
+
+export proc format_f64(
+    value: f64
+) -> JsonNumericFormatResult {
+    return format_f64_with_options(
+        value,
+        default_format_options());
+}
+
+/// -------------------------------------------------------------------------
+/// JSON number normalization
+/// -------------------------------------------------------------------------
+
+proc normalize_integer_literal(
+    source: string
+) -> JsonNumericFormatResult {
+    let parsed:
+        JsonI64Result =
+            parse_i64(source);
+
+    if not parsed.ok {
+        return format_failure(
+            parsed.error);
+    }
+
+    return format_success(
+        format_i64(
+            parsed.value));
+}
+
+proc normalize_float_literal(
+    source: string
+) -> JsonNumericFormatResult {
+    let parsed:
+        JsonF64Result =
+            parse_f64(source);
+
+    if not parsed.ok {
+        return format_failure(
+            parsed.error);
+    }
+
+    return format_f64(
+        parsed.value);
+}
+
+export proc normalize(
+    source: string
+) -> JsonNumericFormatResult {
+    let scanned:
+        JsonNumericScan =
+            scan(source);
+
+    if not scanned.ok {
+        return format_failure(
+            scanned.error);
+    }
+
+    if scanned.kind ==
+       JsonNumericKind.Integer {
+        return normalize_integer_literal(
+            source);
+    }
+
+    return normalize_float_literal(
+        source);
+}
+
+/// -------------------------------------------------------------------------
+/// Exact lexical properties
+/// -------------------------------------------------------------------------
+
+proc integer_digit_count(
+    source: string
+) -> usize {
+    let result:
+        JsonNumericScan =
+            scan(source);
+
+    if not result.ok {
+        return 0;
+    }
+
+    return result.integer_digits;
+}
+
+proc fraction_digit_count(
+    source: string
+) -> usize {
+    let result:
+        JsonNumericScan =
+            scan(source);
+
+    if not result.ok {
+        return 0;
+    }
+
+    return result.fraction_digits;
+}
+
+proc exponent_digit_count(
+    source: string
+) -> usize {
+    let result:
+        JsonNumericScan =
+            scan(source);
+
+    if not result.ok {
+        return 0;
+    }
+
+    return result.exponent_digits;
+}
+
+proc significant_digit_count(
+    source: string
+) -> usize {
+    let result:
+        JsonNumericScan =
+            scan(source);
+
+    if not result.ok {
+        return 0;
+    }
+
+    return result.integer_digits +
+         result.fraction_digits;
+}
+
+/// -------------------------------------------------------------------------
+/// Literal zero detection
+/// -------------------------------------------------------------------------
+
+proc literal_is_zero(
+    source: string
+) -> bool {
+    let scanned:
+        JsonNumericScan =
+            scan(source);
+
+    if not scanned.ok {
+        return false;
+    }
+
+    let mut index:
+        usize =
+            scanned.integer_begin;
+
+    while index <
+          scanned.integer_end {
+        if source[index] != '0' {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    if scanned.has_fraction {
+        set index =
+            scanned.fraction_begin;
+
+        while index <
+              scanned.fraction_end {
+            if source[index] != '0' {
+                return false;
+            }
+
+            set index += 1;
+        }
+    }
+
+    return true;
+}
+
+proc literal_is_negative_zero(
+    source: string
+) -> bool {
+    let scanned:
+        JsonNumericScan =
+            scan(source);
+
+    return scanned.ok &&
+         scanned.negative &&
+         literal_is_zero(source);
+}
+
+/// -------------------------------------------------------------------------
+/// Integer representability
+/// -------------------------------------------------------------------------
+
+proc fits_i64(
+    source: string
+) -> bool {
+    return parse_i64(source).ok;
+}
+
+proc fits_u64(
+    source: string
+) -> bool {
+    return parse_u64(source).ok;
+}
+
+proc fits_f64(
+    source: string
+) -> bool {
+    return parse_f64(source).ok;
+}
+
+/// -------------------------------------------------------------------------
+/// Conversion helpers
+/// -------------------------------------------------------------------------
+
+proc i64_to_f64(
+    value: i64
+) -> f64 {
+    return value as f64;
+}
+
+proc u64_to_f64(
+    value: u64
+) -> f64 {
+    return value as f64;
+}
+
+proc f64_to_i64_checked(
+    value: f64
+) -> JsonI64Result {
+    if not is_finite(value) {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.NonFinite,
+            error_index: 0,
+        };
+    }
+
+    if value >
+       (JSON_NUMERIC_I64_MAX as f64) {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.IntegerOverflow,
+            error_index: 0,
+        };
+    }
+
+    if value <
+       (JSON_NUMERIC_I64_MIN as f64) {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.IntegerUnderflow,
+            error_index: 0,
+        };
+    }
+
+    if not is_integer_f64(value) {
+        return JsonI64Result {
+            ok: false,
+            value: 0,
+            error:
+                JsonNumericError.InvalidInteger,
+            error_index: 0,
+        };
+    }
+
+    return JsonI64Result {
+        ok: true,
+        value:
+            value as i64,
+        error:
+            JsonNumericError.None,
+        error_index: 0,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — lexical grammar
+/// -------------------------------------------------------------------------
+
+test "json numeric accepts zero" {
+    let result:
+        JsonNumericScan =
+            scan("0");
+
+    assert result.ok;
+
+    assert result.kind ==
+        JsonNumericKind.Integer;
+
+    assert result.integer_digits == 1;
+}
+
+test "json numeric accepts negative zero" {
+    let result:
+        JsonNumericScan =
+            scan("-0");
+
+    assert result.ok;
+    assert result.negative;
+    assert literal_is_zero("-0");
+    assert literal_is_negative_zero("-0");
+}
+
+test "json numeric accepts positive integer" {
+    let result:
+        JsonNumericScan =
+            scan("123456789");
+
+    assert result.ok;
+
+    assert result.kind ==
+        JsonNumericKind.Integer;
+
+    assert result.integer_digits == 9;
+}
+
+test "json numeric accepts negative integer" {
+    let result:
+        JsonNumericScan =
+            scan("-42");
+
+    assert result.ok;
+    assert result.negative;
+}
+
+test "json numeric accepts decimal fraction" {
+    let result:
+        JsonNumericScan =
+            scan("12.345");
+
+    assert result.ok;
+
+    assert result.kind ==
+        JsonNumericKind.Float;
+
+    assert result.has_fraction;
+
+    assert result.fraction_digits ==
+        3;
+}
+
+test "json numeric accepts exponent" {
+    let result:
+        JsonNumericScan =
+            scan("1e10");
+
+    assert result.ok;
+    assert result.has_exponent;
+
+    assert result.exponent_digits ==
+        2;
+}
+
+test "json numeric accepts positive exponent sign" {
+    let result:
+        JsonNumericScan =
+            scan("1e+10");
+
+    assert result.ok;
+    assert result.has_exponent;
+    assert not result.exponent_negative;
+}
+
+test "json numeric accepts negative exponent" {
+    let result:
+        JsonNumericScan =
+            scan("1E-10");
+
+    assert result.ok;
+    assert result.has_exponent;
+    assert result.exponent_negative;
+}
+
+test "json numeric accepts complete decimal exponent number" {
+    let result:
+        JsonNumericScan =
+            scan("-123.456e-78");
+
+    assert result.ok;
+    assert result.negative;
+    assert result.has_fraction;
+    assert result.has_exponent;
+    assert result.fraction_digits == 3;
+    assert result.exponent_digits == 2;
+}
+
+test "json numeric rejects empty" {
+    let result:
+        JsonNumericScan =
+            scan("");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.Empty;
+}
+
+test "json numeric rejects leading plus" {
+    let result:
+        JsonNumericScan =
+            scan("+1");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.LeadingPlus;
+}
+
+test "json numeric rejects sign only" {
+    let result:
+        JsonNumericScan =
+            scan("-");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.MissingIntegerDigits;
+}
+
+test "json numeric rejects leading zero" {
+    let result:
+        JsonNumericScan =
+            scan("01");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.LeadingZero;
+}
+
+test "json numeric rejects negative leading zero" {
+    let result:
+        JsonNumericScan =
+            scan("-01");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.LeadingZero;
+}
+
+test "json numeric rejects missing integer before fraction" {
+    let result:
+        JsonNumericScan =
+            scan(".5");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.MissingIntegerDigits;
+}
+
+test "json numeric rejects empty fraction" {
+    let result:
+        JsonNumericScan =
+            scan("1.");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.MissingFractionDigits;
+}
+
+test "json numeric rejects exponent without digits" {
+    let result:
+        JsonNumericScan =
+            scan("1e");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.MissingExponentDigits;
+}
+
+test "json numeric rejects signed exponent without digits" {
+    let result:
+        JsonNumericScan =
+            scan("1e+");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.MissingExponentDigits;
+}
+
+test "json numeric rejects alpha suffix" {
+    let result:
+        JsonNumericScan =
+            scan("123x");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.InvalidCharacter;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — i64
+/// -------------------------------------------------------------------------
+
+test "json numeric parses i64 zero" {
+    let result:
+        JsonI64Result =
+            parse_i64("0");
+
+    assert result.ok;
+    assert result.value == 0;
+}
+
+test "json numeric parses positive i64" {
+    let result:
+        JsonI64Result =
+            parse_i64("123456");
+
+    assert result.ok;
+    assert result.value == 123456;
+}
+
+test "json numeric parses negative i64" {
+    let result:
+        JsonI64Result =
+            parse_i64("-123456");
+
+    assert result.ok;
+    assert result.value == -123456;
+}
+
+test "json numeric parses i64 maximum" {
+    let result:
+        JsonI64Result =
+            parse_i64(
+                "9223372036854775807");
+
+    assert result.ok;
+
+    assert result.value ==
+        JSON_NUMERIC_I64_MAX;
+}
+
+test "json numeric parses i64 minimum" {
+    let result:
+        JsonI64Result =
+            parse_i64(
+                "-9223372036854775808");
+
+    assert result.ok;
+
+    assert result.value ==
+        JSON_NUMERIC_I64_MIN;
+}
+
+test "json numeric detects positive i64 overflow" {
+    let result:
+        JsonI64Result =
+            parse_i64(
+                "9223372036854775808");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.IntegerOverflow;
+}
+
+test "json numeric detects negative i64 underflow" {
+    let result:
+        JsonI64Result =
+            parse_i64(
+                "-9223372036854775809");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.IntegerUnderflow;
+}
+
+test "json numeric i64 rejects fraction" {
+    let result:
+        JsonI64Result =
+            parse_i64("1.0");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.InvalidInteger;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — u64
+/// -------------------------------------------------------------------------
+
+test "json numeric parses u64 maximum" {
+    let result:
+        JsonU64Result =
+            parse_u64(
+                "18446744073709551615");
+
+    assert result.ok;
+
+    assert result.value ==
+        JSON_NUMERIC_U64_MAX;
+}
+
+test "json numeric detects u64 overflow" {
+    let result:
+        JsonU64Result =
+            parse_u64(
+                "18446744073709551616");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.UnsignedOverflow;
+}
+
+test "json numeric rejects negative u64" {
+    let result:
+        JsonU64Result =
+            parse_u64("-1");
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.NegativeUnsigned;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — f64
+/// -------------------------------------------------------------------------
+
+test "json numeric parses f64 integer syntax" {
+    let result:
+        JsonF64Result =
+            parse_f64("42");
+
+    assert result.ok;
+    assert result.value == 42.0;
+}
+
+test "json numeric parses f64 fraction" {
+    let result:
+        JsonF64Result =
+            parse_f64("12.5");
+
+    assert result.ok;
+    assert result.value == 12.5;
+}
+
+test "json numeric parses f64 positive exponent" {
+    let result:
+        JsonF64Result =
+            parse_f64("1.25e2");
+
+    assert result.ok;
+    assert result.value == 125.0;
+}
+
+test "json numeric parses f64 negative exponent" {
+    let result:
+        JsonF64Result =
+            parse_f64("125e-2");
+
+    assert result.ok;
+    assert result.value == 1.25;
+}
+
+test "json numeric parses negative f64" {
+    let result:
+        JsonF64Result =
+            parse_f64("-12.5");
+
+    assert result.ok;
+    assert result.value == -12.5;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — checked arithmetic
+/// -------------------------------------------------------------------------
+
+test "json numeric checked add" {
+    let result:
+        JsonI64Result =
+            checked_add_i64(
+                20,
+                22);
+
+    assert result.ok;
+    assert result.value == 42;
+}
+
+test "json numeric checked add overflow" {
+    let result:
+        JsonI64Result =
+            checked_add_i64(
+                JSON_NUMERIC_I64_MAX,
+                1);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.IntegerOverflow;
+}
+
+test "json numeric checked sub" {
+    let result:
+        JsonI64Result =
+            checked_sub_i64(
+                50,
+                8);
+
+    assert result.ok;
+    assert result.value == 42;
+}
+
+test "json numeric checked sub underflow" {
+    let result:
+        JsonI64Result =
+            checked_sub_i64(
+                JSON_NUMERIC_I64_MIN,
+                1);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.IntegerUnderflow;
+}
+
+test "json numeric checked multiply" {
+    let result:
+        JsonI64Result =
+            checked_mul_i64(
+                6,
+                7);
+
+    assert result.ok;
+    assert result.value == 42;
+}
+
+test "json numeric checked multiply overflow" {
+    let result:
+        JsonI64Result =
+            checked_mul_i64(
+                JSON_NUMERIC_I64_MAX,
+                2);
+
+    assert not result.ok;
+}
+
+test "json numeric checked division" {
+    let result:
+        JsonI64Result =
+            checked_div_i64(
+                84,
+                2);
+
+    assert result.ok;
+    assert result.value == 42;
+}
+
+test "json numeric checked division by zero" {
+    let result:
+        JsonI64Result =
+            checked_div_i64(
+                42,
+                0);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.DivisionByZero;
+}
+
+test "json numeric checked remainder" {
+    let result:
+        JsonI64Result =
+            checked_rem_i64(
+                44,
+                42);
+
+    assert result.ok;
+    assert result.value == 2;
+}
+
+test "json numeric checked remainder by zero" {
+    let result:
+        JsonI64Result =
+            checked_rem_i64(
+                42,
+                0);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.RemainderByZero;
+}
+
+test "json numeric checked negation" {
+    let result:
+        JsonI64Result =
+            checked_neg_i64(42);
+
+    assert result.ok;
+    assert result.value == -42;
+}
+
+test "json numeric checked minimum negation overflow" {
+    let result:
+        JsonI64Result =
+            checked_neg_i64(
+                JSON_NUMERIC_I64_MIN);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonNumericError.IntegerOverflow;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — formatting
+/// -------------------------------------------------------------------------
+
+test "json numeric formats u64" {
+    assert format_u64(0) ==
+        "0";
+
+    assert format_u64(42) ==
+        "42";
+
+    assert format_u64(
+        JSON_NUMERIC_U64_MAX) ==
+        "18446744073709551615";
+}
+
+test "json numeric formats i64" {
+    assert format_i64(0) ==
+        "0";
+
+    assert format_i64(42) ==
+        "42";
+
+    assert format_i64(-42) ==
+        "-42";
+
+    assert format_i64(
+        JSON_NUMERIC_I64_MIN) ==
+        "-9223372036854775808";
+}
+
+test "json numeric trims fraction zeroes" {
+    assert trim_fraction_zeroes(
+        "12.34000") ==
+        "12.34";
+
+    assert trim_fraction_zeroes(
+        "12.000") ==
+        "12";
+
+    assert trim_fraction_zeroes(
+        "0.000") ==
+        "0";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — properties
+/// -------------------------------------------------------------------------
+
+test "json numeric digit helpers" {
+    assert is_digit('0');
+    assert is_digit('5');
+    assert is_digit('9');
+
+    assert not is_digit('a');
+    assert not is_digit('-');
+
+    assert is_nonzero_digit('1');
+    assert is_nonzero_digit('9');
+    assert not is_nonzero_digit('0');
+
+    assert digit_value('0') == 0;
+    assert digit_value('9') == 9;
+
+    assert digit_char(0) == '0';
+    assert digit_char(9) == '9';
+}
+
+test "json numeric literal properties" {
+    assert is_integer_literal("42");
+    assert not is_integer_literal("42.0");
+
+    assert is_float_literal("42.0");
+    assert is_float_literal("42e0");
+
+    assert is_negative_literal("-42");
+    assert not is_negative_literal("42");
+
+    assert has_fraction("42.0");
+    assert not has_fraction("42");
+
+    assert has_exponent("42e2");
+    assert not has_exponent("42");
+}
+
+test "json numeric digit counts" {
+    assert integer_digit_count(
+        "-123.456e78") ==
+        3;
+
+    assert fraction_digit_count(
+        "-123.456e78") ==
+        3;
+
+    assert exponent_digit_count(
+        "-123.456e78") ==
+        2;
+
+    assert significant_digit_count(
+        "-123.456e78") ==
+        6;
+}
+
+test "json numeric zero detection" {
+    assert literal_is_zero("0");
+    assert literal_is_zero("-0");
+    assert literal_is_zero("0.0");
+    assert literal_is_zero("-0.000e10");
+
+    assert not literal_is_zero("0.1");
+    assert not literal_is_zero("1e-10");
+}
+
+test "json numeric comparisons" {
+    let less:
+        JsonNumericComparison =
+            compare_i64(
+                1,
+                2);
+
+    assert less.comparable;
+    assert less.less;
+    assert not less.equal;
+    assert not less.greater;
+
+    let equal:
+        JsonNumericComparison =
+            compare_i64(
+                42,
+                42);
+
+    assert equal.equal;
+}
+
+test "json numeric clamp" {
+    assert clamp_i64(
+        5,
+        0,
+        10) ==
+        5;
+
+    assert clamp_i64(
+        -5,
+        0,
+        10) ==
+        0;
+
+    assert clamp_i64(
+        20,
+        0,
+        10) ==
+        10;
+}
+
+test "json numeric classifications" {
+    assert classify_i64(0) ==
+        JsonNumericClass.Zero;
+
+    assert classify_i64(1) ==
+        JsonNumericClass.Positive;
+
+    assert classify_i64(-1) ==
+        JsonNumericClass.Negative;
+
+    assert classify_u64(0) ==
+        JsonNumericClass.Zero;
+
+    assert classify_u64(1) ==
+        JsonNumericClass.Positive;
+
+    assert classify_f64(0.0) ==
+        JsonNumericClass.Zero;
+
+    assert classify_f64(1.0) ==
+        JsonNumericClass.Positive;
+
+    assert classify_f64(-1.0) ==
+        JsonNumericClass.Negative;
+}
+
+test "json numeric representability" {
+    assert fits_i64(
+        "9223372036854775807");
+
+    assert not fits_i64(
+        "9223372036854775808");
+
+    assert fits_u64(
+        "18446744073709551615");
+
+    assert not fits_u64(
+        "18446744073709551616");
+
+    assert fits_f64(
+        "42.5");
+}
+
+test "json numeric metadata" {
+    assert error_name(
+        JsonNumericError.None) ==
+        "none";
+
+    assert error_name(
+        JsonNumericError.LeadingZero) ==
+        "leading-zero";
+
+    assert error_name(
+        JsonNumericError.IntegerOverflow) ==
+        "integer-overflow";
+
+    assert kind_name(
+        JsonNumericKind.Integer) ==
+        "integer";
+
+    assert kind_name(
+        JsonNumericKind.Float) ==
+        "float";
+
+    assert class_name(
+        JsonNumericClass.Positive) ==
+        "positive";
+}

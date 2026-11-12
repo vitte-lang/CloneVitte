@@ -1,0 +1,64 @@
+use core::array::compare::{array_equal, array_not_equal, array_starts_with, array_ends_with};
+use core::array::fixed::{fixed_count, fixed_copy, fixed_fill, fixed_equal, fixed_contains, fixed_index_of, fixed_reverse, fixed_rotate_left, fixed_rotate_right, fixed_is_sorted_i64};
+
+test "array comparisons cover equality prefixes suffixes and ordering" {
+    let mut values: [i32] = [];
+    let one: i32 = 1;
+    let three: i32 = 3;
+    let five: i32 = 5;
+    set values.push(one);
+    set values.push(three);
+    set values.push(five);
+    let mut same: [i32] = [];
+    set same.push(one);
+    set same.push(three);
+    set same.push(five);
+    let mut prefix: [i32] = [];
+    set prefix.push(one);
+    set prefix.push(three);
+    let mut suffix: [i32] = [];
+    set suffix.push(three);
+    set suffix.push(five);
+    let mut different: [i32] = [];
+    set different.push(one);
+    set different.push(five);
+    let empty: [i32] = [];
+
+    assert(array_equal(&values, &same));
+    assert(not array_not_equal(&values, &same));
+    assert(not array_equal(&values, &different));
+    assert(array_not_equal(&values, &different));
+    assert(array_starts_with(&values, &prefix));
+    assert(array_ends_with(&values, &suffix));
+    assert(array_starts_with(&values, &empty));
+    assert(array_ends_with(&values, &empty));
+    assert(not array_starts_with(&prefix, &values));
+    assert(not array_ends_with(&suffix, &values));
+}
+
+test "fixed array helpers operate on borrowed storage" {
+    let mut values: [i64] = [4, 1, 3];
+    assert(fixed_count(&values, 3) == 1);
+    assert(fixed_contains(&values, 1));
+    assert(fixed_index_of(&values, 1) == 1);
+    assert(fixed_index_of(&values, 9) == -1);
+    assert(not fixed_is_sorted_i64(&values));
+
+    set fixed_reverse(&mut values);
+    assert(values[0] == 3);
+    assert(values[2] == 4);
+    set fixed_rotate_left(&mut values);
+    assert(values[0] == 1);
+    assert(values[2] == 3);
+    set fixed_rotate_right(&mut values);
+    assert(values[0] == 3);
+
+    let mut destination: [i64] = [0, 0];
+    assert(fixed_copy(&values, &mut destination) == 2);
+    assert(destination[0] == 3);
+    assert(destination[1] == 1);
+    assert(not fixed_equal(&values, &destination));
+    set fixed_fill(&mut destination, 7);
+    assert(fixed_count(&destination, 7) == 2);
+    assert(fixed_equal(&destination, &destination));
+}

@@ -1,0 +1,23 @@
+use core::iter::enumerate::{enumerate_copy};
+use core::iter::zip::{zip_copy};
+
+test "enumerate and zip write into caller-provided parallel buffers" {
+    let values: [i64] = [4, 9];
+    let mut value_output: [i64] = [0, 0];
+    let mut indices: [usize] = [0 as usize, 0 as usize];
+    assert(enumerate_copy(&values, &mut value_output, &mut indices) == 2);
+    assert(value_output[0] == 4);
+    assert(value_output[1] == 9);
+    assert(indices[0] == 0);
+    assert(indices[1] == 1);
+
+    let left: [i64] = [2, 3];
+    let right: [u8] = [5 as u8, 7 as u8];
+    let mut left_output: [i64] = [0, 0];
+    let mut right_output: [u8] = [0 as u8, 0 as u8];
+    assert(zip_copy(&left, &right, &mut left_output, &mut right_output) == 2);
+    assert(left_output[0] == 2);
+    assert(left_output[1] == 3);
+    assert(right_output[0] == 5 as u8);
+    assert(right_output[1] == 7 as u8);
+}

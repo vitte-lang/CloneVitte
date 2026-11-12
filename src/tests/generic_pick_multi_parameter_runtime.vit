@@ -1,0 +1,30 @@
+form Box<T> {
+    value: T,
+}
+
+pick Outcome<T, E> {
+    Success(Box<T>),
+    Failure(E)
+}
+
+proc main() -> i64 {
+    let success: Outcome<i64, bool> = Outcome<i64, bool>::Success(
+        Box<i64> { value: 42 }
+    );
+    let failure: Outcome<i64, bool> = Outcome<i64, bool>::Failure(true);
+
+    match success {
+        Outcome<i64, bool>::Success(value) => {
+            if value.value != 42 { return 1; }
+        },
+        Outcome<i64, bool>::Failure(_) => { return 2; },
+    }
+
+    match failure {
+        Outcome<i64, bool>::Success(_) => { return 3; },
+        Outcome<i64, bool>::Failure(value) => {
+            if not value { return 4; }
+        },
+    }
+    return 0;
+}

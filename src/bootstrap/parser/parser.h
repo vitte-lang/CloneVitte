@@ -349,6 +349,10 @@ typedef uint32_t vitte_ast_flags_t;
 #define VITTE_AST_FLAG_TYPE_QUERY_TYPE_OPERAND \
     (UINT32_C(1) << 17u)
 
+/* Generic parameter declared with a compile-time value type (`const N: T`). */
+#define VITTE_AST_FLAG_CONST_GENERIC \
+    (UINT32_C(1) << 18u)
+
 /* ========================================================================= */
 /* AST node                                                                  */
 /* ========================================================================= */

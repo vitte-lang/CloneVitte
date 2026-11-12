@@ -1,0 +1,8 @@
+use core::cell::cell::{Cell};
+
+test "generic cell stores and updates an inline payload" {
+    let mut cell: Cell[i64] = Cell[i64] { value: 10 };
+    assert(cell.value == 10);
+    set cell.value = 42;
+    assert(cell.value == 42);
+}

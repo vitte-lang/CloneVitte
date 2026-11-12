@@ -166,6 +166,11 @@ const DIAGNOSTIC_REGISTRY: [DiagnosticRegistryEntry] = [
     DiagnosticRegistryEntry { internal_code: "VITTE_MEMORY_E_NULL", public_code: "E1202", default_severity: DiagnosticSeverity.Error, origin: DiagnosticOrigin.TypeCheck, category: "memory", title: "invalid null operation", explanation: "The operation is not valid for a null value.", deprecated: false },
     DiagnosticRegistryEntry { internal_code: "VITTE_MEMORY_E_POINTER_TYPE", public_code: "E1203", default_severity: DiagnosticSeverity.Error, origin: DiagnosticOrigin.TypeCheck, category: "memory", title: "invalid pointer type", explanation: "The pointer operation is incompatible with the referenced type.", deprecated: false },
     DiagnosticRegistryEntry { internal_code: "VITTE_MEMORY_E_ALIGNMENT", public_code: "E1204", default_severity: DiagnosticSeverity.Error, origin: DiagnosticOrigin.TypeCheck, category: "memory", title: "invalid alignment", explanation: "The requested memory operation violates alignment requirements.", deprecated: false },
+    DiagnosticRegistryEntry { internal_code: "VITTE_MEMORY_E_REFERENCE_ESCAPE", public_code: "E1205", default_severity: DiagnosticSeverity.Error, origin: DiagnosticOrigin.TypeCheck, category: "memory", title: "reference lifetime cannot be verified", explanation: "The owner does not outlive the reference, or the bootstrap cannot determine the reference origin.", deprecated: false },
+    DiagnosticRegistryEntry { internal_code: "VITTE_MEMORY_E_BORROW_CONFLICT", public_code: "E1206", default_severity: DiagnosticSeverity.Error, origin: DiagnosticOrigin.TypeCheck, category: "memory", title: "conflicting reference borrow", explanation: "An exclusive reference cannot overlap another live reference to the same value.", deprecated: false },
+    DiagnosticRegistryEntry { internal_code: "VITTE_MEMORY_E_BORROWED_MUTATION", public_code: "E1207", default_severity: DiagnosticSeverity.Error, origin: DiagnosticOrigin.TypeCheck, category: "memory", title: "access conflicts with a live reference", explanation: "The value cannot be read or changed while an incompatible reference is live.", deprecated: false },
+    DiagnosticRegistryEntry { internal_code: "VITTE_MEMORY_E_MOVE_BORROWED", public_code: "E1208", default_severity: DiagnosticSeverity.Error, origin: DiagnosticOrigin.TypeCheck, category: "memory", title: "cannot move a borrowed value", explanation: "A value cannot be moved while a live reference depends on it.", deprecated: false },
+    DiagnosticRegistryEntry { internal_code: "VITTE_MEMORY_E_USE_AFTER_MOVE", public_code: "E1209", default_severity: DiagnosticSeverity.Error, origin: DiagnosticOrigin.TypeCheck, category: "memory", title: "use of moved value", explanation: "The value was moved and must be initialized again before it can be used.", deprecated: false },
     DiagnosticRegistryEntry { internal_code: "VITTE_UNSAFE_E_REQUIRED", public_code: "E1301", default_severity: DiagnosticSeverity.Error, origin: DiagnosticOrigin.TypeCheck, category: "unsafe", title: "unsafe context required", explanation: "This low-level operation requires an explicit unsafe context.", deprecated: false },
     DiagnosticRegistryEntry { internal_code: "VITTE_UNSAFE_E_INVALID_ASM", public_code: "E1302", default_severity: DiagnosticSeverity.Error, origin: DiagnosticOrigin.TypeCheck, category: "asm", title: "invalid assembly block", explanation: "The inline assembly construct is malformed or incompatible with the selected target.", deprecated: false },
     DiagnosticRegistryEntry { internal_code: "VITTE_UNSAFE_E_INTRINSIC", public_code: "E1303", default_severity: DiagnosticSeverity.Error, origin: DiagnosticOrigin.TypeCheck, category: "intrinsic", title: "invalid intrinsic use", explanation: "A compiler intrinsic is used with unsupported arguments or in an invalid context.", deprecated: false },
@@ -496,7 +501,7 @@ export proc vitte_diagnostic_registry_entry_is_valid(entry_value: *const Diagnos
 }
 
 export proc vitte_diagnostic_registry_validate(result: *mut DiagnosticRegistryValidation) -> Status {
-    let mut local = DiagnosticRegistryValidation {
+    let mut local: DiagnosticRegistryValidation = DiagnosticRegistryValidation {
         valid: true,
         entry_count: DIAGNOSTIC_REGISTRY.len(),
         invalid_entry_count: 0,
@@ -506,7 +511,7 @@ export proc vitte_diagnostic_registry_validate(result: *mut DiagnosticRegistryVa
     };
     let mut index: usize = 0;
     while index < DIAGNOSTIC_REGISTRY.len() {
-        let registry_entry = &DIAGNOSTIC_REGISTRY[index];
+        let registry_entry: &DiagnosticRegistryEntry = &DIAGNOSTIC_REGISTRY[index];
         if not vitte_diagnostic_registry_entry_is_valid(registry_entry) {
             set local.invalid_entry_count += 1;
             if local.first_invalid_index == REGISTRY_INDEX_NONE { set local.first_invalid_index = index; }
@@ -562,7 +567,7 @@ export proc vitte_diagnostic_registry_apply(diagnostic_value: *mut Diagnostic) -
 export proc vitte_diagnostic_registry_entry_fingerprint(entry_value: *const DiagnosticRegistryEntry) -> u64 {
     if entry_value == null { return 0; }
     let registry_entry = *entry_value;
-    let mut hash = REGISTRY_FNV_OFFSET;
+    let mut hash: u64 = REGISTRY_FNV_OFFSET;
     set hash = registry_text_hash(hash, registry_entry.internal_code);
     set hash = registry_text_hash(hash, registry_entry.public_code);
     set hash = registry_text_hash(hash, registry_entry.category);
@@ -575,10 +580,10 @@ export proc vitte_diagnostic_registry_entry_fingerprint(entry_value: *const Diag
 }
 
 export proc vitte_diagnostic_registry_fingerprint() -> u64 {
-    let mut hash = REGISTRY_FNV_OFFSET;
+    let mut hash: u64 = REGISTRY_FNV_OFFSET;
     let mut index: usize = 0;
     while index < DIAGNOSTIC_REGISTRY.len() {
-        let registry_entry = &DIAGNOSTIC_REGISTRY[index];
+        let registry_entry: &DiagnosticRegistryEntry = &DIAGNOSTIC_REGISTRY[index];
         set hash = registry_text_hash(hash, (*registry_entry).internal_code);
         set hash = registry_text_hash(hash, (*registry_entry).public_code);
         set hash = registry_text_hash(hash, (*registry_entry).category);

@@ -3,62 +3,62 @@ use core::convert::parse::{ParseError, parse_i64, parse_u64};
 
 test "parse unsigned integer boundaries" {
     let maximum = parse_u64("18446744073709551615", 10);
-    assert maximum.success;
-    assert maximum.value == 18446744073709551615;
-    assert maximum.error == ParseError.None;
+    assert(maximum.success);
+    assert(maximum.value == 18446744073709551615);
+    assert(maximum.error == ParseError.None);
 
     let overflow = parse_u64("18446744073709551616", 10);
-    assert not overflow.success;
-    assert overflow.error == ParseError.Overflow;
-    assert overflow.error_index == 19;
+    assert(not overflow.success);
+    assert(overflow.error == ParseError.Overflow);
+    assert(overflow.error_index == 19);
 }
 
 test "parse unsigned rejects empty invalid base and digit" {
     let empty = parse_u64("", 10);
-    assert not empty.success;
-    assert empty.error == ParseError.Empty;
-    assert empty.error_index == 0;
+    assert(not empty.success);
+    assert(empty.error == ParseError.Empty);
+    assert(empty.error_index == 0);
 
     let invalid_low_base = parse_u64("1", 1);
-    assert invalid_low_base.error == ParseError.InvalidBase;
+    assert(invalid_low_base.error == ParseError.InvalidBase);
     let invalid_high_base = parse_u64("1", 37);
-    assert invalid_high_base.error == ParseError.InvalidBase;
+    assert(invalid_high_base.error == ParseError.InvalidBase);
 
     let bad_digit = parse_u64("1g", 16);
-    assert bad_digit.error == ParseError.InvalidDigit;
-    assert bad_digit.error_index == 1;
+    assert(bad_digit.error == ParseError.InvalidDigit);
+    assert(bad_digit.error_index == 1);
 }
 
 test "parse signed integer boundaries and signs" {
     let minimum = parse_i64("-9223372036854775808", 10);
-    assert minimum.success;
-    assert minimum.value == -9223372036854775807 - 1;
+    assert(minimum.success);
+    assert(minimum.value == -9223372036854775807 - 1);
 
     let maximum = parse_i64("+9223372036854775807", 10);
-    assert maximum.success;
-    assert maximum.value == 9223372036854775807;
+    assert(maximum.success);
+    assert(maximum.value == 9223372036854775807);
 
     let underflow = parse_i64("-9223372036854775809", 10);
-    assert not underflow.success;
-    assert underflow.error == ParseError.Overflow;
+    assert(not underflow.success);
+    assert(underflow.error == ParseError.Overflow);
 
     let sign_only = parse_i64("-", 10);
-    assert not sign_only.success;
-    assert sign_only.error == ParseError.Empty;
-    assert sign_only.error_index == 1;
+    assert(not sign_only.success);
+    assert(sign_only.error == ParseError.Empty);
+    assert(sign_only.error_index == 1);
 }
 
 test "checked narrowing rejects values outside the target" {
     let accepted = checked_u64_to_u8(255);
-    assert accepted.success;
-    assert accepted.value == 255;
-    assert accepted.error == CastError.None;
+    assert(accepted.success);
+    assert(accepted.value == 255);
+    assert(accepted.error == CastError.None);
 
     let too_large = checked_u64_to_u8(256);
-    assert not too_large.success;
-    assert too_large.error == CastError.Overflow;
+    assert(not too_large.success);
+    assert(too_large.error == CastError.Overflow);
 
     let negative = checked_i64_to_u8(-1);
-    assert not negative.success;
-    assert negative.error == CastError.Negative;
+    assert(not negative.success);
+    assert(negative.error == CastError.Negative);
 }

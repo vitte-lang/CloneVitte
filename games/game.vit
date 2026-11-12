@@ -1,0 +1,2202 @@
+space games::dungeon;
+
+/*
+ * dungeon.vit
+ *
+ * Jeu terminal 100 % source Vitte.
+ *
+ * Aucun extern C.
+ * Les seules primitives dépendantes de la machine sont des intrinsics Vitte.
+ *
+ * Le compilateur/runtime Vitte fournit :
+ *   io_print
+ *   io_print_i64
+ *   io_read_i64
+ *   random_i64
+ */
+
+/* ========================================================================== */
+/* Intrinsics Vitte                                                           */
+/* ========================================================================== */
+
+intrinsic io_print(text: *u8);
+intrinsic io_print_i64(value: i64);
+intrinsic io_read_i64() -> i64;
+intrinsic random_i64(minimum: i64, maximum: i64) -> i64;
+
+
+/* ========================================================================== */
+/* Constants                                                                  */
+/* ========================================================================== */
+
+const PLAYER_MAX_HEALTH: i64 = 120;
+const PLAYER_BASE_ATTACK: i64 = 14;
+const PLAYER_BASE_DEFENSE: i64 = 5;
+
+const POTION_HEAL_MIN: i64 = 20;
+const POTION_HEAL_MAX: i64 = 35;
+
+const CRITICAL_CHANCE: i64 = 15;
+const DODGE_CHANCE: i64 = 8;
+
+const MAX_LEVEL: i64 = 20;
+
+
+/* ========================================================================== */
+/* Enumerations                                                               */
+/* ========================================================================== */
+
+pick GameState {
+    Playing,
+    Victory,
+    Defeat,
+    Quit
+}
+
+pick EnemyKind {
+    Rat,
+    Goblin,
+    Skeleton,
+    Orc,
+    Knight,
+    Demon,
+    Dragon
+}
+
+pick ItemKind {
+    None,
+    Potion,
+    Sword,
+    Shield,
+    Crystal
+}
+
+pick Action {
+    Invalid,
+    Attack,
+    PowerAttack,
+    Heal,
+    Inspect,
+    Quit
+}
+
+
+/* ========================================================================== */
+/* Player                                                                     */
+/* ========================================================================== */
+
+form Player {
+    health: i64,
+    max_health: i64,
+
+    attack: i64,
+    defense: i64,
+
+    level: i64,
+    experience: i64,
+
+    gold: i64,
+
+    potions: i64,
+
+    kills: i64,
+
+    floor: i64
+}
+
+
+/* ========================================================================== */
+/* Enemy                                                                      */
+/* ========================================================================== */
+
+form Enemy {
+    kind: EnemyKind,
+
+    health: i64,
+    max_health: i64,
+
+    attack: i64,
+    defense: i64,
+
+    experience: i64,
+    gold: i64
+}
+
+
+/* ========================================================================== */
+/* Game                                                                       */
+/* ========================================================================== */
+
+form Game {
+    player: Player,
+    enemy: Enemy,
+
+    state: GameState,
+
+    turn: i64,
+    rooms: i64
+}
+
+
+/* ========================================================================== */
+/* Utility                                                                    */
+/* ========================================================================== */
+
+proc println() {
+    io_print("\n");
+}
+
+proc print_line() {
+    io_print(
+        "==================================================\n"
+    );
+}
+
+proc print_small_line() {
+    io_print(
+        "--------------------------------------------------\n"
+    );
+}
+
+proc clamp_i64(
+    value: i64,
+    minimum: i64,
+    maximum: i64
+) -> i64 {
+    if value < minimum {
+        return minimum;
+    }
+
+    if value > maximum {
+        return maximum;
+    }
+
+    return value;
+}
+
+proc min_i64(
+    left: i64,
+    right: i64
+) -> i64 {
+    if left < right {
+        return left;
+    }
+
+    return right;
+}
+
+proc max_i64(
+    left: i64,
+    right: i64
+) -> i64 {
+    if left > right {
+        return left;
+    }
+
+    return right;
+}
+
+proc abs_i64(value: i64) -> i64 {
+    if value < 0 {
+        return -value;
+    }
+
+    return value;
+}
+
+
+/* ========================================================================== */
+/* Player creation                                                            */
+/* ========================================================================== */
+
+proc create_player() -> Player {
+    let mut player: Player;
+
+    player.health =
+        PLAYER_MAX_HEALTH;
+
+    player.max_health =
+        PLAYER_MAX_HEALTH;
+
+    player.attack =
+        PLAYER_BASE_ATTACK;
+
+    player.defense =
+        PLAYER_BASE_DEFENSE;
+
+    player.level = 1;
+    player.experience = 0;
+
+    player.gold = 0;
+
+    player.potions = 3;
+
+    player.kills = 0;
+
+    player.floor = 1;
+
+    return player;
+}
+
+
+/* ========================================================================== */
+/* Enemy creation                                                             */
+/* ========================================================================== */
+
+proc enemy_rat(
+    floor: i64
+) -> Enemy {
+    let mut enemy: Enemy;
+
+    enemy.kind =
+        EnemyKind::Rat;
+
+    enemy.max_health =
+        18 + floor * 2;
+
+    enemy.health =
+        enemy.max_health;
+
+    enemy.attack =
+        5 + floor;
+
+    enemy.defense =
+        1 + floor / 3;
+
+    enemy.experience =
+        10 + floor * 2;
+
+    enemy.gold =
+        3 + floor;
+
+    return enemy;
+}
+
+
+proc enemy_goblin(
+    floor: i64
+) -> Enemy {
+    let mut enemy: Enemy;
+
+    enemy.kind =
+        EnemyKind::Goblin;
+
+    enemy.max_health =
+        30 + floor * 3;
+
+    enemy.health =
+        enemy.max_health;
+
+    enemy.attack =
+        8 + floor;
+
+    enemy.defense =
+        2 + floor / 2;
+
+    enemy.experience =
+        18 + floor * 3;
+
+    enemy.gold =
+        7 + floor * 2;
+
+    return enemy;
+}
+
+
+proc enemy_skeleton(
+    floor: i64
+) -> Enemy {
+    let mut enemy: Enemy;
+
+    enemy.kind =
+        EnemyKind::Skeleton;
+
+    enemy.max_health =
+        45 + floor * 4;
+
+    enemy.health =
+        enemy.max_health;
+
+    enemy.attack =
+        11 + floor;
+
+    enemy.defense =
+        4 + floor / 2;
+
+    enemy.experience =
+        28 + floor * 4;
+
+    enemy.gold =
+        10 + floor * 2;
+
+    return enemy;
+}
+
+
+proc enemy_orc(
+    floor: i64
+) -> Enemy {
+    let mut enemy: Enemy;
+
+    enemy.kind =
+        EnemyKind::Orc;
+
+    enemy.max_health =
+        70 + floor * 5;
+
+    enemy.health =
+        enemy.max_health;
+
+    enemy.attack =
+        15 + floor * 2;
+
+    enemy.defense =
+        6 + floor;
+
+    enemy.experience =
+        45 + floor * 5;
+
+    enemy.gold =
+        18 + floor * 3;
+
+    return enemy;
+}
+
+
+proc enemy_knight(
+    floor: i64
+) -> Enemy {
+    let mut enemy: Enemy;
+
+    enemy.kind =
+        EnemyKind::Knight;
+
+    enemy.max_health =
+        100 + floor * 7;
+
+    enemy.health =
+        enemy.max_health;
+
+    enemy.attack =
+        20 + floor * 2;
+
+    enemy.defense =
+        10 + floor;
+
+    enemy.experience =
+        70 + floor * 6;
+
+    enemy.gold =
+        30 + floor * 4;
+
+    return enemy;
+}
+
+
+proc enemy_demon(
+    floor: i64
+) -> Enemy {
+    let mut enemy: Enemy;
+
+    enemy.kind =
+        EnemyKind::Demon;
+
+    enemy.max_health =
+        150 + floor * 9;
+
+    enemy.health =
+        enemy.max_health;
+
+    enemy.attack =
+        27 + floor * 2;
+
+    enemy.defense =
+        13 + floor;
+
+    enemy.experience =
+        110 + floor * 8;
+
+    enemy.gold =
+        50 + floor * 5;
+
+    return enemy;
+}
+
+
+proc enemy_dragon(
+    floor: i64
+) -> Enemy {
+    let mut enemy: Enemy;
+
+    enemy.kind =
+        EnemyKind::Dragon;
+
+    enemy.max_health =
+        300 + floor * 15;
+
+    enemy.health =
+        enemy.max_health;
+
+    enemy.attack =
+        35 + floor * 3;
+
+    enemy.defense =
+        18 + floor;
+
+    enemy.experience =
+        300 + floor * 15;
+
+    enemy.gold =
+        200 + floor * 10;
+
+    return enemy;
+}
+
+
+/* ========================================================================== */
+/* Random enemy                                                               */
+/* ========================================================================== */
+
+proc create_enemy(
+    floor: i64
+) -> Enemy {
+    if floor >= 10 {
+        let boss_roll: i64 =
+            random_i64(1, 100);
+
+        if boss_roll <= 10 {
+            return enemy_dragon(
+                floor
+            );
+        }
+    }
+
+    let roll: i64 =
+        random_i64(1, 100);
+
+    if floor <= 2 {
+        if roll <= 60 {
+            return enemy_rat(
+                floor
+            );
+        }
+
+        return enemy_goblin(
+            floor
+        );
+    }
+
+    if floor <= 4 {
+        if roll <= 30 {
+            return enemy_rat(
+                floor
+            );
+        }
+
+        if roll <= 70 {
+            return enemy_goblin(
+                floor
+            );
+        }
+
+        return enemy_skeleton(
+            floor
+        );
+    }
+
+    if floor <= 7 {
+        if roll <= 30 {
+            return enemy_goblin(
+                floor
+            );
+        }
+
+        if roll <= 65 {
+            return enemy_skeleton(
+                floor
+            );
+        }
+
+        return enemy_orc(
+            floor
+        );
+    }
+
+    if floor <= 10 {
+        if roll <= 25 {
+            return enemy_skeleton(
+                floor
+            );
+        }
+
+        if roll <= 60 {
+            return enemy_orc(
+                floor
+            );
+        }
+
+        return enemy_knight(
+            floor
+        );
+    }
+
+    if roll <= 30 {
+        return enemy_orc(
+            floor
+        );
+    }
+
+    if roll <= 70 {
+        return enemy_knight(
+            floor
+        );
+    }
+
+    return enemy_demon(
+        floor
+    );
+}
+
+
+/* ========================================================================== */
+/* Enemy names                                                                */
+/* ========================================================================== */
+
+proc print_enemy_name(
+    enemy: &Enemy
+) {
+    if enemy.kind ==
+        EnemyKind::Rat
+    {
+        io_print("Rat");
+        return;
+    }
+
+    if enemy.kind ==
+        EnemyKind::Goblin
+    {
+        io_print("Gobelin");
+        return;
+    }
+
+    if enemy.kind ==
+        EnemyKind::Skeleton
+    {
+        io_print("Squelette");
+        return;
+    }
+
+    if enemy.kind ==
+        EnemyKind::Orc
+    {
+        io_print("Orc");
+        return;
+    }
+
+    if enemy.kind ==
+        EnemyKind::Knight
+    {
+        io_print("Chevalier noir");
+        return;
+    }
+
+    if enemy.kind ==
+        EnemyKind::Demon
+    {
+        io_print("Demon");
+        return;
+    }
+
+    if enemy.kind ==
+        EnemyKind::Dragon
+    {
+        io_print("Dragon");
+        return;
+    }
+
+    io_print("Creature inconnue");
+}
+
+
+/* ========================================================================== */
+/* Health                                                                     */
+/* ========================================================================== */
+
+proc player_alive(
+    player: &Player
+) -> bool {
+    return player.health > 0;
+}
+
+proc enemy_alive(
+    enemy: &Enemy
+) -> bool {
+    return enemy.health > 0;
+}
+
+proc player_missing_health(
+    player: &Player
+) -> i64 {
+    return
+        player.max_health -
+        player.health;
+}
+
+
+/* ========================================================================== */
+/* Damage                                                                     */
+/* ========================================================================== */
+
+proc calculate_damage(
+    attack: i64,
+    defense: i64
+) -> i64 {
+    let variance: i64 =
+        random_i64(-2, 3);
+
+    let mut damage: i64 =
+        attack -
+        defense +
+        variance;
+
+    if damage < 1 {
+        damage = 1;
+    }
+
+    return damage;
+}
+
+
+proc critical_roll() -> bool {
+    return
+        random_i64(1, 100) <=
+        CRITICAL_CHANCE;
+}
+
+
+proc dodge_roll() -> bool {
+    return
+        random_i64(1, 100) <=
+        DODGE_CHANCE;
+}
+
+
+/* ========================================================================== */
+/* Apply damage                                                               */
+/* ========================================================================== */
+
+proc damage_player(
+    player: &mut Player,
+    amount: i64
+) {
+    if amount <= 0 {
+        return;
+    }
+
+    if amount >= player.health {
+        player.health = 0;
+        return;
+    }
+
+    player.health =
+        player.health -
+        amount;
+}
+
+
+proc damage_enemy(
+    enemy: &mut Enemy,
+    amount: i64
+) {
+    if amount <= 0 {
+        return;
+    }
+
+    if amount >= enemy.health {
+        enemy.health = 0;
+        return;
+    }
+
+    enemy.health =
+        enemy.health -
+        amount;
+}
+
+
+/* ========================================================================== */
+/* Healing                                                                    */
+/* ========================================================================== */
+
+proc heal_player(
+    player: &mut Player,
+    amount: i64
+) -> i64 {
+    if amount <= 0 {
+        return 0;
+    }
+
+    let missing: i64 =
+        player_missing_health(
+            player
+        );
+
+    if missing <= 0 {
+        return 0;
+    }
+
+    let restored: i64 =
+        min_i64(
+            amount,
+            missing
+        );
+
+    player.health =
+        player.health +
+        restored;
+
+    return restored;
+}
+
+
+/* ========================================================================== */
+/* Experience                                                                 */
+/* ========================================================================== */
+
+proc experience_required(
+    level: i64
+) -> i64 {
+    return
+        40 +
+        level *
+        level *
+        20;
+}
+
+
+proc level_up(
+    player: &mut Player
+) {
+    if player.level >= MAX_LEVEL {
+        return;
+    }
+
+    player.level =
+        player.level + 1;
+
+    player.max_health =
+        player.max_health + 15;
+
+    player.health =
+        player.max_health;
+
+    player.attack =
+        player.attack + 3;
+
+    player.defense =
+        player.defense + 2;
+
+    player.potions =
+        player.potions + 1;
+
+    io_print("\n*** NIVEAU SUPERIEUR ***\n");
+
+    io_print("Niveau ");
+    io_print_i64(player.level);
+    println();
+
+    io_print("+15 HP maximum\n");
+    io_print("+3 attaque\n");
+    io_print("+2 defense\n");
+    io_print("+1 potion\n");
+}
+
+
+proc update_level(
+    player: &mut Player
+) {
+    let mut continue_leveling: bool =
+        true;
+
+    while continue_leveling {
+        if player.level >= MAX_LEVEL {
+            return;
+        }
+
+        let required: i64 =
+            experience_required(
+                player.level
+            );
+
+        if player.experience <
+            required
+        {
+            continue_leveling =
+                false;
+        } else {
+            player.experience =
+                player.experience -
+                required;
+
+            level_up(
+                player
+            );
+        }
+    }
+}
+
+
+/* ========================================================================== */
+/* Player attack                                                              */
+/* ========================================================================== */
+
+proc player_attack(
+    game: &mut Game
+) {
+    let mut damage: i64 =
+        calculate_damage(
+            game.player.attack,
+            game.enemy.defense
+        );
+
+    if critical_roll() {
+        damage =
+            damage * 2;
+
+        io_print(
+            "COUP CRITIQUE !\n"
+        );
+    }
+
+    damage_enemy(
+        &game.enemy,
+        damage
+    );
+
+    io_print(
+        "Vous infligez "
+    );
+
+    io_print_i64(
+        damage
+    );
+
+    io_print(
+        " degats a "
+    );
+
+    print_enemy_name(
+        &game.enemy
+    );
+
+    io_print(".\n");
+}
+
+
+/* ========================================================================== */
+/* Power attack                                                               */
+/* ========================================================================== */
+
+proc player_power_attack(
+    game: &mut Game
+) {
+    let hit: i64 =
+        random_i64(1, 100);
+
+    if hit > 70 {
+        io_print(
+            "Votre attaque puissante manque sa cible !\n"
+        );
+
+        return;
+    }
+
+    let mut damage: i64 =
+        calculate_damage(
+            game.player.attack,
+            game.enemy.defense
+        );
+
+    damage =
+        damage +
+        game.player.attack / 2;
+
+    if critical_roll() {
+        damage =
+            damage * 2;
+
+        io_print(
+            "CRITIQUE DEVASTATEUR !\n"
+        );
+    }
+
+    damage_enemy(
+        &game.enemy,
+        damage
+    );
+
+    io_print(
+        "Attaque puissante : "
+    );
+
+    io_print_i64(
+        damage
+    );
+
+    io_print(
+        " degats.\n"
+    );
+}
+
+
+/* ========================================================================== */
+/* Potion                                                                     */
+/* ========================================================================== */
+
+proc player_use_potion(
+    game: &mut Game
+) {
+    if game.player.potions <= 0 {
+        io_print(
+            "Vous n'avez plus de potion.\n"
+        );
+
+        return;
+    }
+
+    if game.player.health >=
+        game.player.max_health
+    {
+        io_print(
+            "Vos points de vie sont deja au maximum.\n"
+        );
+
+        return;
+    }
+
+    game.player.potions =
+        game.player.potions - 1;
+
+    let amount: i64 =
+        random_i64(
+            POTION_HEAL_MIN,
+            POTION_HEAL_MAX
+        );
+
+    let restored: i64 =
+        heal_player(
+            &game.player,
+            amount
+        );
+
+    io_print(
+        "Potion : +"
+    );
+
+    io_print_i64(
+        restored
+    );
+
+    io_print(
+        " HP.\n"
+    );
+}
+
+
+/* ========================================================================== */
+/* Enemy attack                                                               */
+/* ========================================================================== */
+
+proc enemy_attack(
+    game: &mut Game
+) {
+    if dodge_roll() {
+        io_print(
+            "Vous esquivez l'attaque !\n"
+        );
+
+        return;
+    }
+
+    let mut damage: i64 =
+        calculate_damage(
+            game.enemy.attack,
+            game.player.defense
+        );
+
+    if critical_roll() {
+        damage =
+            damage * 2;
+
+        io_print(
+            "L'ennemi porte un coup critique !\n"
+        );
+    }
+
+    damage_player(
+        &game.player,
+        damage
+    );
+
+    print_enemy_name(
+        &game.enemy
+    );
+
+    io_print(
+        " vous inflige "
+    );
+
+    io_print_i64(
+        damage
+    );
+
+    io_print(
+        " degats.\n"
+    );
+}
+
+
+/* ========================================================================== */
+/* Statistics                                                                 */
+/* ========================================================================== */
+
+proc print_player(
+    player: &Player
+) {
+    print_small_line();
+
+    io_print("Niveau : ");
+    io_print_i64(player.level);
+
+    io_print("   XP : ");
+    io_print_i64(player.experience);
+
+    io_print("/");
+    io_print_i64(
+        experience_required(
+            player.level
+        )
+    );
+
+    println();
+
+    io_print("HP : ");
+    io_print_i64(player.health);
+
+    io_print("/");
+    io_print_i64(
+        player.max_health
+    );
+
+    println();
+
+    io_print("Attaque : ");
+    io_print_i64(player.attack);
+
+    io_print("   Defense : ");
+    io_print_i64(player.defense);
+
+    println();
+
+    io_print("Or : ");
+    io_print_i64(player.gold);
+
+    io_print("   Potions : ");
+    io_print_i64(player.potions);
+
+    println();
+
+    io_print("Victimes : ");
+    io_print_i64(player.kills);
+
+    io_print("   Etage : ");
+    io_print_i64(player.floor);
+
+    println();
+
+    print_small_line();
+}
+
+
+/* ========================================================================== */
+/* Enemy information                                                         */
+/* ========================================================================== */
+
+proc print_enemy(
+    enemy: &Enemy
+) {
+    io_print("\nENNEMI : ");
+
+    print_enemy_name(
+        enemy
+    );
+
+    println();
+
+    io_print("HP : ");
+    io_print_i64(enemy.health);
+
+    io_print("/");
+    io_print_i64(enemy.max_health);
+
+    println();
+
+    io_print("Attaque : ");
+    io_print_i64(enemy.attack);
+
+    io_print("   Defense : ");
+    io_print_i64(enemy.defense);
+
+    println();
+}
+
+
+/* ========================================================================== */
+/* Menu                                                                       */
+/* ========================================================================== */
+
+proc print_actions() {
+    io_print("\n");
+    io_print("1. Attaquer\n");
+    io_print("2. Attaque puissante\n");
+    io_print("3. Utiliser une potion\n");
+    io_print("4. Statistiques\n");
+    io_print("5. Examiner l'ennemi\n");
+    io_print("6. Quitter\n");
+    io_print("\n> ");
+}
+
+
+proc read_action() -> Action {
+    let value: i64 =
+        io_read_i64();
+
+    if value == 1 {
+        return Action::Attack;
+    }
+
+    if value == 2 {
+        return Action::PowerAttack;
+    }
+
+    if value == 3 {
+        return Action::Heal;
+    }
+
+    if value == 4 {
+        return Action::Inspect;
+    }
+
+    if value == 6 {
+        return Action::Quit;
+    }
+
+    return Action::Invalid;
+}
+
+
+/* ========================================================================== */
+/* Rewards                                                                    */
+/* ========================================================================== */
+
+proc reward_player(
+    game: &mut Game
+) {
+    io_print("\nEnnemi vaincu !\n");
+
+    game.player.experience =
+        game.player.experience +
+        game.enemy.experience;
+
+    game.player.gold =
+        game.player.gold +
+        game.enemy.gold;
+
+    game.player.kills =
+        game.player.kills + 1;
+
+    io_print("+");
+    io_print_i64(
+        game.enemy.experience
+    );
+    io_print(" XP\n");
+
+    io_print("+");
+    io_print_i64(
+        game.enemy.gold
+    );
+    io_print(" or\n");
+
+    let loot: i64 =
+        random_i64(1, 100);
+
+    if loot <= 20 {
+        game.player.potions =
+            game.player.potions + 1;
+
+        io_print(
+            "Vous trouvez une potion !\n"
+        );
+    }
+
+    if loot > 20 and loot <= 27 {
+        game.player.attack =
+            game.player.attack + 1;
+
+        io_print(
+            "Vous trouvez une meilleure arme : +1 attaque.\n"
+        );
+    }
+
+    if loot > 27 and loot <= 34 {
+        game.player.defense =
+            game.player.defense + 1;
+
+        io_print(
+            "Vous trouvez une armure : +1 defense.\n"
+        );
+    }
+
+    update_level(
+        &game.player
+    );
+}
+
+
+/* ========================================================================== */
+/* Player turn                                                                */
+/* ========================================================================== */
+
+proc player_turn(
+    game: &mut Game
+) {
+    let mut completed: bool =
+        false;
+
+    while not completed {
+        print_actions();
+
+        let action: Action =
+            read_action();
+
+        if action ==
+            Action::Attack
+        {
+            player_attack(
+                game
+            );
+
+            completed = true;
+        } else if action ==
+            Action::PowerAttack
+        {
+            player_power_attack(
+                game
+            );
+
+            completed = true;
+        } else if action ==
+            Action::Heal
+        {
+            player_use_potion(
+                game
+            );
+
+            completed = true;
+        } else if action ==
+            Action::Inspect
+        {
+            print_enemy(
+                &game.enemy
+            );
+        } else if action ==
+            Action::Quit
+        {
+            game.state =
+                GameState::Quit;
+
+            completed = true;
+        } else {
+            io_print(
+                "Commande inconnue.\n"
+            );
+        }
+    }
+}
+
+
+/* ========================================================================== */
+/* Combat                                                                     */
+/* ========================================================================== */
+
+proc combat(
+    game: &mut Game
+) {
+    io_print("\nUne creature apparait : ");
+
+    print_enemy_name(
+        &game.enemy
+    );
+
+    io_print(" !\n");
+
+    while
+        player_alive(
+            &game.player
+        )
+        and
+        enemy_alive(
+            &game.enemy
+        )
+        and
+        game.state ==
+            GameState::Playing
+    {
+        print_small_line();
+
+        io_print("Vos HP : ");
+
+        io_print_i64(
+            game.player.health
+        );
+
+        io_print("/");
+
+        io_print_i64(
+            game.player.max_health
+        );
+
+        io_print("\n");
+
+        io_print("HP ennemi : ");
+
+        io_print_i64(
+            game.enemy.health
+        );
+
+        io_print("/");
+
+        io_print_i64(
+            game.enemy.max_health
+        );
+
+        io_print("\n");
+
+        player_turn(
+            game
+        );
+
+        if game.state !=
+            GameState::Playing
+        {
+            return;
+        }
+
+        if not enemy_alive(
+            &game.enemy
+        ) {
+            reward_player(
+                game
+            );
+
+            return;
+        }
+
+        enemy_attack(
+            game
+        );
+
+        if not player_alive(
+            &game.player
+        ) {
+            game.state =
+                GameState::Defeat;
+
+            return;
+        }
+
+        game.turn =
+            game.turn + 1;
+    }
+}
+
+
+/* ========================================================================== */
+/* Rooms                                                                      */
+/* ========================================================================== */
+
+proc treasure_room(
+    game: &mut Game
+) {
+    io_print(
+        "\nVous trouvez un coffre.\n"
+    );
+
+    let gold: i64 =
+        random_i64(
+            10,
+            50 + game.player.floor * 5
+        );
+
+    game.player.gold =
+        game.player.gold +
+        gold;
+
+    io_print(
+        "Le coffre contient "
+    );
+
+    io_print_i64(
+        gold
+    );
+
+    io_print(
+        " pieces d'or.\n"
+    );
+
+    let bonus: i64 =
+        random_i64(1, 100);
+
+    if bonus <= 30 {
+        game.player.potions =
+            game.player.potions + 1;
+
+        io_print(
+            "Une potion se trouve egalement dans le coffre.\n"
+        );
+    }
+}
+
+
+proc fountain_room(
+    game: &mut Game
+) {
+    io_print(
+        "\nVous trouvez une fontaine ancienne.\n"
+    );
+
+    let heal_amount: i64 =
+        game.player.max_health / 3;
+
+    let restored: i64 =
+        heal_player(
+            &game.player,
+            heal_amount
+        );
+
+    io_print(
+        "La fontaine restaure "
+    );
+
+    io_print_i64(
+        restored
+    );
+
+    io_print(
+        " HP.\n"
+    );
+}
+
+
+proc trap_room(
+    game: &mut Game
+) {
+    io_print(
+        "\nUn piege se declenche !\n"
+    );
+
+    let damage: i64 =
+        random_i64(
+            5,
+            15 + game.player.floor
+        );
+
+    damage_player(
+        &game.player,
+        damage
+    );
+
+    io_print(
+        "Vous perdez "
+    );
+
+    io_print_i64(
+        damage
+    );
+
+    io_print(
+        " HP.\n"
+    );
+
+    if not player_alive(
+        &game.player
+    ) {
+        game.state =
+            GameState::Defeat;
+    }
+}
+
+
+proc empty_room(
+    game: &mut Game
+) {
+    io_print(
+        "\nLa salle est silencieuse...\n"
+    );
+
+    let event: i64 =
+        random_i64(1, 100);
+
+    if event <= 15 {
+        io_print(
+            "Vous trouvez quelques pieces d'or.\n"
+        );
+
+        let gold: i64 =
+            random_i64(1, 10);
+
+        game.player.gold =
+            game.player.gold +
+            gold;
+    }
+}
+
+
+/* ========================================================================== */
+/* Room generation                                                            */
+/* ========================================================================== */
+
+proc enter_room(
+    game: &mut Game
+) {
+    game.rooms =
+        game.rooms + 1;
+
+    io_print("\n");
+    print_line();
+
+    io_print("ETAGE ");
+    io_print_i64(
+        game.player.floor
+    );
+
+    io_print(" - SALLE ");
+    io_print_i64(
+        game.rooms
+    );
+
+    println();
+
+    print_line();
+
+    let room: i64 =
+        random_i64(1, 100);
+
+    if room <= 55 {
+        game.enemy =
+            create_enemy(
+                game.player.floor
+            );
+
+        combat(
+            game
+        );
+
+        return;
+    }
+
+    if room <= 70 {
+        treasure_room(
+            game
+        );
+
+        return;
+    }
+
+    if room <= 82 {
+        fountain_room(
+            game
+        );
+
+        return;
+    }
+
+    if room <= 92 {
+        trap_room(
+            game
+        );
+
+        return;
+    }
+
+    empty_room(
+        game
+    );
+}
+
+
+/* ========================================================================== */
+/* Floor                                                                      */
+/* ========================================================================== */
+
+proc floor_complete(
+    game: &Game
+) -> bool {
+    return
+        game.rooms >=
+        5 + game.player.floor / 2;
+}
+
+
+proc next_floor(
+    game: &mut Game
+) {
+    game.player.floor =
+        game.player.floor + 1;
+
+    game.rooms = 0;
+
+    io_print("\n");
+    print_line();
+
+    io_print(
+        "VOUS DESCENDEZ A L'ETAGE "
+    );
+
+    io_print_i64(
+        game.player.floor
+    );
+
+    println();
+
+    print_line();
+
+    let recovery: i64 =
+        game.player.max_health / 5;
+
+    let restored: i64 =
+        heal_player(
+            &game.player,
+            recovery
+        );
+
+    io_print(
+        "Repos : +"
+    );
+
+    io_print_i64(
+        restored
+    );
+
+    io_print(
+        " HP.\n"
+    );
+}
+
+
+/* ========================================================================== */
+/* Victory                                                                    */
+/* ========================================================================== */
+
+proc check_victory(
+    game: &mut Game
+) {
+    if game.player.floor > 15 {
+        game.state =
+            GameState::Victory;
+    }
+}
+
+
+/* ========================================================================== */
+/* Game creation                                                              */
+/* ========================================================================== */
+
+proc create_game() -> Game {
+    let mut game: Game;
+
+    game.player =
+        create_player();
+
+    game.enemy =
+        enemy_rat(1);
+
+    game.state =
+        GameState::Playing;
+
+    game.turn = 1;
+    game.rooms = 0;
+
+    return game;
+}
+
+
+/* ========================================================================== */
+/* Introduction                                                               */
+/* ========================================================================== */
+
+proc introduction() {
+    print_line();
+
+    io_print(
+        "                 VITTE DUNGEON\n"
+    );
+
+    print_line();
+
+    io_print(
+        "Vous entrez dans un ancien donjon.\n"
+    );
+
+    io_print(
+        "Quinze etages vous separent de la sortie.\n"
+    );
+
+    io_print(
+        "Combattez, gagnez de l'experience et survivez.\n"
+    );
+
+    print_line();
+}
+
+
+/* ========================================================================== */
+/* Main game loop                                                             */
+/* ========================================================================== */
+
+proc run_game(
+    game: &mut Game
+) {
+    while game.state ==
+        GameState::Playing
+    {
+        enter_room(
+            game
+        );
+
+        if game.state !=
+            GameState::Playing
+        {
+            break;
+        }
+
+        if floor_complete(
+            game
+        ) {
+            next_floor(
+                game
+            );
+
+            check_victory(
+                game
+            );
+        }
+    }
+}
+
+
+/* ========================================================================== */
+/* Final screen                                                               */
+/* ========================================================================== */
+
+proc final_screen(
+    game: &Game
+) {
+    println();
+    print_line();
+
+    if game.state ==
+        GameState::Victory
+    {
+        io_print(
+            "                 VICTOIRE\n"
+        );
+
+        print_line();
+
+        io_print(
+            "Vous avez traverse le donjon !\n"
+        );
+    } else if game.state ==
+        GameState::Defeat
+    {
+        io_print(
+            "                  DEFAITE\n"
+        );
+
+        print_line();
+
+        io_print(
+            "Votre aventure s'arrete ici.\n"
+        );
+    } else {
+        io_print(
+            "              PARTIE TERMINEE\n"
+        );
+
+        print_line();
+    }
+
+    io_print("Niveau final : ");
+    io_print_i64(
+        game.player.level
+    );
+
+    println();
+
+    io_print("Etage atteint : ");
+    io_print_i64(
+        game.player.floor
+    );
+
+    println();
+
+    io_print("Ennemis vaincus : ");
+    io_print_i64(
+        game.player.kills
+    );
+
+    println();
+
+    io_print("Or : ");
+    io_print_i64(
+        game.player.gold
+    );
+
+    println();
+
+    io_print("Tours : ");
+    io_print_i64(
+        game.turn
+    );
+
+    println();
+
+    print_line();
+}
+
+
+/* ========================================================================== */
+/* Program                                                                    */
+/* ========================================================================== */
+
+pub proc main() -> i64 {
+    introduction();
+
+    let mut game: Game =
+        create_game();
+
+    run_game(
+        &game
+    );
+
+    final_screen(
+        &game
+    );
+
+    return 0;
+}
+
+
+/* ========================================================================== */
+/* Tests                                                                      */
+/* ========================================================================== */
+
+test "player creation" {
+    let player: Player =
+        create_player();
+
+    assert(
+        player.health ==
+        PLAYER_MAX_HEALTH
+    );
+
+    assert(
+        player.max_health ==
+        PLAYER_MAX_HEALTH
+    );
+
+    assert(
+        player.level == 1
+    );
+
+    assert(
+        player.potions == 3
+    );
+}
+
+
+test "damage player" {
+    let mut player: Player =
+        create_player();
+
+    damage_player(
+        &player,
+        20
+    );
+
+    assert(
+        player.health ==
+        PLAYER_MAX_HEALTH - 20
+    );
+}
+
+
+test "damage cannot go below zero" {
+    let mut player: Player =
+        create_player();
+
+    damage_player(
+        &player,
+        100000
+    );
+
+    assert(
+        player.health == 0
+    );
+
+    assert(
+        not player_alive(
+            &player
+        )
+    );
+}
+
+
+test "healing" {
+    let mut player: Player =
+        create_player();
+
+    player.health = 50;
+
+    let restored: i64 =
+        heal_player(
+            &player,
+            20
+        );
+
+    assert(
+        restored == 20
+    );
+
+    assert(
+        player.health == 70
+    );
+}
+
+
+test "healing maximum" {
+    let mut player: Player =
+        create_player();
+
+    player.health =
+        player.max_health - 5;
+
+    let restored: i64 =
+        heal_player(
+            &player,
+            100
+        );
+
+    assert(
+        restored == 5
+    );
+
+    assert(
+        player.health ==
+        player.max_health
+    );
+}
+
+
+test "experience formula" {
+    assert(
+        experience_required(1) ==
+        60
+    );
+
+    assert(
+        experience_required(2) ==
+        120
+    );
+
+    assert(
+        experience_required(3) ==
+        220
+    );
+}
+
+
+test "level up" {
+    let mut player: Player =
+        create_player();
+
+    let old_health: i64 =
+        player.max_health;
+
+    let old_attack: i64 =
+        player.attack;
+
+    let old_defense: i64 =
+        player.defense;
+
+    level_up(
+        &player
+    );
+
+    assert(
+        player.level == 2
+    );
+
+    assert(
+        player.max_health ==
+        old_health + 15
+    );
+
+    assert(
+        player.attack ==
+        old_attack + 3
+    );
+
+    assert(
+        player.defense ==
+        old_defense + 2
+    );
+}
+
+
+test "enemy creation" {
+    let enemy: Enemy =
+        enemy_goblin(1);
+
+    assert(
+        enemy.kind ==
+        EnemyKind::Goblin
+    );
+
+    assert(
+        enemy.health > 0
+    );
+
+    assert(
+        enemy.attack > 0
+    );
+
+    assert(
+        enemy.experience > 0
+    );
+}
+
+
+test "clamp" {
+    assert(
+        clamp_i64(
+            5,
+            0,
+            10
+        ) == 5
+    );
+
+    assert(
+        clamp_i64(
+            -5,
+            0,
+            10
+        ) == 0
+    );
+
+    assert(
+        clamp_i64(
+            50,
+            0,
+            10
+        ) == 10
+    );
+}
+
+
+test "min max" {
+    assert(
+        min_i64(10, 20) == 10
+    );
+
+    assert(
+        max_i64(10, 20) == 20
+    );
+}
+
+
+test "absolute value" {
+    assert(abs_i64(10) == 10);
+    assert(abs_i64(-10) == 10);
+    assert(abs_i64(0) == 0);
+}
+
+
+test "game initialization" {
+    let game: Game =
+        create_game();
+
+    assert(
+        game.state ==
+        GameState::Playing
+    );
+
+    assert(
+        game.player.floor == 1
+    );
+
+    assert(
+        game.turn == 1
+    );
+
+    assert(
+        game.rooms == 0
+    );
+}
+
+
+test "floor progression" {
+    let mut game: Game =
+        create_game();
+
+    game.rooms = 100;
+
+    assert(
+        floor_complete(
+            &game
+        )
+    );
+
+    let previous: i64 =
+        game.player.floor;
+
+    next_floor(
+        &game
+    );
+
+    assert(
+        game.player.floor ==
+        previous + 1
+    );
+
+    assert(
+        game.rooms == 0
+    );
+}
+
+
+test "victory condition" {
+    let mut game: Game =
+        create_game();
+
+    game.player.floor = 16;
+
+    check_victory(
+        &game
+    );
+
+    assert(
+        game.state ==
+        GameState::Victory
+    );
+}

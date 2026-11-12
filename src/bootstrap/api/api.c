@@ -38,6 +38,8 @@
 
 #include "../diagnostic/diagnostic.h"
 #include "../diagnostic/registry.h"
+#include "../diagnostic/render_terminal.h"
+#include "../diagnostic/help.h"
 #include "../lexer/lexer.h"
 #include "../parser/parser.h"
 #include "../sema/sema.h"
@@ -478,14 +480,6 @@ vitte_api_buffer_append(
 }
 
 static bool
-vitte_api_buffer_append_byte(
-    vitte_api_buffer_t *buffer,
-    unsigned char value)
-{
-    return vitte_api_buffer_append(buffer, &value, 1u);
-}
-
-static bool
 vitte_api_buffer_terminate(vitte_api_buffer_t *buffer)
 {
     size_t required;
@@ -893,34 +887,36 @@ vitte_api_capture_diagnostics(
             ++result->note_count;
         }
 
-        status = vitte_diagnostic_format_one(
-            diagnostic,
-            rendered,
-            sizeof(rendered));
-
-        if (status != VITTE_STATUS_OK) {
-            vitte_api_buffer_destroy(&buffer);
-
-            return vitte_api_internal_error(
-                api,
-                "failed to format compiler diagnostic");
-        }
-
-        rendered_length =
-            vitte_api_bounded_strlen(
-                rendered,
-                sizeof(rendered));
-
-        if (!vitte_api_buffer_append(
-                &buffer,
-                rendered,
-                rendered_length) ||
-            !vitte_api_buffer_append_byte(
-                &buffer,
-                (unsigned char)'\n')) {
-            vitte_api_buffer_destroy(&buffer);
-
-            return vitte_api_out_of_memory(api);
+        {
+            vitte_diagnostic_terminal_options_t options;
+            FILE *stream = tmpfile();
+            if (stream == NULL) {
+                vitte_api_buffer_destroy(&buffer);
+                return vitte_api_internal_error(api, "unable to create diagnostic stream");
+            }
+            vitte_diagnostic_terminal_options_init(&options);
+            options.sources = bag->options.sources;
+            vitte_diagnostic_terminal_set_color(&options, false);
+            status = vitte_diagnostic_render_terminal_one(stream, diagnostic, &options);
+            if (status != VITTE_STATUS_OK || fflush(stream) != 0 ||
+                fseek(stream, 0L, SEEK_SET) != 0) {
+                fclose(stream);
+                vitte_api_buffer_destroy(&buffer);
+                return vitte_api_internal_error(api, "failed to format compiler diagnostic");
+            }
+            while ((rendered_length = fread(rendered, 1u, sizeof(rendered), stream)) != 0u) {
+                if (!vitte_api_buffer_append(&buffer, rendered, rendered_length)) {
+                    fclose(stream);
+                    vitte_api_buffer_destroy(&buffer);
+                    return vitte_api_out_of_memory(api);
+                }
+            }
+            if (ferror(stream)) {
+                fclose(stream);
+                vitte_api_buffer_destroy(&buffer);
+                return vitte_api_internal_error(api, "failed to read compiler diagnostic");
+            }
+            fclose(stream);
         }
     }
 
@@ -1082,9 +1078,14 @@ vitte_api_emit_pipeline_diagnostic(
     vitte_diagnostic_init(&diagnostic);
     diagnostic.severity = severity;
     diagnostic.origin = origin;
-    diagnostic.code = code;
-    diagnostic.message = message;
-    diagnostic.details = details;
+    (void)snprintf(diagnostic.code_storage, sizeof(diagnostic.code_storage), "%s", code);
+    diagnostic.code = diagnostic.code_storage;
+    (void)snprintf(diagnostic.message_storage, sizeof(diagnostic.message_storage), "%s", message);
+    diagnostic.message = diagnostic.message_storage;
+    if (details != NULL) {
+        (void)snprintf(diagnostic.details_storage, sizeof(diagnostic.details_storage), "%s", details);
+        diagnostic.details = diagnostic.details_storage;
+    }
 
     if (span != NULL &&
         vitte_diagnostic_set_span(&diagnostic, span) != VITTE_STATUS_OK) {
@@ -1093,6 +1094,11 @@ vitte_api_emit_pipeline_diagnostic(
 
     {
         vitte_status_t status;
+        if (span != NULL) {
+            status = vitte_diagnostic_add_label(&diagnostic, VITTE_DIAGNOSTIC_LABEL_PRIMARY,
+                span, details != NULL ? details : message);
+            if (status != VITTE_STATUS_OK) return status;
+        }
 
         status = vitte_diagnostic_add(bag, &diagnostic);
         if (status != VITTE_STATUS_OK) {
@@ -1128,10 +1134,11 @@ vitte_api_lexer_diagnostic_code(vitte_lexer_error_t error)
         case VITTE_LEXER_ERROR_INVALID_CHARACTER:
         case VITTE_LEXER_ERROR_INVALID_TOKEN:
             return "VITTE_LEXER_E_INVALID_CHARACTER";
+        case VITTE_LEXER_ERROR_OVERFLOW:
+            return "VITTE_LEXER_E_NUMBER_OVERFLOW";
         case VITTE_LEXER_ERROR_COMMENT_DEPTH:
         case VITTE_LEXER_ERROR_TOKEN_LIMIT:
         case VITTE_LEXER_ERROR_SOURCE_TOO_LARGE:
-        case VITTE_LEXER_ERROR_OVERFLOW:
             return "VITTE_INFRA_E_LIMIT";
         case VITTE_LEXER_ERROR_OUT_OF_MEMORY:
             return "VITTE_INFRA_E_RESOURCE";
@@ -1219,6 +1226,48 @@ vitte_api_sema_diagnostic_code(vitte_sema_diagnostic_code_t code)
             return "VITTE_TYPE_E_INVALID_INDEX";
         case VITTE_SEMA_DIAGNOSTIC_UNKNOWN_MEMBER:
             return "VITTE_TYPE_E_NO_MEMBER";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_REQUIRES:
+            return "VITTE_CONTRACT_E_REQUIRES";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_ENSURES:
+            return "VITTE_CONTRACT_E_ENSURES";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_RESULT:
+            return "VITTE_CONTRACT_E_RESULT";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_CONTRADICTION:
+            return "VITTE_CONTRACT_E_CONTRADICTION";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_POSTCONDITION:
+            return "VITTE_CONTRACT_E_POSTCONDITION";
+        case VITTE_SEMA_DIAGNOSTIC_MISSING_RETURN:
+            return "VITTE_CONTROL_E_MISSING_RETURN";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_PRECONDITION:
+            return "VITTE_CONTRACT_E_PRECONDITION";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_OVERFLOW:
+            return "VITTE_CONST_E_OVERFLOW";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_DIVIDE_BY_ZERO:
+            return "VITTE_CONST_E_DIVIDE_BY_ZERO";
+        case VITTE_SEMA_DIAGNOSTIC_INDEX_OUT_OF_BOUNDS:
+            return "VITTE_MEMORY_E_INVALID_ACCESS";
+        case VITTE_SEMA_DIAGNOSTIC_CONTRACT_EFFECT:
+            return "VITTE_CONTRACT_E_EFFECT";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_NON_EXHAUSTIVE:
+            return "VITTE_PATTERN_E_NON_EXHAUSTIVE";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_UNREACHABLE:
+            return "VITTE_PATTERN_E_UNREACHABLE";
+        case VITTE_SEMA_DIAGNOSTIC_CONSTANT_CYCLE:
+            return "VITTE_CONST_E_CYCLE";
+        case VITTE_SEMA_DIAGNOSTIC_MATCH_TYPE:
+            return "VITTE_PATTERN_E_TYPE";
+        case VITTE_SEMA_DIAGNOSTIC_UNSAFE_REQUIRED:
+            return "VITTE_UNSAFE_E_REQUIRED";
+        case VITTE_SEMA_DIAGNOSTIC_REFERENCE_ESCAPE:
+            return "VITTE_MEMORY_E_REFERENCE_ESCAPE";
+        case VITTE_SEMA_DIAGNOSTIC_BORROW_CONFLICT:
+            return "VITTE_MEMORY_E_BORROW_CONFLICT";
+        case VITTE_SEMA_DIAGNOSTIC_BORROWED_MUTATION:
+            return "VITTE_MEMORY_E_BORROWED_MUTATION";
+        case VITTE_SEMA_DIAGNOSTIC_MOVE_BORROWED:
+            return "VITTE_MEMORY_E_MOVE_BORROWED";
+        case VITTE_SEMA_DIAGNOSTIC_USE_AFTER_MOVE:
+            return "VITTE_MEMORY_E_USE_AFTER_MOVE";
         case VITTE_SEMA_DIAGNOSTIC_CONDITION_NOT_BOOL:
             return "VITTE_TYPE_E_CONDITION_NOT_BOOL";
         case VITTE_SEMA_DIAGNOSTIC_RETURN_TYPE_MISMATCH:
@@ -1235,6 +1284,7 @@ vitte_api_sema_diagnostic_code(vitte_sema_diagnostic_code_t code)
             return "VITTE_INFRA_E_LIMIT";
         case VITTE_SEMA_DIAGNOSTIC_NONE:
         case VITTE_SEMA_DIAGNOSTIC_TYPE_MISMATCH:
+        case VITTE_SEMA_DIAGNOSTIC_INVALID_TYPE:
         case VITTE_SEMA_DIAGNOSTIC_CODE_COUNT:
             return "VITTE_TYPE_E_MISMATCH";
     }
@@ -1399,9 +1449,17 @@ vitte_api_capture_sema_diagnostics(
         code = vitte_api_sema_diagnostic_code(item->code);
         origin = item->code == VITTE_SEMA_DIAGNOSTIC_UNRESOLVED_NAME ||
                  item->code == VITTE_SEMA_DIAGNOSTIC_PRIVATE_SYMBOL ||
-                 item->code == VITTE_SEMA_DIAGNOSTIC_DUPLICATE_DECLARATION
+                 item->code == VITTE_SEMA_DIAGNOSTIC_DUPLICATE_DECLARATION ||
+                 item->code == VITTE_SEMA_DIAGNOSTIC_SHADOWED_DECLARATION
             ? VITTE_DIAGNOSTIC_ORIGIN_NAME_RESOLUTION
             : VITTE_DIAGNOSTIC_ORIGIN_TYPE_CHECK;
+        {
+            const vitte_diagnostic_registry_entry_t *entry =
+                vitte_diagnostic_registry_find(code);
+            if (entry != NULL) {
+                origin = entry->origin;
+            }
+        }
         span_pointer = NULL;
         if (item->span.valid && vitte_api_make_diagnostic_span(
                 source_name,
@@ -1416,22 +1474,74 @@ vitte_api_capture_sema_diagnostics(
                 &span)) {
             span_pointer = &span;
         }
-        details = item->help[0] != '\0'
-            ? item->help
-            : vitte_sema_diagnostic_code_name(item->code);
+        {
+            const vitte_diagnostic_registry_entry_t *entry = vitte_diagnostic_registry_find(code);
+            details = item->help[0] != '\0' ? item->help
+                : entry != NULL ? entry->explanation : vitte_sema_diagnostic_code_name(item->code);
+        }
 
         {
             vitte_status_t status;
+            vitte_diagnostic_bag_t *capture_bag = vitte_context_diagnostics_mut(&api->context);
+            size_t count_before = capture_bag != NULL ? capture_bag->count : 0u;
             status = vitte_api_emit_pipeline_diagnostic(
                 api,
                 vitte_api_sema_severity(item->kind),
                 origin,
                 code,
-                vitte_api_diagnostic_title(code),
+                item->code == VITTE_SEMA_DIAGNOSTIC_INDEX_OUT_OF_BOUNDS
+                    ? "array index out of bounds" : vitte_api_diagnostic_title(code),
                 details,
                 span_pointer);
             if (status != VITTE_STATUS_OK) {
                 return status;
+            }
+            {
+                vitte_diagnostic_bag_t *bag = vitte_context_diagnostics_mut(&api->context);
+                vitte_diagnostic_t *diagnostic = bag != NULL && bag->count > count_before
+                    ? &bag->storage[bag->count - 1u] : NULL;
+                if (diagnostic != NULL && item->contract_span.valid &&
+                    item->contract_span.begin <= item->contract_span.end && item->contract_span.end <= source_length) {
+                    char expression[VITTE_DIAGNOSTIC_CONTRACT_EXPRESSION_CAPACITY];
+                    vitte_ast_span_t clause_span;
+                    const vitte_symbol_t *symbol = vitte_scope_get_symbol(&sema->scopes, item->contract_symbol_id);
+                    bool ensures = (item->contract_flags & VITTE_AST_FLAG_CONTRACT_ENSURES) != 0u;
+                    size_t length = item->contract_span.end - item->contract_span.begin;
+                    if (length >= sizeof(expression)) length = sizeof(expression) - 1u;
+                    memcpy(expression, source + item->contract_span.begin, length);
+                    expression[length] = '\0';
+                    if (!vitte_api_make_diagnostic_span(source_name, source, source_length, source_id,
+                            item->contract_span.file_id, item->contract_span.begin, item->contract_span.end,
+                            item->contract_span.line, item->contract_span.column, &clause_span))
+                        return VITTE_STATUS_ERROR_INVALID_ARGUMENT;
+                    status = vitte_diagnostic_set_contract(diagnostic,
+                        ensures ? VITTE_DIAGNOSTIC_CONTRACT_ENSURES : VITTE_DIAGNOSTIC_CONTRACT_REQUIRES,
+                        expression, symbol != NULL ? symbol->name : NULL, details, &clause_span,
+                        item->code == VITTE_SEMA_DIAGNOSTIC_CONTRACT_PRECONDITION ? span_pointer : NULL, NULL);
+                    if (status != VITTE_STATUS_OK) return status;
+                    vitte_diagnostic_set_context(diagnostic, NULL, NULL,
+                        symbol != NULL ? symbol->name : NULL, ensures ? "ensures clause" : "requires clause");
+                    if (span_pointer != NULL && (span.start_offset != clause_span.start_offset || span.end_offset != clause_span.end_offset)) {
+                        status = vitte_diagnostic_add_location(diagnostic, VITTE_DIAGNOSTIC_LOCATION_DECLARATION,
+                            &clause_span, "contract declared here");
+                        if (status != VITTE_STATUS_OK) return status;
+                    }
+                }
+                if (diagnostic != NULL) {
+                    const vitte_sema_type_t *expected_type = vitte_sema_get_type(sema, item->expected_type);
+                    const vitte_sema_type_t *found_type = vitte_sema_get_type(sema, item->found_type);
+                    const char *expected = expected_type != NULL ? vitte_sema_type_kind_name(expected_type->kind) : NULL;
+                    const char *found = found_type != NULL ? vitte_sema_type_kind_name(found_type->kind) : NULL;
+                    char help[VITTE_DIAGNOSTIC_MESSAGE_CAPACITY];
+                    vitte_diagnostic_set_subject(diagnostic, NULL, expected, found);
+                    vitte_diagnostic_set_expected_found(diagnostic, expected, found);
+                    if (item->help[0] != '\0') {
+                        status = vitte_diagnostic_add_help(diagnostic, item->help, span_pointer);
+                    } else if (vitte_diagnostic_format_help(diagnostic, bag->options.sources, help, sizeof(help))) {
+                        status = vitte_diagnostic_add_help(diagnostic, help, span_pointer);
+                    }
+                    if (status != VITTE_STATUS_OK) return status;
+                }
             }
         }
     }

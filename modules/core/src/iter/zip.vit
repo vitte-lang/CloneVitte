@@ -1,16 +1,19 @@
-/// Combine deux tranches en paires dans un tampon fourni par l'appelant.
+/// Copie deux tranches dans des tampons parallèles fournis par l'appelant.
 space core::iter::zip;
 
 export proc zip_copy<T, U>(
     left: &[T],
     right: &[U],
-    destination: &mut [(T, U)]
+    left_output: &mut [T],
+    right_output: &mut [U]
 ) -> usize {
     let mut count: usize = left.len();
     if right.len() < count { set count = right.len(); }
-    if destination.len() < count { set count = destination.len(); }
+    if left_output.len() < count { set count = left_output.len(); }
+    if right_output.len() < count { set count = right_output.len(); }
     for index in 0..count {
-        set destination[index] = (left[index], right[index]);
+        set left_output[index] = left[index];
+        set right_output[index] = right[index];
     }
     return count;
 }

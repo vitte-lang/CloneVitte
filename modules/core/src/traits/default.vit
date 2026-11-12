@@ -1,6 +1,6 @@
 /// Contrat de construction d'une valeur initiale.
 space core::traits::default;
 
-export trait Default {
-    proc default() -> Self;
+export trait Default<Receiver> {
+    proc default() -> Receiver;
 }

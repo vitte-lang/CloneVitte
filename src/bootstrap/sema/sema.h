@@ -44,7 +44,7 @@ extern "C" {
 /* Version                                                                   */
 /* ========================================================================= */
 
-#define VITTE_SEMA_API_VERSION_MAJOR 1u
+#define VITTE_SEMA_API_VERSION_MAJOR 2u
 #define VITTE_SEMA_API_VERSION_MINOR 0u
 #define VITTE_SEMA_API_VERSION_PATCH 0u
 
@@ -203,6 +203,12 @@ typedef enum vitte_sema_type_kind {
 
     /* A declaration-scoped generic parameter. */
     VITTE_SEMA_TYPE_GENERIC_PARAMETER,
+
+    /* Compiler-generated result wrapper for an async procedure call. */
+    VITTE_SEMA_TYPE_TASK,
+
+    /* Bottom type: values of this type never return to the caller. */
+    VITTE_SEMA_TYPE_NEVER,
 
     VITTE_SEMA_TYPE_COUNT
 } vitte_sema_type_kind_t;
@@ -475,6 +481,37 @@ typedef enum vitte_sema_diagnostic_code {
     VITTE_SEMA_DIAGNOSTIC_RECURSION_LIMIT,
     VITTE_SEMA_DIAGNOSTIC_INVALID_TYPE,
 
+    /* Contract declaration checks. Keep existing diagnostic ordinals stable. */
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_REQUIRES,
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_ENSURES,
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_RESULT,
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_CONTRADICTION,
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_POSTCONDITION,
+
+    VITTE_SEMA_DIAGNOSTIC_MISSING_RETURN,
+
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_PRECONDITION,
+    VITTE_SEMA_DIAGNOSTIC_CONSTANT_OVERFLOW,
+    VITTE_SEMA_DIAGNOSTIC_CONSTANT_DIVIDE_BY_ZERO,
+    VITTE_SEMA_DIAGNOSTIC_INDEX_OUT_OF_BOUNDS,
+
+    VITTE_SEMA_DIAGNOSTIC_CONTRACT_EFFECT,
+    VITTE_SEMA_DIAGNOSTIC_MATCH_NON_EXHAUSTIVE,
+    VITTE_SEMA_DIAGNOSTIC_MATCH_UNREACHABLE,
+
+    VITTE_SEMA_DIAGNOSTIC_CONSTANT_CYCLE,
+
+    VITTE_SEMA_DIAGNOSTIC_MATCH_TYPE,
+
+    /* Append to preserve the ordinals used by the bootstrap API. */
+    VITTE_SEMA_DIAGNOSTIC_UNSAFE_REQUIRED,
+
+    VITTE_SEMA_DIAGNOSTIC_REFERENCE_ESCAPE,
+    VITTE_SEMA_DIAGNOSTIC_BORROW_CONFLICT,
+    VITTE_SEMA_DIAGNOSTIC_BORROWED_MUTATION,
+    VITTE_SEMA_DIAGNOSTIC_MOVE_BORROWED,
+    VITTE_SEMA_DIAGNOSTIC_USE_AFTER_MOVE,
+
     VITTE_SEMA_DIAGNOSTIC_CODE_COUNT
 } vitte_sema_diagnostic_code_t;
 
@@ -503,6 +540,11 @@ typedef struct vitte_sema_diagnostic {
 
     /* Evidence from name resolution or the selected procedure signature. */
     char help[512];
+
+    /* Enclosing clause, including diagnostics on a nested expression. */
+    uint32_t contract_flags;
+    vitte_parser_span_t contract_span;
+    vitte_symbol_id_t contract_symbol_id;
 } vitte_sema_diagnostic_t;
 
 /* ========================================================================= */
@@ -639,9 +681,11 @@ typedef struct vitte_sema {
     vitte_sema_type_id_t current_return_type;
     vitte_sema_type_id_t current_self_type;
     vitte_scope_id_t current_proc_scope;
+    vitte_ast_node_id_t awaited_async_call_id;
 
     /* True while checking an ensures clause, where `result` is implicit. */
     bool current_contract_ensures;
+    bool current_contract_requires;
 
     /* Public use/export declarations, indexed once for name lookup. */
     vitte_ast_node_id_t *explicit_exports;
@@ -673,6 +717,12 @@ typedef struct vitte_sema {
      * Incremented by reset.
      */
     uint64_t generation;
+
+    /* Appended so existing public field offsets stay stable in API v2. */
+    vitte_sema_type_id_t type_never;
+
+    /* True while the current procedure/block permits unsafe operations. */
+    bool current_unsafe;
 } vitte_sema_t;
 
 /* ========================================================================= */
@@ -1053,6 +1103,15 @@ vitte_sema_void_type(
 }
 
 static inline vitte_sema_type_id_t
+vitte_sema_never_type(
+    const vitte_sema_t *context)
+{
+    return context != NULL
+        ? context->type_never
+        : VITTE_SEMA_INVALID_TYPE_ID;
+}
+
+static inline vitte_sema_type_id_t
 vitte_sema_bool_type(
     const vitte_sema_t *context)
 {
@@ -1163,6 +1222,16 @@ vitte_sema_type_is_void(
     return context != NULL &&
            type_id ==
                context->type_void;
+}
+
+static inline bool
+vitte_sema_type_is_never(
+    const vitte_sema_t *context,
+    vitte_sema_type_id_t type_id)
+{
+    return context != NULL &&
+           type_id ==
+               context->type_never;
 }
 
 static inline bool

@@ -1,22 +1,43 @@
 /// Recherche de caractères et de sous-chaînes.
 space core::str::search;
 
-export proc str_find_char(value: str, target: char) -> ?usize {
-    for index in 0..value.length {
-        if value[index] == target { return index; }
+export proc str_find_char(value: str, target: char, result_index: &mut usize) -> bool {
+    let length: usize = len(value) as usize;
+    let mut index: usize = 0;
+    while index < length {
+        if value[index] == target {
+            set *result_index = index;
+            return true;
+        }
+        set index += 1;
     }
-    return null;
+    return false;
 }
 
-export proc str_find(value: str, needle: str) -> ?usize {
-    if needle.length == 0 { return 0; }
-    if needle.length > value.length { return null; }
+export proc str_find(value: str, needle: str, result_index: &mut usize) -> bool {
+    let value_length: usize = len(value) as usize;
+    let needle_length: usize = len(needle) as usize;
+    if needle_length == 0 {
+        set *result_index = 0;
+        return true;
+    }
+    if needle_length > value_length { return false; }
     let mut start: usize = 0;
-    while start <= value.length - needle.length {
-        if value.slice(start, start + needle.length) == needle { return start; }
+    while start <= value_length - needle_length {
+        let mut offset: usize = 0;
+        while offset < needle_length and value[start + offset] == needle[offset] {
+            set offset += 1;
+        }
+        if offset == needle_length {
+            set *result_index = start;
+            return true;
+        }
         set start = start + 1;
     }
-    return null;
+    return false;
 }
 
-export proc str_contains(value: str, needle: str) -> bool { return str_find(value, needle) != null; }
+export proc str_contains(value: str, needle: str) -> bool {
+    let mut result_index: usize = 0;
+    return str_find(value, needle, &mut result_index);
+}

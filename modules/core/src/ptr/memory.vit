@@ -1,0 +1,95 @@
+/// Adaptateurs mémoire natifs attendus par les composants du compilateur.
+space vitte::core::memory;
+
+/// Allocation intrinsèque fournie par le runtime natif du compilateur.
+export intrinsic native_allocate(size: usize) -> *mut u8;
+
+/// Libération intrinsèque d'un bloc alloué par `native_allocate`.
+export intrinsic native_deallocate(pointer: *mut u8);
+
+export proc allocate(size: usize) -> *mut u8 {
+    if size == 0 { return null; }
+    return native_allocate(size);
+}
+
+export proc deallocate(pointer: *mut u8) {
+    if pointer != null { native_deallocate(pointer); }
+}
+
+export proc fill(destination: *mut u8, value: u8, length: usize) -> bool {
+    if length == 0 { return true; }
+    if destination == null { return false; }
+    let mut index: usize = 0;
+    while index < length {
+        set destination[index] = value;
+        set index = index + 1;
+    }
+    return true;
+}
+
+/// Copie memmove: les intervalles source et destination peuvent se recouvrir.
+export proc copy(destination: *mut u8, source: *const u8, length: usize) -> bool {
+    if length == 0 { return true; }
+    if destination == null || source == null { return false; }
+
+    let destination_address: usize = destination as usize;
+    let source_address: usize = source as usize;
+    if destination_address > source_address &&
+       destination_address - source_address < length {
+        let mut index: usize = length;
+        while index > 0 {
+            set index = index - 1;
+            set destination[index] = source[index];
+        }
+    } else {
+        let mut index: usize = 0;
+        while index < length {
+            set destination[index] = source[index];
+            set index = index + 1;
+        }
+    }
+    return true;
+}
+
+export proc cstring_length(value: *const u8) -> usize {
+    if value == null { return 0; }
+    let mut length: usize = 0;
+    while value[length] != 0 { set length = length + 1; }
+    return length;
+}
+
+export proc copy_string_bytes(destination: *mut u8, source: string, length: usize) -> bool {
+    if length == 0 { return true; }
+    if destination == null || length > source.length { return false; }
+    let mut index: usize = 0;
+    while index < length {
+        let string_index: i64 = index as i64;
+        set destination[index] = source[string_index] as u8;
+        set index = index + 1;
+    }
+    return true;
+}
+
+/// Remplace les champs `{}` par les arguments, en conservant les autres octets.
+export proc format(format_text: string, arguments: [string]) -> string {
+    let mut rendered: string = "";
+    let mut cursor: usize = 0;
+    let mut argument_index: usize = 0;
+
+    while cursor < format_text.length {
+        let current_index: i64 = cursor as i64;
+        if format_text[current_index] == '{' && cursor + 1 < format_text.length {
+            let next_index: i64 = (cursor + 1) as i64;
+            if format_text[next_index] == '}' && argument_index < arguments.len() {
+                let argument_slot: i64 = argument_index as i64;
+                set rendered = rendered + arguments[argument_slot];
+                set argument_index = argument_index + 1;
+                set cursor = cursor + 2;
+                continue;
+            }
+        }
+        set rendered = rendered + (format_text[current_index] as char);
+        set cursor = cursor + 1;
+    }
+    return rendered;
+}

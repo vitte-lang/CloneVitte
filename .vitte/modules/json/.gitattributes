@@ -1,0 +1,8 @@
+# Vitte uniquement
+*.vitte linguist-language=Vitte linguist-detectable=true
+
+# Exclure tout le reste des statistiques de langage
+* linguist-detectable=false
+
+# Réactiver uniquement Vitte
+*.vitte linguist-detectable=true linguist-language=Vitte

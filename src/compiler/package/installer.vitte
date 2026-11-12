@@ -1,0 +1,570 @@
+/// Vitte-owned package installation and release verification.
+space compiler::package::installer;
+
+use compiler::api::version::{version_string};
+use compiler::filesystem::filesystem::{
+    FilesystemBuffer,
+    FilesystemDirectoryList,
+    FilesystemError,
+    FilesystemKind,
+    FilesystemMetadata,
+    FilesystemResult,
+    vitte_filesystem_buffer_destroy,
+    vitte_filesystem_create_directories,
+    vitte_filesystem_directory_list_destroy,
+    vitte_filesystem_exists,
+    vitte_filesystem_join,
+    vitte_filesystem_list_directory,
+    vitte_filesystem_read_file,
+    vitte_filesystem_remove_directory,
+    vitte_filesystem_remove_file,
+    vitte_filesystem_rename,
+    vitte_filesystem_stat,
+    vitte_filesystem_write_file_atomic,
+    vitte_filesystem_current_directory
+};
+use compiler::package::sha256::{sha256_hex};
+use vitte::core::memory::{allocate, deallocate};
+
+const PACKAGE_REGISTRY_URL: string = "https://vitte-lang.org/registry/packages.tsv";
+const PACKAGE_REGISTRY_LIMIT: usize = 4194304;
+const PACKAGE_ARCHIVE_LIMIT: usize = 536870912;
+const PACKAGE_PATH_CAPACITY: usize = 4096;
+
+export form PackageVersion {
+    major: u32,
+    minor: u32,
+    patch: u32
+}
+
+export form PackageRelease {
+    name: string,
+    version: string,
+    download_url: string,
+    sha256: string
+}
+
+extern proc puts(text: string) -> i32;
+extern proc vitte_native_host_temp_path(kind: u32, buffer: *mut u8, capacity: usize) -> usize;
+extern proc vitte_native_host_process_run(program: *const u8, arguments: *const *const u8, argument_count: usize) -> i32;
+extern proc vitte_native_host_user_modules_root(buffer: *mut u8, capacity: usize) -> usize;
+
+proc package_report(text: string) {
+    if puts(text) < 0 { return; }
+}
+
+proc package_discard_filesystem_result(result: FilesystemResult) {
+    if result.error == FilesystemError.None { return; }
+}
+
+proc package_discard_bool(result: bool) {
+    if result { return; }
+}
+
+proc package_process(program: string, arguments: [*const u8]) -> bool {
+    return vitte_native_host_process_run(
+        program.as_ptr() as *const u8,
+        arguments.as_ptr(),
+        arguments.len()
+    ) == 1;
+}
+
+proc package_temp_path() -> string {
+    let buffer = allocate(PACKAGE_PATH_CAPACITY) as *mut u8;
+    if buffer == null { return ""; }
+    let length = vitte_native_host_temp_path(0, buffer, PACKAGE_PATH_CAPACITY);
+    if length == 0 {
+        deallocate(buffer);
+        return "";
+    }
+    let result = string.from_bytes(buffer, length);
+    deallocate(buffer);
+    return result;
+}
+
+proc package_user_modules_root() -> string {
+    let buffer = allocate(PACKAGE_PATH_CAPACITY) as *mut u8;
+    if buffer == null { return ""; }
+    let length = vitte_native_host_user_modules_root(buffer, PACKAGE_PATH_CAPACITY);
+    if length == 0 {
+        deallocate(buffer);
+        return "";
+    }
+    let result = string.from_bytes(buffer, length);
+    deallocate(buffer);
+    return result;
+}
+
+proc package_safe_name(name: string) -> bool {
+    if name.len() == 0 or name.len() >= 128 { return false; }
+    let mut index: usize = 0;
+    while index < name.len() {
+        let character: char = name[index] as char;
+        if not ((character >= 'a' and character <= 'z') or
+                (character >= 'A' and character <= 'Z') or
+                (character >= '0' and character <= '9') or
+                character == '-' or character == '_') {
+            return false;
+        }
+        set index += 1;
+    }
+    return true;
+}
+
+proc package_parse_version(text: string, output: *mut PackageVersion) -> bool {
+    if output == null or text.len() == 0 { return false; }
+    let mut values: [u32; 3];
+    let mut index: usize = 0;
+    let mut field: usize = 0;
+    while field < 3 {
+        let start = index;
+        let mut value: u64 = 0;
+        while index < text.len() and
+              (text[index] as u8) >= ('0' as u8) and
+              (text[index] as u8) <= ('9' as u8) {
+            value = value * 10 + ((text[index] as u8 - ('0' as u8)) as u64);
+            if value > 4294967295 { return false; }
+            set index += 1;
+        }
+        if index == start or (index - start > 1 and text[start] == '0') { return false; }
+        set values[field] = value as u32;
+        if field < 2 {
+            if index >= text.len() or text[index] != '.' { return false; }
+            set index += 1;
+        }
+        set field += 1;
+    }
+    if index != text.len() { return false; }
+    set *output = PackageVersion { major: values[0], minor: values[1], patch: values[2] };
+    return true;
+}
+
+proc package_version_compare(left: PackageVersion, right: PackageVersion) -> i32 {
+    if left.major < right.major { return -1; }
+    if left.major > right.major { return 1; }
+    if left.minor < right.minor { return -1; }
+    if left.minor > right.minor { return 1; }
+    if left.patch < right.patch { return -1; }
+    if left.patch > right.patch { return 1; }
+    return 0;
+}
+
+proc package_compatible(versions: string, compiler_version: string) -> bool {
+    let mut start: usize = 0;
+    while start <= versions.len() {
+        let mut end = start;
+        while end < versions.len() and versions[end] != ',' { set end += 1; }
+        if versions.slice(start, end) == compiler_version { return true; }
+        if end == versions.len() { return false; }
+        set start = end + 1;
+    }
+    return false;
+}
+
+proc package_field(line: string, requested: usize) -> ?string {
+    let mut start: usize = 0;
+    let mut field: usize = 0;
+    let mut index: usize = 0;
+    while index <= line.len() {
+        if index == line.len() or line[index] == '|' {
+            if field == requested { return line.slice(start, index); }
+            set field += 1;
+            set start = index + 1;
+        }
+        set index += 1;
+    }
+    return null;
+}
+
+proc package_hex_value(character: u8) -> i32 {
+    if character >= ('0' as u8) and character <= ('9' as u8) { return (character - ('0' as u8)) as i32; }
+    if character >= ('a' as u8) and character <= ('f' as u8) { return (character - ('a' as u8) + 10) as i32; }
+    if character >= ('A' as u8) and character <= ('F' as u8) { return (character - ('A' as u8) + 10) as i32; }
+    return -1;
+}
+
+proc package_hash_matches(actual: string, expected: string) -> bool {
+    if expected.len() != 64 or actual.len() != 64 { return false; }
+    let mut index: usize = 0;
+    while index < 64 {
+        if package_hex_value(actual[index] as u8) != package_hex_value(expected[index] as u8) { return false; }
+        set index += 1;
+    }
+    return true;
+}
+
+proc package_resolve_release(
+    registry_path: string,
+    name: string,
+    requested_version: ?string,
+    compiler_version: string,
+    release: *mut PackageRelease
+) -> bool {
+    if release == null { return false; }
+    let mut registry: FilesystemBuffer;
+    let read_result = vitte_filesystem_read_file(registry_path, PACKAGE_REGISTRY_LIMIT, &mut registry);
+    if read_result.error != FilesystemError.None { return false; }
+    let contents = string.from_bytes(registry.data, registry.length);
+    let mut best_version: PackageVersion = PackageVersion { major: 0, minor: 0, patch: 0 };
+    let mut found = false;
+    let mut start: usize = 0;
+    while start < contents.len() {
+        let mut end = start;
+        while end < contents.len() and contents[end] != '\n' { set end += 1; }
+        let line: string = contents.slice(start, end);
+        set start = end + 1;
+        if line.len() == 0 or line[0] == '#' { continue; }
+        let name_field = package_field(line, 0);
+        let version_field = package_field(line, 1);
+        let compatible_field = package_field(line, 2);
+        let url_field = package_field(line, 3);
+        let hash_field = package_field(line, 4);
+        if name_field == null or version_field == null or compatible_field == null or
+           url_field == null or hash_field == null { continue; }
+        let release_name = name_field?;
+        let release_version = version_field?;
+        let release_compatibility = compatible_field?;
+        let release_url = url_field?;
+        let release_hash = hash_field?;
+        if package_field(line, 5) != null or release_name != name or
+           release_url.len() <= 8 or release_url.slice(0, 8) != "https://" or
+           not package_compatible(release_compatibility, compiler_version) or
+           (requested_version != null and release_version != requested_version?) or
+           release_hash.len() != 64 {
+            continue;
+        }
+        let mut hash_index: usize = 0;
+        let mut valid_hash = true;
+        while hash_index < release_hash.len() {
+            if package_hex_value(release_hash[hash_index] as u8) < 0 { set valid_hash = false; break; }
+            set hash_index += 1;
+        }
+        let mut parsed_version: PackageVersion = PackageVersion { major: 0, minor: 0, patch: 0 };
+        if not valid_hash or not package_parse_version(release_version, &mut parsed_version) { continue; }
+        if not found or package_version_compare(parsed_version, best_version) > 0 {
+            set *release = PackageRelease {
+                name: release_name,
+                version: release_version,
+                download_url: release_url,
+                sha256: release_hash
+            };
+            set best_version = parsed_version;
+            set found = true;
+        }
+    }
+    vitte_filesystem_buffer_destroy(&mut registry);
+    return found;
+}
+
+proc package_contains(text: string, needle: string) -> bool {
+    if needle.len() == 0 { return true; }
+    if needle.len() > text.len() { return false; }
+    let mut start: usize = 0;
+    while start + needle.len() <= text.len() {
+        let mut index: usize = 0;
+        while index < needle.len() and text[start + index] == needle[index] { set index += 1; }
+        if index == needle.len() { return true; }
+        set start += 1;
+    }
+    return false;
+}
+
+proc package_remove_tree(path: string) -> bool {
+    let mut metadata: FilesystemMetadata;
+    let stat_result = vitte_filesystem_stat(path, false, &mut metadata);
+    if stat_result.error == FilesystemError.NotFound { return true; }
+    if stat_result.error != FilesystemError.None { return false; }
+    if metadata.kind != FilesystemKind.Directory {
+        return vitte_filesystem_remove_file(path).error == FilesystemError.None;
+    }
+    let mut listing: FilesystemDirectoryList = FilesystemDirectoryList {
+        entries: null,
+        count: 0,
+        capacity: 0
+    };
+    let list_result = vitte_filesystem_list_directory(path, 0, &mut listing);
+    if list_result.error != FilesystemError.None { return false; }
+    let mut index: usize = 0;
+    while index < listing.count {
+        let child_path = vitte_filesystem_join(path, listing.entries[index].name);
+        if not package_remove_tree(child_path) {
+            vitte_filesystem_directory_list_destroy(&mut listing);
+            return false;
+        }
+        set index += 1;
+    }
+    vitte_filesystem_directory_list_destroy(&mut listing);
+    return vitte_filesystem_remove_directory(path).error == FilesystemError.None;
+}
+
+proc package_read_text(path: string, maximum: usize, output: *mut string) -> bool {
+    if output == null { return false; }
+    let mut file: FilesystemBuffer;
+    let result: FilesystemResult = vitte_filesystem_read_file(path, maximum, &mut file);
+    if result.error != FilesystemError.None { return false; }
+    set *output = string.from_bytes(file.data, file.length);
+    vitte_filesystem_buffer_destroy(&mut file);
+    return true;
+}
+
+proc package_update_text(original: string, prefix: string, replacement: string) -> string {
+    let mut output = "";
+    let mut start: usize = 0;
+    while start < original.len() {
+        let mut end = start;
+        while end < original.len() and original[end] != '\n' { set end += 1; }
+        let line: string = original.slice(start, end);
+        let mut matches_prefix = line.len() >= prefix.len();
+        let mut index: usize = 0;
+        while matches_prefix and index < prefix.len() {
+            if line[index] != prefix[index] { set matches_prefix = false; }
+            set index += 1;
+        }
+        if not matches_prefix {
+            set output += line;
+            set output += "\n";
+        }
+        set start = end + 1;
+    }
+    set output += replacement;
+    set output += "\n";
+    return output;
+}
+
+proc package_restore_file(path: string, existed: bool, contents: string) {
+    if existed {
+        let bytes = contents.as_bytes();
+        package_discard_filesystem_result(vitte_filesystem_write_file_atomic(path, bytes.as_ptr() as *mut u8, bytes.len()));
+    } else if vitte_filesystem_exists(path) {
+        package_discard_filesystem_result(vitte_filesystem_remove_file(path));
+    }
+}
+
+proc package_write_project_records(root: string, release: PackageRelease) -> bool {
+    let manifest_path = vitte_filesystem_join(root, "vitte.packages.toml");
+    let lock_path = vitte_filesystem_join(root, "vitte.lock");
+    let manifest_existed = vitte_filesystem_exists(manifest_path);
+    let lock_existed = vitte_filesystem_exists(lock_path);
+    let mut manifest_original = "";
+    let mut lock_original = "";
+    if manifest_existed and not package_read_text(manifest_path, 1048576, &mut manifest_original) { return false; }
+    if lock_existed and not package_read_text(lock_path, 1048576, &mut lock_original) { return false; }
+    let manifest_prefix: string = "dependency." + release.name + " =";
+    let mut manifest_record: string = manifest_prefix;
+    set manifest_record += " \"";
+    set manifest_record += release.version;
+    set manifest_record += "\"";
+    let lock_prefix: string = "package." + release.name + ".";
+    let mut lock_record: string = lock_prefix;
+    set lock_record += "version = \"";
+    set lock_record += release.version;
+    set lock_record += "\"\n";
+    set lock_record += lock_prefix;
+    set lock_record += "source = \"";
+    set lock_record += release.download_url;
+    set lock_record += "\"\n";
+    set lock_record += lock_prefix;
+    set lock_record += "checksum = \"sha256:";
+    set lock_record += release.sha256;
+    set lock_record += "\"";
+    let manifest_updated = package_update_text(manifest_original, manifest_prefix, manifest_record);
+    let lock_updated = package_update_text(lock_original, lock_prefix, lock_record);
+    let manifest_bytes = manifest_updated.as_bytes();
+    if vitte_filesystem_write_file_atomic(manifest_path, manifest_bytes.as_ptr() as *mut u8, manifest_bytes.len()).error != FilesystemError.None {
+        return false;
+    }
+    let lock_bytes = lock_updated.as_bytes();
+    if vitte_filesystem_write_file_atomic(lock_path, lock_bytes.as_ptr() as *mut u8, lock_bytes.len()).error != FilesystemError.None {
+        package_restore_file(manifest_path, manifest_existed, manifest_original);
+        return false;
+    }
+    return true;
+}
+
+proc package_metadata_matches(stage: string, release: PackageRelease) -> bool {
+    let metadata_path = vitte_filesystem_join(stage, "package.toml");
+    let mut metadata = "";
+    if not package_read_text(metadata_path, 65536, &mut metadata) { return false; }
+    let expected_name = "name = \"" + release.name + "\"";
+    let expected_version = "version = \"" + release.version + "\"";
+    return package_contains(metadata, expected_name) and package_contains(metadata, expected_version);
+}
+
+proc package_download(url: string, path: string) -> bool {
+    let arguments: [*const u8] = [
+        "--fail".as_ptr() as *const u8,
+        "--location".as_ptr() as *const u8,
+        "--silent".as_ptr() as *const u8,
+        "--show-error".as_ptr() as *const u8,
+        "--output".as_ptr() as *const u8,
+        path.as_ptr() as *const u8,
+        url.as_ptr() as *const u8
+    ];
+    return package_process("curl", arguments);
+}
+
+proc package_extract_with_pax(archive: string, stage: string) -> bool {
+    let command = "cd \"$1\" && gzip -dc \"$2\" > .vitte-package.tar && pax -r -f .vitte-package.tar";
+    let arguments: [*const u8] = [
+        "-c".as_ptr() as *const u8,
+        command.as_ptr() as *const u8,
+        "vitte-package-extract".as_ptr() as *const u8,
+        stage.as_ptr() as *const u8,
+        archive.as_ptr() as *const u8
+    ];
+    return package_process("/bin/sh", arguments);
+}
+
+/// Install a verified stable release into the current project or user module root.
+export proc vitte_package_install(name: string, requested_version: ?string, global_install: bool) -> i32 {
+    if not package_safe_name(name) {
+        package_report("vitte install: invalid package name");
+        return 2;
+    }
+    if requested_version != null {
+        let mut parsed: PackageVersion = PackageVersion { major: 0, minor: 0, patch: 0 };
+        if not package_parse_version(requested_version?, &mut parsed) {
+            package_report("vitte install: version must be a stable x.y.z version");
+            return 2;
+        }
+    }
+
+    let mut current_directory = "";
+    let cwd_result = vitte_filesystem_current_directory(&mut current_directory);
+    if cwd_result.error != FilesystemError.None {
+        package_report("vitte install: cannot determine the project directory");
+        return 1;
+    }
+    let modules_root = if global_install {
+        package_user_modules_root()
+    } else {
+        vitte_filesystem_join(current_directory, ".vitte/modules")
+    };
+    if modules_root.len() == 0 or
+       vitte_filesystem_create_directories(modules_root).error != FilesystemError.None {
+        package_report("vitte install: cannot create the module directory");
+        return 1;
+    }
+
+    let registry_path = package_temp_path();
+    let archive_path = package_temp_path();
+    if registry_path.len() == 0 or archive_path.len() == 0 {
+        package_report("vitte install: cannot reserve temporary files");
+        if registry_path.len() != 0 { package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path)); }
+        if archive_path.len() != 0 { package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path)); }
+        return 1;
+    }
+    if not package_download(PACKAGE_REGISTRY_URL, registry_path) {
+        package_report("vitte install: could not download the package registry");
+        package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+        return 1;
+    }
+    let mut release: PackageRelease = PackageRelease { name: "", version: "", download_url: "", sha256: "" };
+    if not package_resolve_release(registry_path, name, requested_version, version_string(), &mut release) {
+        package_report("vitte install: no stable compatible release found for this package");
+        package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+        return 1;
+    }
+    if not package_download(release.download_url, archive_path) {
+        package_report("vitte install: package archive download failed");
+        package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+        return 1;
+    }
+    let mut archive: FilesystemBuffer;
+    let archive_read = vitte_filesystem_read_file(archive_path, PACKAGE_ARCHIVE_LIMIT, &mut archive);
+    if archive_read.error != FilesystemError.None {
+        package_report("vitte install: downloaded archive is unreadable or too large");
+        package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+        return 1;
+    }
+    let digest = sha256_hex(archive.data as *const u8, archive.length);
+    vitte_filesystem_buffer_destroy(&mut archive);
+    if not package_hash_matches(digest, release.sha256) {
+        package_report("vitte install: SHA-256 mismatch for the package archive");
+        package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+        return 1;
+    }
+
+    let stage_name = "." + release.name + "-staging";
+    let backup_name = "." + release.name + "-backup";
+    let stage_path = vitte_filesystem_join(modules_root, stage_name);
+    let backup_path = vitte_filesystem_join(modules_root, backup_name);
+    let target_path = vitte_filesystem_join(modules_root, release.name);
+    package_discard_bool(package_remove_tree(stage_path));
+    if vitte_filesystem_create_directories(stage_path).error != FilesystemError.None {
+        package_report("vitte install: cannot create package staging directory");
+        package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+        return 1;
+    }
+    let extraction_arguments: [*const u8] = [
+        "-xzf".as_ptr() as *const u8,
+        archive_path.as_ptr() as *const u8,
+        "-C".as_ptr() as *const u8,
+        stage_path.as_ptr() as *const u8
+    ];
+    let archive_root_name = "vitte-" + release.name + "-" + release.version;
+    let extracted_package_path = vitte_filesystem_join(stage_path, archive_root_name);
+    let mut archive_extracted = package_process("tar", extraction_arguments);
+    if archive_extracted and not package_metadata_matches(extracted_package_path, release) {
+        set archive_extracted = false;
+    }
+    if not archive_extracted {
+        package_discard_bool(package_remove_tree(stage_path));
+        if vitte_filesystem_create_directories(stage_path).error != FilesystemError.None or
+           not package_extract_with_pax(archive_path, stage_path) {
+            package_report("vitte install: archive layout or package metadata is invalid");
+            package_discard_bool(package_remove_tree(stage_path));
+            package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+            package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+            return 1;
+        }
+    }
+    if not package_metadata_matches(extracted_package_path, release) {
+        package_report("vitte install: archive layout or package metadata is invalid");
+        package_discard_bool(package_remove_tree(stage_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+        return 1;
+    }
+
+    package_discard_bool(package_remove_tree(backup_path));
+    let mut old_target_moved = false;
+    if vitte_filesystem_exists(target_path) {
+        if vitte_filesystem_rename(target_path, backup_path).error != FilesystemError.None {
+            package_report("vitte install: cannot preserve the existing package directory");
+            package_discard_bool(package_remove_tree(stage_path));
+            package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+            package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+            return 1;
+        }
+        set old_target_moved = true;
+    }
+    if vitte_filesystem_rename(extracted_package_path, target_path).error != FilesystemError.None {
+        if old_target_moved { package_discard_filesystem_result(vitte_filesystem_rename(backup_path, target_path)); }
+        package_report("vitte install: cannot activate the downloaded package");
+        package_discard_bool(package_remove_tree(stage_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+        return 1;
+    }
+    package_discard_bool(package_remove_tree(stage_path));
+    if not global_install and not package_write_project_records(current_directory, release) {
+        package_discard_bool(package_remove_tree(target_path));
+        if old_target_moved { package_discard_filesystem_result(vitte_filesystem_rename(backup_path, target_path)); }
+        package_report("vitte install: could not update project manifest and lock file");
+        package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+        package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+        return 1;
+    }
+    if old_target_moved { package_discard_bool(package_remove_tree(backup_path)); }
+    package_discard_filesystem_result(vitte_filesystem_remove_file(registry_path));
+    package_discard_filesystem_result(vitte_filesystem_remove_file(archive_path));
+    package_report("Installed package successfully");
+    return 0;
+}

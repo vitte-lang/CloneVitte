@@ -3,6 +3,8 @@ space core::sync::spinlock;
 
 use core::sync::ordering::{AtomicOrdering};
 use core::intrinsics::atomic::{atomic_load, atomic_compare_exchange};
+use core::ptr::const_ptr::{const_ptr};
+use core::ptr::mut_ptr::{mut_ptr};
 
 export form SpinLock<T> {
     locked: u8,
@@ -10,14 +12,14 @@ export form SpinLock<T> {
 }
 
 export proc spinlock<T>(value: T) -> SpinLock[T] {
-    return SpinLock { locked: 0, value: value };
+    return SpinLock[T] { locked: 0, value: value };
 }
 
 export proc spinlock_try_lock<T>(lock: &mut SpinLock[T]) -> bool {
     return atomic_compare_exchange(
-        &mut lock.locked,
-        0,
-        1,
+        mut_ptr(&mut lock.locked),
+        0 as u8,
+        1 as u8,
         AtomicOrdering.Acquire,
         AtomicOrdering.Relaxed
     );
@@ -29,9 +31,9 @@ export proc spinlock_lock<T>(lock: &mut SpinLock[T]) {
 
 export proc spinlock_unlock<T>(lock: &mut SpinLock[T]) {
     atomic_compare_exchange(
-        &mut lock.locked,
-        1,
-        0,
+        mut_ptr(&mut lock.locked),
+        1 as u8,
+        0 as u8,
         AtomicOrdering.Release,
         AtomicOrdering.Relaxed
     );
@@ -39,16 +41,16 @@ export proc spinlock_unlock<T>(lock: &mut SpinLock[T]) {
 
 export proc spinlock_try_unlock<T>(lock: &mut SpinLock[T]) -> bool {
     return atomic_compare_exchange(
-        &mut lock.locked,
-        1,
-        0,
+        mut_ptr(&mut lock.locked),
+        1 as u8,
+        0 as u8,
         AtomicOrdering.Release,
         AtomicOrdering.Relaxed
     );
 }
 
 export proc spinlock_is_locked<T>(lock: &SpinLock[T]) -> bool {
-    return atomic_load(&lock.locked, AtomicOrdering.Relaxed) != 0;
+    return atomic_load(const_ptr(&lock.locked), AtomicOrdering.Relaxed) != 0;
 }
 
 export proc spinlock_value_mut<T>(lock: &mut SpinLock[T]) -> &mut T {

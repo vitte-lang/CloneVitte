@@ -1,0 +1,2510 @@
+/// tetris.vitte
+///
+/// Tetris complet inspiré du gameplay Game Boy classique.
+///
+/// Objectifs :
+/// - plateau 10 × 20 ;
+/// - 7 tétriminos I/O/T/S/Z/J/L ;
+/// - rotations ;
+/// - collisions ;
+/// - déplacement gauche/droite ;
+/// - soft drop ;
+/// - hard drop ;
+/// - verrouillage des pièces ;
+/// - suppression réelle des lignes ;
+/// - score ;
+/// - niveaux ;
+/// - accélération progressive ;
+/// - pièce suivante ;
+/// - générateur pseudo-aléatoire ;
+/// - game over ;
+/// - pause ;
+/// - rendu terminal ;
+/// - boucle de jeu complète.
+///
+/// Contrôles :
+///   A / gauche   : déplacer à gauche
+///   D / droite   : déplacer à droite
+///   S / bas      : descente rapide
+///   W / haut     : rotation
+///   espace       : hard drop
+///   P            : pause
+///   Q            : quitter
+///
+/// Le cœur du jeu est entièrement en Vitte.
+/// Les procédures terminal_* représentent la petite couche plateforme
+/// nécessaire pour relier le jeu au terminal/runtime Vitte.
+
+space games/tetris;
+
+const BOARD_WIDTH: i64 = 10;
+const BOARD_HEIGHT: i64 = 20;
+const BOARD_SIZE: i64 = 200;
+
+const EMPTY: i64 = 0;
+
+const CELL_I: i64 = 1;
+const CELL_O: i64 = 2;
+const CELL_T: i64 = 3;
+const CELL_S: i64 = 4;
+const CELL_Z: i64 = 5;
+const CELL_J: i64 = 6;
+const CELL_L: i64 = 7;
+
+const PIECE_I: i64 = 0;
+const PIECE_O: i64 = 1;
+const PIECE_T: i64 = 2;
+const PIECE_S: i64 = 3;
+const PIECE_Z: i64 = 4;
+const PIECE_J: i64 = 5;
+const PIECE_L: i64 = 6;
+
+const ACTION_NONE: i64 = 0;
+const ACTION_LEFT: i64 = 1;
+const ACTION_RIGHT: i64 = 2;
+const ACTION_DOWN: i64 = 3;
+const ACTION_ROTATE: i64 = 4;
+const ACTION_DROP: i64 = 5;
+const ACTION_PAUSE: i64 = 6;
+const ACTION_QUIT: i64 = 7;
+
+const INITIAL_SEED: u64 = 0xC0FFEE;
+
+form Point {
+    x: i64,
+    y: i64,
+}
+
+form Piece {
+    kind: i64,
+    rotation: i64,
+    x: i64,
+    y: i64,
+}
+
+form Board {
+    cells: [200]i64,
+}
+
+form RandomState {
+    state: u64,
+}
+
+form Bag {
+    values: [7]i64,
+    index: i64,
+}
+
+form Statistics {
+    score: i64,
+    lines: i64,
+    level: i64,
+    pieces: i64,
+    singles: i64,
+    doubles: i64,
+    triples: i64,
+    tetrises: i64,
+}
+
+form Game {
+    board: Board,
+
+    current: Piece,
+
+    next_kind: i64,
+
+    random: RandomState,
+
+    bag: Bag,
+
+    stats: Statistics,
+
+    fall_counter: i64,
+
+    lock_counter: i64,
+
+    paused: bool,
+
+    game_over: bool,
+
+    quit: bool,
+}
+
+extern proc terminal_clear() -> void;
+extern proc terminal_hide_cursor() -> void;
+extern proc terminal_show_cursor() -> void;
+
+extern proc terminal_print(
+    text: string
+) -> void;
+
+extern proc terminal_print_i64(
+    value: i64
+) -> void;
+
+extern proc terminal_key_pressed() -> bool;
+
+extern proc terminal_read_key() -> char;
+
+extern proc terminal_sleep_ms(
+    milliseconds: i64
+) -> void;
+
+proc board_index(
+    x: i64,
+    y: i64
+) -> i64 {
+    give y * BOARD_WIDTH + x;
+}
+
+proc inside_x(
+    x: i64
+) -> bool {
+    give x >= 0 &&
+         x < BOARD_WIDTH;
+}
+
+proc inside_y(
+    y: i64
+) -> bool {
+    give y >= 0 &&
+         y < BOARD_HEIGHT;
+}
+
+proc inside_board(
+    x: i64,
+    y: i64
+) -> bool {
+    give inside_x(x) &&
+         inside_y(y);
+}
+
+proc make_empty_board() -> Board {
+    give Board {
+        cells: [
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0
+        ],
+    };
+}
+
+proc board_get(
+    board: &Board,
+    x: i64,
+    y: i64
+) -> i64 {
+    if !inside_board(x, y) {
+        give EMPTY;
+    }
+
+    give board.cells[
+        board_index(x, y)
+    ];
+}
+
+proc board_set(
+    board: &Board,
+    x: i64,
+    y: i64,
+    value: i64
+) -> Board {
+    let mut result: Board =
+        *board;
+
+    if inside_board(x, y) {
+        set result.cells[
+            board_index(x, y)
+        ] = value;
+    }
+
+    give result;
+}
+
+proc clear_board() -> Board {
+    give make_empty_board();
+}
+
+proc normalize_rotation(
+    rotation: i64
+) -> i64 {
+    let mut result: i64 =
+        rotation;
+
+    while result < 0 {
+        set result += 4;
+    }
+
+    while result >= 4 {
+        set result -= 4;
+    }
+
+    give result;
+}
+
+proc piece_cell_value(
+    kind: i64
+) -> i64 {
+    if kind == PIECE_I {
+        give CELL_I;
+    }
+
+    if kind == PIECE_O {
+        give CELL_O;
+    }
+
+    if kind == PIECE_T {
+        give CELL_T;
+    }
+
+    if kind == PIECE_S {
+        give CELL_S;
+    }
+
+    if kind == PIECE_Z {
+        give CELL_Z;
+    }
+
+    if kind == PIECE_J {
+        give CELL_J;
+    }
+
+    give CELL_L;
+}
+
+proc make_piece(
+    kind: i64
+) -> Piece {
+    give Piece {
+        kind: kind,
+        rotation: 0,
+        x: 3,
+        y: -1,
+    };
+}
+
+proc block_i(
+    rotation: i64,
+    index: i64
+) -> Point {
+    if rotation == 0 ||
+       rotation == 2 {
+        if index == 0 {
+            give Point { x: 0, y: 1 };
+        }
+
+        if index == 1 {
+            give Point { x: 1, y: 1 };
+        }
+
+        if index == 2 {
+            give Point { x: 2, y: 1 };
+        }
+
+        give Point { x: 3, y: 1 };
+    }
+
+    if index == 0 {
+        give Point { x: 2, y: 0 };
+    }
+
+    if index == 1 {
+        give Point { x: 2, y: 1 };
+    }
+
+    if index == 2 {
+        give Point { x: 2, y: 2 };
+    }
+
+    give Point { x: 2, y: 3 };
+}
+
+proc block_o(
+    index: i64
+) -> Point {
+    if index == 0 {
+        give Point { x: 1, y: 0 };
+    }
+
+    if index == 1 {
+        give Point { x: 2, y: 0 };
+    }
+
+    if index == 2 {
+        give Point { x: 1, y: 1 };
+    }
+
+    give Point { x: 2, y: 1 };
+}
+
+proc block_t(
+    rotation: i64,
+    index: i64
+) -> Point {
+    if rotation == 0 {
+        if index == 0 {
+            give Point { x: 1, y: 0 };
+        }
+
+        if index == 1 {
+            give Point { x: 0, y: 1 };
+        }
+
+        if index == 2 {
+            give Point { x: 1, y: 1 };
+        }
+
+        give Point { x: 2, y: 1 };
+    }
+
+    if rotation == 1 {
+        if index == 0 {
+            give Point { x: 1, y: 0 };
+        }
+
+        if index == 1 {
+            give Point { x: 1, y: 1 };
+        }
+
+        if index == 2 {
+            give Point { x: 2, y: 1 };
+        }
+
+        give Point { x: 1, y: 2 };
+    }
+
+    if rotation == 2 {
+        if index == 0 {
+            give Point { x: 0, y: 1 };
+        }
+
+        if index == 1 {
+            give Point { x: 1, y: 1 };
+        }
+
+        if index == 2 {
+            give Point { x: 2, y: 1 };
+        }
+
+        give Point { x: 1, y: 2 };
+    }
+
+    if index == 0 {
+        give Point { x: 1, y: 0 };
+    }
+
+    if index == 1 {
+        give Point { x: 0, y: 1 };
+    }
+
+    if index == 2 {
+        give Point { x: 1, y: 1 };
+    }
+
+    give Point { x: 1, y: 2 };
+}
+
+proc block_s(
+    rotation: i64,
+    index: i64
+) -> Point {
+    if rotation == 0 ||
+       rotation == 2 {
+        if index == 0 {
+            give Point { x: 1, y: 0 };
+        }
+
+        if index == 1 {
+            give Point { x: 2, y: 0 };
+        }
+
+        if index == 2 {
+            give Point { x: 0, y: 1 };
+        }
+
+        give Point { x: 1, y: 1 };
+    }
+
+    if index == 0 {
+        give Point { x: 1, y: 0 };
+    }
+
+    if index == 1 {
+        give Point { x: 1, y: 1 };
+    }
+
+    if index == 2 {
+        give Point { x: 2, y: 1 };
+    }
+
+    give Point { x: 2, y: 2 };
+}
+
+proc block_z(
+    rotation: i64,
+    index: i64
+) -> Point {
+    if rotation == 0 ||
+       rotation == 2 {
+        if index == 0 {
+            give Point { x: 0, y: 0 };
+        }
+
+        if index == 1 {
+            give Point { x: 1, y: 0 };
+        }
+
+        if index == 2 {
+            give Point { x: 1, y: 1 };
+        }
+
+        give Point { x: 2, y: 1 };
+    }
+
+    if index == 0 {
+        give Point { x: 2, y: 0 };
+    }
+
+    if index == 1 {
+        give Point { x: 1, y: 1 };
+    }
+
+    if index == 2 {
+        give Point { x: 2, y: 1 };
+    }
+
+    give Point { x: 1, y: 2 };
+}
+
+proc block_j(
+    rotation: i64,
+    index: i64
+) -> Point {
+    if rotation == 0 {
+        if index == 0 {
+            give Point { x: 0, y: 0 };
+        }
+
+        if index == 1 {
+            give Point { x: 0, y: 1 };
+        }
+
+        if index == 2 {
+            give Point { x: 1, y: 1 };
+        }
+
+        give Point { x: 2, y: 1 };
+    }
+
+    if rotation == 1 {
+        if index == 0 {
+            give Point { x: 1, y: 0 };
+        }
+
+        if index == 1 {
+            give Point { x: 2, y: 0 };
+        }
+
+        if index == 2 {
+            give Point { x: 1, y: 1 };
+        }
+
+        give Point { x: 1, y: 2 };
+    }
+
+    if rotation == 2 {
+        if index == 0 {
+            give Point { x: 0, y: 1 };
+        }
+
+        if index == 1 {
+            give Point { x: 1, y: 1 };
+        }
+
+        if index == 2 {
+            give Point { x: 2, y: 1 };
+        }
+
+        give Point { x: 2, y: 2 };
+    }
+
+    if index == 0 {
+        give Point { x: 1, y: 0 };
+    }
+
+    if index == 1 {
+        give Point { x: 1, y: 1 };
+    }
+
+    if index == 2 {
+        give Point { x: 0, y: 2 };
+    }
+
+    give Point { x: 1, y: 2 };
+}
+
+proc block_l(
+    rotation: i64,
+    index: i64
+) -> Point {
+    if rotation == 0 {
+        if index == 0 {
+            give Point { x: 2, y: 0 };
+        }
+
+        if index == 1 {
+            give Point { x: 0, y: 1 };
+        }
+
+        if index == 2 {
+            give Point { x: 1, y: 1 };
+        }
+
+        give Point { x: 2, y: 1 };
+    }
+
+    if rotation == 1 {
+        if index == 0 {
+            give Point { x: 1, y: 0 };
+        }
+
+        if index == 1 {
+            give Point { x: 1, y: 1 };
+        }
+
+        if index == 2 {
+            give Point { x: 1, y: 2 };
+        }
+
+        give Point { x: 2, y: 2 };
+    }
+
+    if rotation == 2 {
+        if index == 0 {
+            give Point { x: 0, y: 1 };
+        }
+
+        if index == 1 {
+            give Point { x: 1, y: 1 };
+        }
+
+        if index == 2 {
+            give Point { x: 2, y: 1 };
+        }
+
+        give Point { x: 0, y: 2 };
+    }
+
+    if index == 0 {
+        give Point { x: 0, y: 0 };
+    }
+
+    if index == 1 {
+        give Point { x: 1, y: 0 };
+    }
+
+    if index == 2 {
+        give Point { x: 1, y: 1 };
+    }
+
+    give Point { x: 1, y: 2 };
+}
+
+proc piece_block(
+    piece: &Piece,
+    index: i64
+) -> Point {
+    let rotation: i64 =
+        normalize_rotation(
+            piece.rotation);
+
+    if piece.kind == PIECE_I {
+        give block_i(
+            rotation,
+            index);
+    }
+
+    if piece.kind == PIECE_O {
+        give block_o(index);
+    }
+
+    if piece.kind == PIECE_T {
+        give block_t(
+            rotation,
+            index);
+    }
+
+    if piece.kind == PIECE_S {
+        give block_s(
+            rotation,
+            index);
+    }
+
+    if piece.kind == PIECE_Z {
+        give block_z(
+            rotation,
+            index);
+    }
+
+    if piece.kind == PIECE_J {
+        give block_j(
+            rotation,
+            index);
+    }
+
+    give block_l(
+        rotation,
+        index);
+}
+
+proc piece_world_block(
+    piece: &Piece,
+    index: i64
+) -> Point {
+    let block: Point =
+        piece_block(
+            piece,
+            index);
+
+    give Point {
+        x: piece.x + block.x,
+        y: piece.y + block.y,
+    };
+}
+
+proc piece_fits(
+    board: &Board,
+    piece: &Piece
+) -> bool {
+    let mut index: i64 = 0;
+
+    while index < 4 {
+        let block: Point =
+            piece_world_block(
+                piece,
+                index);
+
+        if block.x < 0 ||
+           block.x >= BOARD_WIDTH {
+            give false;
+        }
+
+        if block.y >= BOARD_HEIGHT {
+            give false;
+        }
+
+        if block.y >= 0 {
+            if board_get(
+                board,
+                block.x,
+                block.y) != EMPTY {
+                give false;
+            }
+        }
+
+        set index += 1;
+    }
+
+    give true;
+}
+
+proc moved_piece(
+    piece: &Piece,
+    dx: i64,
+    dy: i64
+) -> Piece {
+    give Piece {
+        kind: piece.kind,
+        rotation: piece.rotation,
+        x: piece.x + dx,
+        y: piece.y + dy,
+    };
+}
+
+proc rotated_piece(
+    piece: &Piece
+) -> Piece {
+    give Piece {
+        kind: piece.kind,
+        rotation:
+            normalize_rotation(
+                piece.rotation + 1),
+        x: piece.x,
+        y: piece.y,
+    };
+}
+
+proc try_move_piece(
+    board: &Board,
+    piece: &Piece,
+    dx: i64,
+    dy: i64
+) -> Piece {
+    let candidate: Piece =
+        moved_piece(
+            piece,
+            dx,
+            dy);
+
+    if piece_fits(
+        board,
+        &candidate) {
+        give candidate;
+    }
+
+    give piece;
+}
+
+proc try_rotate_piece(
+    board: &Board,
+    piece: &Piece
+) -> Piece {
+    let rotated: Piece =
+        rotated_piece(piece);
+
+    if piece_fits(
+        board,
+        &rotated) {
+        give rotated;
+    }
+
+    let left: Piece =
+        moved_piece(
+            &rotated,
+            -1,
+            0);
+
+    if piece_fits(
+        board,
+        &left) {
+        give left;
+    }
+
+    let right: Piece =
+        moved_piece(
+            &rotated,
+            1,
+            0);
+
+    if piece_fits(
+        board,
+        &right) {
+        give right;
+    }
+
+    let left_two: Piece =
+        moved_piece(
+            &rotated,
+            -2,
+            0);
+
+    if piece_fits(
+        board,
+        &left_two) {
+        give left_two;
+    }
+
+    let right_two: Piece =
+        moved_piece(
+            &rotated,
+            2,
+            0);
+
+    if piece_fits(
+        board,
+        &right_two) {
+        give right_two;
+    }
+
+    give piece;
+}
+
+proc piece_can_fall(
+    board: &Board,
+    piece: &Piece
+) -> bool {
+    let next: Piece =
+        moved_piece(
+            piece,
+            0,
+            1);
+
+    give piece_fits(
+        board,
+        &next);
+}
+
+proc lock_piece(
+    board: &Board,
+    piece: &Piece
+) -> Board {
+    let mut result: Board =
+        *board;
+
+    let value: i64 =
+        piece_cell_value(
+            piece.kind);
+
+    let mut index: i64 = 0;
+
+    while index < 4 {
+        let block: Point =
+            piece_world_block(
+                piece,
+                index);
+
+        if inside_board(
+            block.x,
+            block.y) {
+            set result.cells[
+                board_index(
+                    block.x,
+                    block.y)
+            ] = value;
+        }
+
+        set index += 1;
+    }
+
+    give result;
+}
+
+proc piece_above_board(
+    piece: &Piece
+) -> bool {
+    let mut index: i64 = 0;
+
+    while index < 4 {
+        let block: Point =
+            piece_world_block(
+                piece,
+                index);
+
+        if block.y < 0 {
+            give true;
+        }
+
+        set index += 1;
+    }
+
+    give false;
+}
+
+proc row_full(
+    board: &Board,
+    y: i64
+) -> bool {
+    let mut x: i64 = 0;
+
+    while x < BOARD_WIDTH {
+        if board_get(
+            board,
+            x,
+            y) == EMPTY {
+            give false;
+        }
+
+        set x += 1;
+    }
+
+    give true;
+}
+
+proc copy_row(
+    board: &Board,
+    destination: i64,
+    source: i64
+) -> Board {
+    let mut result: Board =
+        *board;
+
+    let mut x: i64 = 0;
+
+    while x < BOARD_WIDTH {
+        set result.cells[
+            board_index(
+                x,
+                destination)
+        ] =
+            board_get(
+                board,
+                x,
+                source);
+
+        set x += 1;
+    }
+
+    give result;
+}
+
+proc clear_row(
+    board: &Board,
+    y: i64
+) -> Board {
+    let mut result: Board =
+        *board;
+
+    let mut x: i64 = 0;
+
+    while x < BOARD_WIDTH {
+        set result.cells[
+            board_index(x, y)
+        ] = EMPTY;
+
+        set x += 1;
+    }
+
+    give result;
+}
+
+proc remove_row(
+    board: &Board,
+    row: i64
+) -> Board {
+    let mut result: Board =
+        *board;
+
+    let mut y: i64 =
+        row;
+
+    while y > 0 {
+        let shifted: Board =
+            copy_row(
+                &result,
+                y,
+                y - 1);
+
+        set result =
+            shifted;
+
+        set y -= 1;
+    }
+
+    set result =
+        clear_row(
+            &result,
+            0);
+
+    give result;
+}
+
+form LineClearResult {
+    board: Board,
+    lines: i64,
+}
+
+proc clear_complete_lines(
+    board: &Board
+) -> LineClearResult {
+    let mut result: Board =
+        *board;
+
+    let mut cleared: i64 = 0;
+
+    let mut y: i64 =
+        BOARD_HEIGHT - 1;
+
+    while y >= 0 {
+        if row_full(
+            &result,
+            y) {
+            let next: Board =
+                remove_row(
+                    &result,
+                    y);
+
+            set result =
+                next;
+
+            set cleared += 1;
+        } else {
+            set y -= 1;
+        }
+    }
+
+    give LineClearResult {
+        board: result,
+        lines: cleared,
+    };
+}
+
+proc score_for_clear(
+    lines: i64,
+    level: i64
+) -> i64 {
+    if lines == 1 {
+        give 40 *
+             (level + 1);
+    }
+
+    if lines == 2 {
+        give 100 *
+             (level + 1);
+    }
+
+    if lines == 3 {
+        give 300 *
+             (level + 1);
+    }
+
+    if lines >= 4 {
+        give 1200 *
+             (level + 1);
+    }
+
+    give 0;
+}
+
+proc level_for_lines(
+    lines: i64
+) -> i64 {
+    give lines / 10;
+}
+
+proc fall_delay_frames(
+    level: i64
+) -> i64 {
+    if level <= 0 {
+        give 48;
+    }
+
+    if level == 1 {
+        give 43;
+    }
+
+    if level == 2 {
+        give 38;
+    }
+
+    if level == 3 {
+        give 33;
+    }
+
+    if level == 4 {
+        give 28;
+    }
+
+    if level == 5 {
+        give 23;
+    }
+
+    if level == 6 {
+        give 18;
+    }
+
+    if level == 7 {
+        give 13;
+    }
+
+    if level == 8 {
+        give 8;
+    }
+
+    if level == 9 {
+        give 6;
+    }
+
+    if level <= 12 {
+        give 5;
+    }
+
+    if level <= 15 {
+        give 4;
+    }
+
+    if level <= 18 {
+        give 3;
+    }
+
+    if level <= 28 {
+        give 2;
+    }
+
+    give 1;
+}
+
+proc random_next(
+    random: &RandomState
+) -> RandomState {
+    let mut value: u64 =
+        random.state;
+
+    set value =
+        value * 6364136223846793005 +
+        1442695040888963407;
+
+    give RandomState {
+        state: value,
+    };
+}
+
+proc random_value(
+    random: &RandomState
+) -> u64 {
+    give random.state;
+}
+
+proc initial_bag() -> Bag {
+    give Bag {
+        values: [
+            PIECE_I,
+            PIECE_O,
+            PIECE_T,
+            PIECE_S,
+            PIECE_Z,
+            PIECE_J,
+            PIECE_L
+        ],
+        index: 7,
+    };
+}
+
+proc swap_bag_values(
+    bag: &Bag,
+    left: i64,
+    right: i64
+) -> Bag {
+    let mut result: Bag =
+        *bag;
+
+    let temporary: i64 =
+        result.values[left];
+
+    set result.values[left] =
+        result.values[right];
+
+    set result.values[right] =
+        temporary;
+
+    give result;
+}
+
+form BagShuffleResult {
+    bag: Bag,
+    random: RandomState,
+}
+
+proc shuffle_bag(
+    random: &RandomState
+) -> BagShuffleResult {
+    let mut bag: Bag =
+        initial_bag();
+
+    let mut state: RandomState =
+        *random;
+
+    let mut index: i64 = 6;
+
+    while index > 0 {
+        let next_random: RandomState =
+            random_next(
+                &state);
+
+        set state =
+            next_random;
+
+        let random_number: u64 =
+            random_value(
+                &state);
+
+        let target: i64 =
+            random_number %
+            (index + 1);
+
+        let swapped: Bag =
+            swap_bag_values(
+                &bag,
+                index,
+                target);
+
+        set bag =
+            swapped;
+
+        set index -= 1;
+    }
+
+    set bag.index = 0;
+
+    give BagShuffleResult {
+        bag: bag,
+        random: state,
+    };
+}
+
+form NextPieceResult {
+    kind: i64,
+    bag: Bag,
+    random: RandomState,
+}
+
+proc next_piece(
+    bag: &Bag,
+    random: &RandomState
+) -> NextPieceResult {
+    let mut current_bag: Bag =
+        *bag;
+
+    let mut current_random: RandomState =
+        *random;
+
+    if current_bag.index >= 7 {
+        let shuffled: BagShuffleResult =
+            shuffle_bag(
+                &current_random);
+
+        set current_bag =
+            shuffled.bag;
+
+        set current_random =
+            shuffled.random;
+    }
+
+    let kind: i64 =
+        current_bag.values[
+            current_bag.index
+        ];
+
+    set current_bag.index += 1;
+
+    give NextPieceResult {
+        kind: kind,
+        bag: current_bag,
+        random: current_random,
+    };
+}
+
+proc initial_statistics() -> Statistics {
+    give Statistics {
+        score: 0,
+        lines: 0,
+        level: 0,
+        pieces: 0,
+        singles: 0,
+        doubles: 0,
+        triples: 0,
+        tetrises: 0,
+    };
+}
+
+proc update_statistics(
+    stats: &Statistics,
+    cleared: i64
+) -> Statistics {
+    let mut result: Statistics =
+        *stats;
+
+    set result.score +=
+        score_for_clear(
+            cleared,
+            stats.level);
+
+    set result.lines +=
+        cleared;
+
+    set result.level =
+        level_for_lines(
+            result.lines);
+
+    set result.pieces += 1;
+
+    if cleared == 1 {
+        set result.singles += 1;
+    }
+
+    if cleared == 2 {
+        set result.doubles += 1;
+    }
+
+    if cleared == 3 {
+        set result.triples += 1;
+    }
+
+    if cleared >= 4 {
+        set result.tetrises += 1;
+    }
+
+    give result;
+}
+
+proc make_initial_game() -> Game {
+    let random: RandomState =
+        RandomState {
+            state: INITIAL_SEED,
+        };
+
+    let bag: Bag =
+        initial_bag();
+
+    let first: NextPieceResult =
+        next_piece(
+            &bag,
+            &random);
+
+    let second: NextPieceResult =
+        next_piece(
+            &first.bag,
+            &first.random);
+
+    give Game {
+        board:
+            make_empty_board(),
+
+        current:
+            make_piece(
+                first.kind),
+
+        next_kind:
+            second.kind,
+
+        random:
+            second.random,
+
+        bag:
+            second.bag,
+
+        stats:
+            initial_statistics(),
+
+        fall_counter: 0,
+
+        lock_counter: 0,
+
+        paused: false,
+
+        game_over: false,
+
+        quit: false,
+    };
+}
+
+proc game_move_left(
+    game: &Game
+) -> Game {
+    let mut result: Game =
+        *game;
+
+    let moved: Piece =
+        try_move_piece(
+            &game.board,
+            &game.current,
+            -1,
+            0);
+
+    set result.current =
+        moved;
+
+    give result;
+}
+
+proc game_move_right(
+    game: &Game
+) -> Game {
+    let mut result: Game =
+        *game;
+
+    let moved: Piece =
+        try_move_piece(
+            &game.board,
+            &game.current,
+            1,
+            0);
+
+    set result.current =
+        moved;
+
+    give result;
+}
+
+proc game_rotate(
+    game: &Game
+) -> Game {
+    let mut result: Game =
+        *game;
+
+    let rotated: Piece =
+        try_rotate_piece(
+            &game.board,
+            &game.current);
+
+    set result.current =
+        rotated;
+
+    give result;
+}
+
+proc game_soft_drop(
+    game: &Game
+) -> Game {
+    let mut result: Game =
+        *game;
+
+    let moved: Piece =
+        try_move_piece(
+            &game.board,
+            &game.current,
+            0,
+            1);
+
+    if moved.y !=
+       game.current.y {
+        set result.current =
+            moved;
+
+        set result.stats.score +=
+            1;
+    }
+
+    give result;
+}
+
+proc hard_drop_distance(
+    board: &Board,
+    piece: &Piece
+) -> i64 {
+    let mut current: Piece =
+        *piece;
+
+    let mut distance: i64 = 0;
+
+    let mut running: bool =
+        true;
+
+    while running {
+        let next: Piece =
+            moved_piece(
+                &current,
+                0,
+                1);
+
+        if piece_fits(
+            board,
+            &next) {
+            set current =
+                next;
+
+            set distance += 1;
+        } else {
+            set running =
+                false;
+        }
+    }
+
+    give distance;
+}
+
+proc game_hard_drop(
+    game: &Game
+) -> Game {
+    let mut result: Game =
+        *game;
+
+    let distance: i64 =
+        hard_drop_distance(
+            &game.board,
+            &game.current);
+
+    set result.current =
+        moved_piece(
+            &game.current,
+            0,
+            distance);
+
+    set result.stats.score +=
+        distance * 2;
+
+    set result.lock_counter =
+        1000;
+
+    give result;
+}
+
+proc spawn_next_piece(
+    game: &Game
+) -> Game {
+    let mut result: Game =
+        *game;
+
+    let next: NextPieceResult =
+        next_piece(
+            &game.bag,
+            &game.random);
+
+    set result.current =
+        make_piece(
+            game.next_kind);
+
+    set result.next_kind =
+        next.kind;
+
+    set result.bag =
+        next.bag;
+
+    set result.random =
+        next.random;
+
+    set result.fall_counter =
+        0;
+
+    set result.lock_counter =
+        0;
+
+    if !piece_fits(
+        &result.board,
+        &result.current) {
+        set result.game_over =
+            true;
+    }
+
+    give result;
+}
+
+proc lock_current_piece(
+    game: &Game
+) -> Game {
+    let mut result: Game =
+        *game;
+
+    if piece_above_board(
+        &game.current) {
+        set result.game_over =
+            true;
+
+        give result;
+    }
+
+    let locked: Board =
+        lock_piece(
+            &game.board,
+            &game.current);
+
+    let cleared: LineClearResult =
+        clear_complete_lines(
+            &locked);
+
+    let stats: Statistics =
+        update_statistics(
+            &game.stats,
+            cleared.lines);
+
+    set result.board =
+        cleared.board;
+
+    set result.stats =
+        stats;
+
+    give spawn_next_piece(
+        &result);
+}
+
+proc game_gravity_tick(
+    game: &Game
+) -> Game {
+    let mut result: Game =
+        *game;
+
+    set result.fall_counter +=
+        1;
+
+    let delay: i64 =
+        fall_delay_frames(
+            result.stats.level);
+
+    if result.fall_counter <
+       delay {
+        give result;
+    }
+
+    set result.fall_counter =
+        0;
+
+    let next: Piece =
+        moved_piece(
+            &result.current,
+            0,
+            1);
+
+    if piece_fits(
+        &result.board,
+        &next) {
+        set result.current =
+            next;
+
+        set result.lock_counter =
+            0;
+
+        give result;
+    }
+
+    set result.lock_counter +=
+        1;
+
+    if result.lock_counter >= 1 {
+        give lock_current_piece(
+            &result);
+    }
+
+    give result;
+}
+
+proc game_action(
+    game: &Game,
+    action: i64
+) -> Game {
+    let mut result: Game =
+        *game;
+
+    if action == ACTION_QUIT {
+        set result.quit =
+            true;
+
+        give result;
+    }
+
+    if action == ACTION_PAUSE {
+        set result.paused =
+            !result.paused;
+
+        give result;
+    }
+
+    if result.paused ||
+       result.game_over {
+        give result;
+    }
+
+    if action == ACTION_LEFT {
+        give game_move_left(
+            &result);
+    }
+
+    if action == ACTION_RIGHT {
+        give game_move_right(
+            &result);
+    }
+
+    if action == ACTION_DOWN {
+        give game_soft_drop(
+            &result);
+    }
+
+    if action == ACTION_ROTATE {
+        give game_rotate(
+            &result);
+    }
+
+    if action == ACTION_DROP {
+        give game_hard_drop(
+            &result);
+    }
+
+    give result;
+}
+
+proc key_to_action(
+    key: char
+) -> i64 {
+    if key == 'a' ||
+       key == 'A' {
+        give ACTION_LEFT;
+    }
+
+    if key == 'd' ||
+       key == 'D' {
+        give ACTION_RIGHT;
+    }
+
+    if key == 's' ||
+       key == 'S' {
+        give ACTION_DOWN;
+    }
+
+    if key == 'w' ||
+       key == 'W' {
+        give ACTION_ROTATE;
+    }
+
+    if key == ' ' {
+        give ACTION_DROP;
+    }
+
+    if key == 'p' ||
+       key == 'P' {
+        give ACTION_PAUSE;
+    }
+
+    if key == 'q' ||
+       key == 'Q' {
+        give ACTION_QUIT;
+    }
+
+    give ACTION_NONE;
+}
+
+proc current_piece_contains(
+    piece: &Piece,
+    x: i64,
+    y: i64
+) -> bool {
+    let mut index: i64 = 0;
+
+    while index < 4 {
+        let block: Point =
+            piece_world_block(
+                piece,
+                index);
+
+        if block.x == x &&
+           block.y == y {
+            give true;
+        }
+
+        set index += 1;
+    }
+
+    give false;
+}
+
+proc ghost_piece(
+    game: &Game
+) -> Piece {
+    let distance: i64 =
+        hard_drop_distance(
+            &game.board,
+            &game.current);
+
+    give moved_piece(
+        &game.current,
+        0,
+        distance);
+}
+
+proc render_cell(
+    game: &Game,
+    ghost: &Piece,
+    x: i64,
+    y: i64
+) -> void {
+    if current_piece_contains(
+        &game.current,
+        x,
+        y) {
+        terminal_print("[]");
+        give;
+    }
+
+    let value: i64 =
+        board_get(
+            &game.board,
+            x,
+            y);
+
+    if value != EMPTY {
+        terminal_print("[]");
+        give;
+    }
+
+    if current_piece_contains(
+        ghost,
+        x,
+        y) {
+        terminal_print("..");
+        give;
+    }
+
+    terminal_print("  ");
+}
+
+proc render_piece_preview_row(
+    kind: i64,
+    row: i64
+) -> void {
+    let piece: Piece =
+        Piece {
+            kind: kind,
+            rotation: 0,
+            x: 0,
+            y: 0,
+        };
+
+    terminal_print("  ");
+
+    let mut x: i64 = 0;
+
+    while x < 4 {
+        if current_piece_contains(
+            &piece,
+            x,
+            row) {
+            terminal_print("[]");
+        } else {
+            terminal_print("  ");
+        }
+
+        set x += 1;
+    }
+}
+
+proc render_side_panel(
+    game: &Game,
+    row: i64
+) -> void {
+    if row == 0 {
+        terminal_print("   SCORE  ");
+        terminal_print_i64(game.stats.score);
+        give;
+    }
+
+    if row == 1 {
+        terminal_print("   LINES  ");
+        terminal_print_i64(game.stats.lines);
+        give;
+    }
+
+    if row == 2 {
+        terminal_print("   LEVEL  ");
+        terminal_print_i64(game.stats.level);
+        give;
+    }
+
+    if row == 3 {
+        terminal_print("   PIECES ");
+        terminal_print_i64(game.stats.pieces);
+        give;
+    }
+
+    if row == 5 {
+        terminal_print("   NEXT");
+        give;
+    }
+
+    if row >= 6 && row < 10 {
+        render_piece_preview_row(
+            game.next_kind,
+            row - 6);
+        give;
+    }
+
+    if row == 11 {
+        terminal_print("   A/D : MOVE");
+        give;
+    }
+
+    if row == 12 {
+        terminal_print("   W   : ROTATE");
+        give;
+    }
+
+    if row == 13 {
+        terminal_print("   S   : SOFT DROP");
+        give;
+    }
+
+    if row == 14 {
+        terminal_print("   SPACE: HARD DROP");
+        give;
+    }
+
+    if row == 15 {
+        terminal_print("   P   : PAUSE");
+        give;
+    }
+
+    if row == 16 {
+        terminal_print("   Q   : QUIT");
+        give;
+    }
+
+    if row == 18 && game.paused {
+        terminal_print("   PAUSED");
+        give;
+    }
+
+    if row == 18 && game.game_over {
+        terminal_print("   GAME OVER");
+        give;
+    }
+
+    if row == 19 && game.game_over {
+        terminal_print("   FINAL SCORE: ");
+        terminal_print_i64(game.stats.score);
+    }
+}
+
+proc render_game(
+    game: &Game
+) -> void {
+    terminal_clear();
+
+    terminal_print("VITTE TETRIS  |  10 x 20\n");
+
+    let ghost: Piece =
+        ghost_piece(game);
+
+    terminal_print(
+        "+--------------------+   STATS / NEXT / CONTROLS\n");
+
+    let mut y: i64 = 0;
+
+    while y < BOARD_HEIGHT {
+        terminal_print("|");
+
+        let mut x: i64 = 0;
+
+        while x < BOARD_WIDTH {
+            render_cell(
+                game,
+                &ghost,
+                x,
+                y);
+
+            set x += 1;
+        }
+
+        terminal_print("|");
+        render_side_panel(
+            game,
+            y);
+        terminal_print("\n");
+
+        set y += 1;
+    }
+
+    terminal_print("+--------------------+\n");
+}
+
+proc process_input(
+    game: &Game
+) -> Game {
+    let mut result: Game =
+        *game;
+
+    while terminal_key_pressed() {
+        let key: char =
+            terminal_read_key();
+
+        let action: i64 =
+            key_to_action(key);
+
+        let next: Game =
+            game_action(
+                &result,
+                action);
+
+        set result =
+            next;
+
+        if result.quit {
+            give result;
+        }
+    }
+
+    give result;
+}
+
+proc game_frame(
+    game: &Game
+) -> Game {
+    let mut result: Game =
+        process_input(game);
+
+    if result.quit {
+        give result;
+    }
+
+    if !result.paused &&
+       !result.game_over {
+        let next: Game =
+            game_gravity_tick(
+                &result);
+
+        set result =
+            next;
+    }
+
+    give result;
+}
+
+proc run_game() -> int {
+    let mut game: Game =
+        make_initial_game();
+
+    terminal_hide_cursor();
+
+    let mut running: bool =
+        true;
+
+    while running {
+        render_game(
+            &game);
+
+        let next: Game =
+            game_frame(
+                &game);
+
+        set game =
+            next;
+
+        if game.quit {
+            set running =
+                false;
+        }
+
+        if game.game_over {
+            render_game(
+                &game);
+
+            set running =
+                false;
+        }
+
+        terminal_sleep_ms(16);
+    }
+
+    terminal_show_cursor();
+
+    give 0;
+}
+
+proc test_empty_board() -> bool {
+    let board: Board =
+        make_empty_board();
+
+    let mut y: i64 = 0;
+
+    while y < BOARD_HEIGHT {
+        let mut x: i64 = 0;
+
+        while x < BOARD_WIDTH {
+            if board_get(
+                &board,
+                x,
+                y) != EMPTY {
+                give false;
+            }
+
+            set x += 1;
+        }
+
+        set y += 1;
+    }
+
+    give true;
+}
+
+proc test_piece_spawn() -> bool {
+    let board: Board =
+        make_empty_board();
+
+    let mut kind: i64 =
+        PIECE_I;
+
+    while kind <= PIECE_L {
+        let piece: Piece =
+            make_piece(kind);
+
+        if !piece_fits(
+            &board,
+            &piece) {
+            give false;
+        }
+
+        set kind += 1;
+    }
+
+    give true;
+}
+
+proc test_piece_rotation() -> bool {
+    let board: Board =
+        make_empty_board();
+
+    let piece: Piece =
+        make_piece(
+            PIECE_T);
+
+    let first: Piece =
+        try_rotate_piece(
+            &board,
+            &piece);
+
+    let second: Piece =
+        try_rotate_piece(
+            &board,
+            &first);
+
+    let third: Piece =
+        try_rotate_piece(
+            &board,
+            &second);
+
+    let fourth: Piece =
+        try_rotate_piece(
+            &board,
+            &third);
+
+    give first.rotation == 1 &&
+         second.rotation == 2 &&
+         third.rotation == 3 &&
+         fourth.rotation == 0;
+}
+
+proc test_piece_movement() -> bool {
+    let board: Board =
+        make_empty_board();
+
+    let piece: Piece =
+        make_piece(
+            PIECE_T);
+
+    let left: Piece =
+        try_move_piece(
+            &board,
+            &piece,
+            -1,
+            0);
+
+    let right: Piece =
+        try_move_piece(
+            &board,
+            &left,
+            1,
+            0);
+
+    give left.x ==
+             piece.x - 1 &&
+         right.x ==
+             piece.x;
+}
+
+proc test_hard_drop() -> bool {
+    let board: Board =
+        make_empty_board();
+
+    let piece: Piece =
+        make_piece(
+            PIECE_O);
+
+    let distance: i64 =
+        hard_drop_distance(
+            &board,
+            &piece);
+
+    let dropped: Piece =
+        moved_piece(
+            &piece,
+            0,
+            distance);
+
+    give distance > 0 &&
+         !piece_can_fall(
+             &board,
+             &dropped);
+}
+
+proc test_lock_piece() -> bool {
+    let board: Board =
+        make_empty_board();
+
+    let piece: Piece =
+        Piece {
+            kind: PIECE_O,
+            rotation: 0,
+            x: 3,
+            y: 18,
+        };
+
+    let locked: Board =
+        lock_piece(
+            &board,
+            &piece);
+
+    give board_get(
+               &locked,
+               4,
+               18) == CELL_O &&
+         board_get(
+               &locked,
+               5,
+               18) == CELL_O &&
+         board_get(
+               &locked,
+               4,
+               19) == CELL_O &&
+         board_get(
+               &locked,
+               5,
+               19) == CELL_O;
+}
+
+proc make_full_row(
+    board: &Board,
+    y: i64
+) -> Board {
+    let mut result: Board =
+        *board;
+
+    let mut x: i64 = 0;
+
+    while x < BOARD_WIDTH {
+        set result.cells[
+            board_index(
+                x,
+                y)
+        ] = CELL_I;
+
+        set x += 1;
+    }
+
+    give result;
+}
+
+proc test_line_clear() -> bool {
+    let board: Board =
+        make_empty_board();
+
+    let full: Board =
+        make_full_row(
+            &board,
+            BOARD_HEIGHT - 1);
+
+    if !row_full(
+        &full,
+        BOARD_HEIGHT - 1) {
+        give false;
+    }
+
+    let result: LineClearResult =
+        clear_complete_lines(
+            &full);
+
+    if result.lines != 1 {
+        give false;
+    }
+
+    let mut x: i64 = 0;
+
+    while x < BOARD_WIDTH {
+        if board_get(
+            &result.board,
+            x,
+            BOARD_HEIGHT - 1) != EMPTY {
+            give false;
+        }
+
+        set x += 1;
+    }
+
+    give true;
+}
+
+proc test_four_line_clear() -> bool {
+    let mut board: Board =
+        make_empty_board();
+
+    set board =
+        make_full_row(
+            &board,
+            16);
+
+    set board =
+        make_full_row(
+            &board,
+            17);
+
+    set board =
+        make_full_row(
+            &board,
+            18);
+
+    set board =
+        make_full_row(
+            &board,
+            19);
+
+    let result: LineClearResult =
+        clear_complete_lines(
+            &board);
+
+    give result.lines == 4;
+}
+
+proc test_scoring() -> bool {
+    give score_for_clear(0, 0) == 0 &&
+         score_for_clear(1, 0) == 40 &&
+         score_for_clear(2, 0) == 100 &&
+         score_for_clear(3, 0) == 300 &&
+         score_for_clear(4, 0) == 1200 &&
+         score_for_clear(4, 1) == 2400;
+}
+
+proc test_level_progression() -> bool {
+    give level_for_lines(0) == 0 &&
+         level_for_lines(9) == 0 &&
+         level_for_lines(10) == 1 &&
+         level_for_lines(19) == 1 &&
+         level_for_lines(20) == 2 &&
+         level_for_lines(100) == 10;
+}
+
+proc test_gravity_progression() -> bool {
+    give fall_delay_frames(0) == 48 &&
+         fall_delay_frames(1) == 43 &&
+         fall_delay_frames(5) == 23 &&
+         fall_delay_frames(9) == 6 &&
+         fall_delay_frames(10) == 5 &&
+         fall_delay_frames(16) == 3 &&
+         fall_delay_frames(19) == 2 &&
+         fall_delay_frames(29) == 1;
+}
+
+proc test_bag_contains_all_pieces() -> bool {
+    let random: RandomState =
+        RandomState {
+            state: INITIAL_SEED,
+        };
+
+    let shuffled: BagShuffleResult =
+        shuffle_bag(
+            &random);
+
+    let mut seen_i: bool = false;
+    let mut seen_o: bool = false;
+    let mut seen_t: bool = false;
+    let mut seen_s: bool = false;
+    let mut seen_z: bool = false;
+    let mut seen_j: bool = false;
+    let mut seen_l: bool = false;
+
+    let mut index: i64 = 0;
+
+    while index < 7 {
+        let value: i64 =
+            shuffled.bag.values[index];
+
+        if value == PIECE_I {
+            set seen_i = true;
+        }
+
+        if value == PIECE_O {
+            set seen_o = true;
+        }
+
+        if value == PIECE_T {
+            set seen_t = true;
+        }
+
+        if value == PIECE_S {
+            set seen_s = true;
+        }
+
+        if value == PIECE_Z {
+            set seen_z = true;
+        }
+
+        if value == PIECE_J {
+            set seen_j = true;
+        }
+
+        if value == PIECE_L {
+            set seen_l = true;
+        }
+
+        set index += 1;
+    }
+
+    give seen_i &&
+         seen_o &&
+         seen_t &&
+         seen_s &&
+         seen_z &&
+         seen_j &&
+         seen_l;
+}
+
+proc self_test() -> int {
+    if !test_empty_board() {
+        give 1;
+    }
+
+    if !test_piece_spawn() {
+        give 2;
+    }
+
+    if !test_piece_rotation() {
+        give 3;
+    }
+
+    if !test_piece_movement() {
+        give 4;
+    }
+
+    if !test_hard_drop() {
+        give 5;
+    }
+
+    if !test_lock_piece() {
+        give 6;
+    }
+
+    if !test_line_clear() {
+        give 7;
+    }
+
+    if !test_four_line_clear() {
+        give 8;
+    }
+
+    if !test_scoring() {
+        give 9;
+    }
+
+    if !test_level_progression() {
+        give 10;
+    }
+
+    if !test_gravity_progression() {
+        give 11;
+    }
+
+    if !test_bag_contains_all_pieces() {
+        give 12;
+    }
+
+    give 0;
+}
+
+proc main() -> int {
+    let tests: int =
+        self_test();
+
+    if tests != 0 {
+        terminal_print(
+            "Tetris self-test failed: ");
+
+        terminal_print_i64(
+            tests);
+
+        terminal_print("\n");
+
+        give tests;
+    }
+
+    give run_game();
+}

@@ -1,0 +1,24 @@
+use core::slice::iterator::{
+    slice_cursor_init,
+    slice_cursor_next,
+    slice_cursor_next_back,
+    slice_cursor_remaining,
+};
+
+test "slice cursor mixes front and back without optional scalar returns" {
+    let source: [i64] = [2, 4, 6];
+    let mut front: usize = 0;
+    let mut back: usize = 0;
+    let mut output: i64 = 0;
+
+    slice_cursor_init(&source, &mut front, &mut back);
+    assert(slice_cursor_remaining(front, back) == 3);
+    assert(slice_cursor_next(&source, &mut front, &mut back, &mut output));
+    assert(output == 2);
+    assert(slice_cursor_next_back(&source, &mut front, &mut back, &mut output));
+    assert(output == 6);
+    assert(slice_cursor_next(&source, &mut front, &mut back, &mut output));
+    assert(output == 4);
+    assert(slice_cursor_remaining(front, back) == 0);
+    assert(not slice_cursor_next(&source, &mut front, &mut back, &mut output));
+}

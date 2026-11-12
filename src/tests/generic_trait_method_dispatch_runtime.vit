@@ -1,0 +1,64 @@
+trait Measure {
+    proc measure() -> i64;
+}
+
+trait Offset {
+    proc offset(amount: i64) -> i64;
+}
+
+form Number {
+    value: i64
+}
+
+impl Measure for Number {
+    proc measure(receiver: Number) -> i64 {
+        return receiver.value;
+    }
+}
+
+impl Measure for i64 {
+    proc measure(receiver: i64) -> i64 {
+        return receiver;
+    }
+}
+
+impl Offset for Number {
+    proc offset(receiver: Number, amount: i64) -> i64 {
+        return receiver.value + amount;
+    }
+}
+
+impl Offset for i64 {
+    proc offset(receiver: i64, amount: i64) -> i64 {
+        return receiver + amount;
+    }
+}
+
+proc constrained<T: Measure>(value: T) -> i64 {
+    return value.measure();
+}
+
+proc where_constrained<T>(value: T) -> i64 where T: Measure {
+    return value.measure();
+}
+
+proc constrained_offset<T: Offset>(value: T) -> i64 {
+    return value.offset(1);
+}
+
+proc where_constrained_offset<T>(value: T) -> i64 where T: Offset {
+    return value.offset(1);
+}
+
+proc main() -> i64 {
+    let number: Number = Number { value: 42 };
+    if constrained(number) != 42 { return 1; }
+    if constrained(7) != 7 { return 2; }
+    if where_constrained(number) != 42 { return 3; }
+    if where_constrained(7) != 7 { return 4; }
+    if constrained_offset(number) != 43 { return 5; }
+    if constrained_offset(7) != 8 { return 6; }
+    if where_constrained_offset(number) != 43 { return 7; }
+    if where_constrained_offset(7) != 8 { return 8; }
+    return 0;
+}

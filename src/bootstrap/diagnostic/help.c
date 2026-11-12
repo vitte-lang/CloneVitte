@@ -514,6 +514,26 @@ static const vitte_diagnostic_help_rule_t vitte_help_rules[] = {
         "E1204",
         "Allocate or offset the storage so the accessed value satisfies the required alignment."
     },
+    {
+        "E1205",
+        "Keep the referenced value alive for at least as long as the reference, and use a direct local or parameter borrow whose origin the bootstrap can track."
+    },
+    {
+        "E1206",
+        "End the existing borrow before creating an overlapping exclusive reference; use shared references only when no mutation is required."
+    },
+    {
+        "E1207",
+        "Wait until the incompatible reference is no longer used, or access the value through the active reference with its permitted mutability."
+    },
+    {
+        "E1208",
+        "End every reference to the value before moving it, or move a different local value that is not currently borrowed."
+    },
+    {
+        "E1209",
+        "Initialize the binding again before using it, or remove the move if the original value is still needed."
+    },
 
     {
         "E1301",

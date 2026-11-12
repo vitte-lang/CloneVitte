@@ -84,6 +84,9 @@ if [ ! -x "$VITTE_BIN" ]; then
   "$MAKE_CMD" -C "$ROOT_DIR" all
 fi
 
+"$PYTHON" "$ROOT_DIR/scripts/verify-installer-target.py" \
+  "$VITTE_BIN" "$PLATFORM" "$ARCH"
+
 verify_vitte "$VITTE_BIN" >/dev/null
 
 #
@@ -158,6 +161,11 @@ for directory in docs examples editors completions assets; do
       "$prefix/share/vitte/$directory"
   fi
 done
+
+mkdir -p "$prefix/share/vitte/tools"
+install -m 0755 \
+  "$ROOT_DIR/scripts/install-unix-integrations.sh" \
+  "$prefix/share/vitte/tools/install-unix-integrations.sh"
 
 #
 # Public headers

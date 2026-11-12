@@ -30,15 +30,19 @@ error number.
 
 ## Validation
 
-The portability probe compiles the bootstrap sources with available C17
-compilers and inventories the remaining platform headers:
+`make test-robustness` exercises file size and path limits, atomic writes,
+metadata queries, directory creation and enumeration, rename, and cleanup.
+`make compiler-binary-ownership` inventories which filesystem C symbols enter
+the standard compiler and which unresolved imports the Vitte frontend still
+uses. The compiler power gate runs both checks:
 
 ```sh
-make -C src portability
-make -C src portability PORTABILITY_STRICT=1
+make MODE=release test-robustness
+make MODE=release compiler-binary-ownership
+make MODE=release compiler-power-gate
 ```
 
-`test-filesystem-portability` covers drive and UNC normalization, UTF-8 file
-names, relative test directories, symlink canonicalization on POSIX, and
-cleanup through the abstraction. Windows CI runs the same test with native
-paths and skips only the POSIX-only symlink creation call.
+The current standard binary still links this C object. The ownership audit
+reports 27 exported filesystem symbols, of which 8 satisfy active Vitte
+frontend imports. Porting those remaining imports to Vitte is required before
+the object can be removed from the standard link.

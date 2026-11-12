@@ -12,12 +12,12 @@ keywords: nouveautes versions changelog migration Vitte 0.1.0 0.1.1 JSON diagnos
 
 <div class="reference-callout warning">
   <strong>Version publiée et version des sources sont deux informations différentes.</strong>
-  <p>État relevé le 28 octobre 2026 : la dernière release publique consultée du compilateur Vitte indique le paquet <code>0.1.0</code>, tandis que le fichier <code>VERSION</code> de cette copie du dépôt indique <code>0.1.1</code>. Le numéro <code>0.1.1</code> décrit donc ici les sources vérifiées ; il ne signifie pas qu’une release binaire portant ce numéro est déjà publiée. Consultez toujours les <a href="https://github.com/vitte-lang/vitte/releases">releases officielles</a> avant de télécharger un artefact.</p>
+  <p>La release publique <a href="https://github.com/vitte-lang/vitte/releases/tag/v0.1.1"><code>v0.1.1</code></a> a été publiée le 9 novembre 2026 depuis le commit de release correspondant. Le fichier <code>VERSION</code> des sources porte également <code>0.1.1</code>. Consultez la page des <a href="https://github.com/vitte-lang/vitte/releases">releases officielles</a> pour les artefacts et leurs sommes de contrôle.</p>
 </div>
 
-<h2 id="etat">État des versions au 28 octobre 2026</h2>
+<h2 id="etat">État des versions au 9 novembre 2026</h2>
 <table><thead><tr><th>Composant</th><th>Version publiée vérifiée</th><th>Sources du dépôt</th><th>Ce que cela signifie</th></tr></thead><tbody>
-<tr><td>Compilateur Vitte</td><td><a href="https://github.com/vitte-lang/vitte/releases/tag/VersionOctobre2026"><code>VersionOctobre2026</code>, paquet <code>0.1.0</code></a></td><td><code>VERSION</code> : <code>0.1.1</code></td><td>La page de release est la référence pour les téléchargements publics. La version des sources de ce guide peut inclure du travail postérieur à la release.</td></tr>
+<tr><td>Compilateur Vitte</td><td><a href="https://github.com/vitte-lang/vitte/releases/tag/v0.1.1"><code>v0.1.1</code></a></td><td><code>VERSION</code> : <code>0.1.1</code></td><td>Le tag, le compilateur et les paquets publiés portent la même version.</td></tr>
 <tr><td>Module JSON indépendant</td><td><a href="{{ json_package.release_url | escape }}"><code>{{ json_package.release_tag | escape }}</code></a>, tag immuable<br><a href="{{ json_package.download_url | escape }}">Archive officielle</a><br>SHA-256 : <code>{{ json_package.sha256 | escape }}</code></td><td><code>modules/json/package.toml</code> : <code>{{ json_package.version | escape }}</code><br>Commit autonome : <code>{{ json_package.source_commit | slice: 0, 7 }}</code></td><td>Compatible avec Vitte {{ json_package.compatible_vitte_versions | join: ', ' }} selon les vérifications publiées. Licence : {{ json_package.license | escape }}.</td></tr>
 </tbody></table>
 <p>Les versions sont vérifiées séparément parce que le module JSON peut être publié ou mis à jour indépendamment du compilateur. Pour une application reproductible, consignez le commit de Vitte, le manifeste du module réellement installé et la commande de compilation.</p>
@@ -31,7 +31,7 @@ keywords: nouveautes versions changelog migration Vitte 0.1.0 0.1.1 JSON diagnos
 </ul>
 
 <h2 id="source-011">État des sources Vitte 0.1.1</h2>
-<p>Le dépôt de travail actuellement décrit par cette documentation porte <code>0.1.1</code> dans <code>VERSION</code> et dans le manifeste de la copie intégrée du module JSON. Les changements ci-dessous sont ceux établis par les sources et les vérifications du dépôt ; ils ne doivent pas être présentés comme une liste d’artefacts d’une release publiée tant que la page Releases ne l’indique pas.</p>
+<p>Les changements ci-dessous sont inclus dans la release publique Vitte 0.1.1. La CI a vérifié les compilateurs bootstrap et natif, la parité des diagnostics, les tests du compilateur, les installations natives Linux/macOS/Windows et les contrôles de portabilité exécutés par le dépôt.</p>
 <h3>Module JSON</h3>
 <ul>
   <li>Les profils de limites du lexer et du parser sont exposés : valeurs par défaut, constructeurs contrôlés et fonctions de validation.</li>
@@ -43,7 +43,7 @@ keywords: nouveautes versions changelog migration Vitte 0.1.0 0.1.1 JSON diagnos
 <ul>
   <li>Une addition dont les deux opérandes HIR sont des chaînes est abaissée vers l’opération IR de concaténation de chaînes. La régression du consommateur JSON compile et s’exécute sur le bootstrap courant.</li>
   <li>La cible <code>test-ir-backend</code> suit désormais le programme Vitte maintenu du dépôt au lieu de dépendre d’un ancien harnais C absent.</li>
-  <li>Le contrôle de release du compilateur et <code>make -C modules/json verify</code> ont réussi sur la copie de travail examinée le 28 octobre 2026. Cette preuve porte sur ce commit et ces cibles, pas sur une future release ou toutes les constructions du langage.</li>
+  <li>Le contrôle de release du compilateur et <code>make -C modules/json verify</code> ont réussi sur les sources auditées. Ces résultats portent sur les fixtures et cibles effectivement exécutées ; ils ne garantissent pas toutes les constructions du langage ni toutes les plateformes que les scripts savent nommer.</li>
 </ul>
 
 <h2 id="migration-json">Migrer le code consommateur JSON</h2>

@@ -97,7 +97,7 @@ export proc format_digit_upper(digit: u8) -> u8 {
 // ============================================================================
 
 export proc format_buffer_valid(
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> bool {
     if capacity == 0 {
@@ -112,7 +112,7 @@ export proc format_buffer_valid(
 // ============================================================================
 
 export proc format_write_byte(
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize,
     index: usize,
     byte: u8
@@ -152,7 +152,7 @@ export proc format_u64_decimal_length(value: u64) -> usize {
 
 export proc format_u64(
     value: u64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     if buffer == null {
@@ -204,7 +204,7 @@ export proc format_i64_decimal_length(value: i64) -> usize {
 
 export proc format_i64(
     value: i64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     if buffer == null {
@@ -248,7 +248,7 @@ export proc format_i64(
 
 export proc format_u8(
     value: u8,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_u64(value as u64, buffer, capacity);
@@ -256,7 +256,7 @@ export proc format_u8(
 
 export proc format_u16(
     value: u16,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_u64(value as u64, buffer, capacity);
@@ -264,7 +264,7 @@ export proc format_u16(
 
 export proc format_u32(
     value: u32,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_u64(value as u64, buffer, capacity);
@@ -276,7 +276,7 @@ export proc format_u32(
 
 export proc format_i8(
     value: i8,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_i64(value as i64, buffer, capacity);
@@ -284,7 +284,7 @@ export proc format_i8(
 
 export proc format_i16(
     value: i16,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_i64(value as i64, buffer, capacity);
@@ -292,7 +292,7 @@ export proc format_i16(
 
 export proc format_i32(
     value: i32,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_i64(value as i64, buffer, capacity);
@@ -304,7 +304,7 @@ export proc format_i32(
 
 export proc format_bool(
     value: bool,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     if buffer == null {
@@ -369,7 +369,7 @@ export proc format_u64_base(
     value: u64,
     base: u8,
     uppercase: bool,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     if base < 2 or base > 36 {
@@ -413,7 +413,7 @@ export proc format_i64_base(
     value: i64,
     base: u8,
     uppercase: bool,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     if base < 2 or base > 36 {
@@ -450,39 +450,39 @@ export proc format_i64_base(
     return format_success(required);
 }
 
-export proc format_i64_binary(value: i64, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_i64_binary(value: i64, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_i64_base(value, 2, false, buffer, capacity);
 }
 
-export proc format_i64_octal(value: i64, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_i64_octal(value: i64, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_i64_base(value, 8, false, buffer, capacity);
 }
 
-export proc format_i64_hex(value: i64, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_i64_hex(value: i64, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_i64_base(value, 16, false, buffer, capacity);
 }
 
-export proc format_i32_base(value: i32, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_i32_base(value: i32, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_i64_base(value as i64, base, uppercase, buffer, capacity);
 }
 
-export proc format_i16_base(value: i16, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_i16_base(value: i16, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_i64_base(value as i64, base, uppercase, buffer, capacity);
 }
 
-export proc format_i8_base(value: i8, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_i8_base(value: i8, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_i64_base(value as i64, base, uppercase, buffer, capacity);
 }
 
-export proc format_u32_base(value: u32, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_u32_base(value: u32, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_u64_base(value as u64, base, uppercase, buffer, capacity);
 }
 
-export proc format_u16_base(value: u16, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_u16_base(value: u16, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_u64_base(value as u64, base, uppercase, buffer, capacity);
 }
 
-export proc format_u8_base(value: u8, base: u8, uppercase: bool, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_u8_base(value: u8, base: u8, uppercase: bool, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_u64_base(value as u64, base, uppercase, buffer, capacity);
 }
 
@@ -492,7 +492,7 @@ export proc format_u8_base(value: u8, base: u8, uppercase: bool, buffer: *u8, ca
 
 export proc format_hex_u64(
     value: u64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_u64_base(value, 16, false, buffer, capacity);
@@ -500,7 +500,7 @@ export proc format_hex_u64(
 
 export proc format_hex_upper_u64(
     value: u64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_u64_base(value, 16, true, buffer, capacity);
@@ -508,7 +508,7 @@ export proc format_hex_upper_u64(
 
 export proc format_hex_u32(
     value: u32,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_hex_u64(value as u64, buffer, capacity);
@@ -516,7 +516,7 @@ export proc format_hex_u32(
 
 export proc format_hex_u16(
     value: u16,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_hex_u64(value as u64, buffer, capacity);
@@ -524,7 +524,7 @@ export proc format_hex_u16(
 
 export proc format_hex_u8(
     value: u8,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_hex_u64(value as u64, buffer, capacity);
@@ -536,7 +536,7 @@ export proc format_hex_u8(
 
 export proc format_binary_u64(
     value: u64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_u64_base(value, 2, false, buffer, capacity);
@@ -544,7 +544,7 @@ export proc format_binary_u64(
 
 export proc format_binary_u32(
     value: u32,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_binary_u64(value as u64, buffer, capacity);
@@ -552,7 +552,7 @@ export proc format_binary_u32(
 
 export proc format_binary_u16(
     value: u16,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_binary_u64(value as u64, buffer, capacity);
@@ -560,7 +560,7 @@ export proc format_binary_u16(
 
 export proc format_binary_u8(
     value: u8,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_binary_u64(value as u64, buffer, capacity);
@@ -572,7 +572,7 @@ export proc format_binary_u8(
 
 export proc format_octal_u64(
     value: u64,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_u64_base(value, 8, false, buffer, capacity);
@@ -580,29 +580,29 @@ export proc format_octal_u64(
 
 export proc format_octal_u32(
     value: u32,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     return format_octal_u64(value as u64, buffer, capacity);
 }
 
-export proc format_octal_u16(value: u16, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_octal_u16(value: u16, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_octal_u64(value as u64, buffer, capacity);
 }
 
-export proc format_octal_u8(value: u8, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_octal_u8(value: u8, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_octal_u64(value as u64, buffer, capacity);
 }
 
-export proc format_hex_upper_u32(value: u32, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_hex_upper_u32(value: u32, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_hex_upper_u64(value as u64, buffer, capacity);
 }
 
-export proc format_hex_upper_u16(value: u16, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_hex_upper_u16(value: u16, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_hex_upper_u64(value as u64, buffer, capacity);
 }
 
-export proc format_hex_upper_u8(value: u8, buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_hex_upper_u8(value: u8, buffer: *mut u8, capacity: usize) -> FormatResult {
     return format_hex_upper_u64(value as u64, buffer, capacity);
 }
 
@@ -622,7 +622,7 @@ export proc format_hex_fixed_u64(
     value: u64,
     width: usize,
     uppercase: bool,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     if width > 16 {
@@ -669,7 +669,7 @@ export proc format_hex_fixed_u64(
 
 export proc format_ascii(
     character: u8,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     if buffer == null {
@@ -691,7 +691,7 @@ export proc format_ascii(
 
 export proc format_char(
     character: char,
-    buffer: *u8,
+    buffer: *mut u8,
     capacity: usize
 ) -> FormatResult {
     if buffer == null {
@@ -729,7 +729,7 @@ export proc format_char(
     return format_success(4);
 }
 
-export proc format_bytes(bytes: &[u8], buffer: *u8, capacity: usize) -> FormatResult {
+export proc format_bytes(bytes: &[u8], buffer: *mut u8, capacity: usize) -> FormatResult {
     if bytes.len() != 0 && buffer == null {
         return format_failure(FormatError.NullBuffer);
     }

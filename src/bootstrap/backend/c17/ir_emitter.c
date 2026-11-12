@@ -25,6 +25,10 @@
 
 #if defined(__APPLE__) || defined(__unix__)
 #include <unistd.h>
+#elif defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#include <windows.h>
 #endif
 
 #include "../../platform/platform.h"
@@ -36,6 +40,63 @@ typedef struct vitte_c17_ir_emitter {
     bool failed;
     size_t indent;
 } vitte_c17_ir_emitter_t;
+
+#if defined(_WIN32)
+static int
+vitte_c17_ir_mkstemp(char *path)
+{
+    char temporary_directory[MAX_PATH];
+    char temporary_path[MAX_PATH];
+    DWORD directory_length;
+    size_t path_length;
+    int descriptor;
+
+    if (path == NULL) {
+        return -1;
+    }
+    directory_length = GetTempPathA(
+        (DWORD)sizeof(temporary_directory), temporary_directory);
+    if (directory_length == 0u ||
+        directory_length >= (DWORD)sizeof(temporary_directory) ||
+        GetTempFileNameA(
+            temporary_directory, "vit", 0u, temporary_path) == 0u) {
+        return -1;
+    }
+    path_length = strlen(temporary_path);
+    if (path_length >= 4096u) {
+        (void)DeleteFileA(temporary_path);
+        return -1;
+    }
+    memcpy(path, temporary_path, path_length + 1u);
+    descriptor = _open(path, _O_BINARY | _O_RDWR);
+    if (descriptor < 0) {
+        (void)DeleteFileA(path);
+    }
+    return descriptor;
+}
+
+static bool
+vitte_c17_ir_set_executable_extension(char *path)
+{
+    size_t length;
+
+    if (path == NULL) {
+        return false;
+    }
+    length = strlen(path);
+    if (length < 4u || strcmp(path + length - 4u, ".tmp") != 0 ||
+        length >= 4096u) {
+        return false;
+    }
+    memcpy(path + length - 4u, ".exe", 5u);
+    return true;
+}
+
+#define mkstemp vitte_c17_ir_mkstemp
+#define fdopen _fdopen
+#define close _close
+#define unlink _unlink
+#endif
 
 static bool
 vitte_c17_ir_write(
@@ -1549,7 +1610,7 @@ vitte_c17_emit_ir(
     return vitte_c17_ir_emit_translation_unit(output, ir, options);
 }
 
-#if defined(__APPLE__) || defined(__unix__)
+#if defined(__APPLE__) || defined(__unix__) || defined(_WIN32)
 static vitte_c17_ir_compile_result_t
 vitte_c17_ir_compile_temp(
     const vitte_ir_context_t *ir,
@@ -1560,9 +1621,9 @@ vitte_c17_ir_compile_temp(
     char **run_argv,
     const vitte_c17_ir_emit_options_t *options)
 {
-    char source_path[] = "/tmp/vitte-ir-XXXXXX";
-    char object_path[] = "/tmp/vitte-ir-object-XXXXXX";
-    char executable_path[] = "/tmp/vitte-ir-exe-XXXXXX";
+    char source_path[4096] = "/tmp/vitte-ir-XXXXXX";
+    char object_path[4096] = "/tmp/vitte-ir-object-XXXXXX";
+    char executable_path[4096] = "/tmp/vitte-ir-exe-XXXXXX";
     int source_descriptor;
     int object_descriptor;
     int executable_descriptor;
@@ -1624,6 +1685,13 @@ vitte_c17_ir_compile_temp(
             (void)unlink(executable_path);
             return VITTE_C17_IR_COMPILE_OUTPUT_FAILED;
         }
+#if defined(_WIN32)
+        if (!vitte_c17_ir_set_executable_extension(executable_path)) {
+            (void)unlink(source_path);
+            (void)unlink(object_path);
+            return VITTE_C17_IR_COMPILE_OUTPUT_FAILED;
+        }
+#endif
     }
     count = 0u;
     arguments[count++] = "cc";
@@ -1732,7 +1800,7 @@ vitte_c17_compile_ir_result(
             ? VITTE_C17_IR_COMPILE_SUCCESS
             : VITTE_C17_IR_COMPILE_EMIT_FAILED;
     }
-#if defined(__APPLE__) || defined(__unix__)
+#if defined(__APPLE__) || defined(__unix__) || defined(_WIN32)
     return vitte_c17_ir_compile_temp(
         ir,
         output_path,
@@ -1781,7 +1849,7 @@ vitte_c17_compile_ir_object_result(
     if (ir == NULL || output_path == NULL || output_path[0] == '\0') {
         return VITTE_C17_IR_COMPILE_INVALID_ARGUMENT;
     }
-#if defined(__APPLE__) || defined(__unix__)
+#if defined(__APPLE__) || defined(__unix__) || defined(_WIN32)
     return vitte_c17_ir_compile_temp(
         ir,
         output_path,

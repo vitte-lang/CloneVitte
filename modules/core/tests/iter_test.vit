@@ -1,0 +1,10 @@
+use core::iter::take::{take_count};
+use core::iter::skip::{skip_start, skip_remaining};
+
+test "range iterator and take skip bounds are half-open" {
+    assert(take_count(5, 8) == 5);
+    assert(take_count(8, 5) == 5);
+    assert(skip_start(8, 9) == 8);
+    assert(skip_remaining(8, 3) == 5);
+    assert(skip_remaining(8, 8) == 0);
+}

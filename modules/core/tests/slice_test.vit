@@ -1,0 +1,10 @@
+use core::slice::chunks::{slice_chunk_count, slice_chunk_at};
+
+test "slice chunk boundaries include partial tails" {
+    assert(slice_chunk_count(10, 4) == 3);
+    let last = slice_chunk_at(10, 4, 2);
+    assert(last.valid);
+    assert(last.start == 8);
+    assert(last.length == 2);
+    assert(not slice_chunk_at(10, 0, 0).valid);
+}

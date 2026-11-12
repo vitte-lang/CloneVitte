@@ -1,0 +1,6 @@
+intrinsic io_print_i64(value: i64);
+
+proc main() -> i64 {
+    io_print_i64(42);
+    return 0;
+}

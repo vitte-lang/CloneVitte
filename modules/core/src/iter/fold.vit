@@ -3,7 +3,7 @@ space core::iter::fold;
 
 export form FoldStep<U> {
     accumulator: U,
-    continue: bool,
+    should_continue: bool,
 }
 
 export proc fold<T, U>(
@@ -27,7 +27,7 @@ export proc fold_while<T, U>(
     for index in 0..source.len() {
         let step: FoldStep[U] = combine(accumulator, &source[index]);
         set accumulator = step.accumulator;
-        if not step.continue { return accumulator; }
+        if not step.should_continue { return accumulator; }
     }
     return accumulator;
 }

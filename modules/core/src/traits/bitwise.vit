@@ -1,52 +1,46 @@
 /// Contrats des opérations logiques et de décalage sur les entiers.
 space core::traits::bitwise;
 
-export trait BitAnd<Rhs> {
-    type Output;
-    proc bitand(&self, rhs: Rhs) -> Self::Output;
+export trait BitAnd<Receiver, Rhs, Output> {
+    proc bitand(receiver: &Receiver, rhs: Rhs) -> Output;
 }
 
-export trait BitOr<Rhs> {
-    type Output;
-    proc bitor(&self, rhs: Rhs) -> Self::Output;
+export trait BitOr<Receiver, Rhs, Output> {
+    proc bitor(receiver: &Receiver, rhs: Rhs) -> Output;
 }
 
-export trait BitXor<Rhs> {
-    type Output;
-    proc bitxor(&self, rhs: Rhs) -> Self::Output;
+export trait BitXor<Receiver, Rhs, Output> {
+    proc bitxor(receiver: &Receiver, rhs: Rhs) -> Output;
 }
 
-export trait Shl<Rhs> {
-    type Output;
-    proc shl(&self, rhs: Rhs) -> Self::Output;
+export trait Shl<Receiver, Rhs, Output> {
+    proc shl(receiver: &Receiver, rhs: Rhs) -> Output;
 }
 
-export trait Shr<Rhs> {
-    type Output;
-    proc shr(&self, rhs: Rhs) -> Self::Output;
+export trait Shr<Receiver, Rhs, Output> {
+    proc shr(receiver: &Receiver, rhs: Rhs) -> Output;
 }
 
-export trait Not {
-    type Output;
-    proc not(&self) -> Self::Output;
+export trait Not<Receiver, Output> {
+    proc bitnot(receiver: &Receiver) -> Output;
 }
 
-export trait BitAndAssign<Rhs> {
-    proc bitand_assign(&mut self, rhs: Rhs);
+export trait BitAndAssign<Receiver, Rhs> {
+    proc bitand_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 
-export trait BitOrAssign<Rhs> {
-    proc bitor_assign(&mut self, rhs: Rhs);
+export trait BitOrAssign<Receiver, Rhs> {
+    proc bitor_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 
-export trait BitXorAssign<Rhs> {
-    proc bitxor_assign(&mut self, rhs: Rhs);
+export trait BitXorAssign<Receiver, Rhs> {
+    proc bitxor_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 
-export trait ShlAssign<Rhs> {
-    proc shl_assign(&mut self, rhs: Rhs);
+export trait ShlAssign<Receiver, Rhs> {
+    proc shl_assign(receiver: &mut Receiver, rhs: Rhs);
 }
 
-export trait ShrAssign<Rhs> {
-    proc shr_assign(&mut self, rhs: Rhs);
+export trait ShrAssign<Receiver, Rhs> {
+    proc shr_assign(receiver: &mut Receiver, rhs: Rhs);
 }

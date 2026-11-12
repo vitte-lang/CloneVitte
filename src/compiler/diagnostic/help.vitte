@@ -8,6 +8,7 @@ use compiler::source::source::{
 };
 use compiler::diagnostic::diagnostic::{
     Diagnostic,
+    DiagnosticAnnotation,
     DiagnosticAnnotationKind,
     DiagnosticContractKind,
     DiagnosticLabelStyle,
@@ -139,6 +140,11 @@ const HELP_RULE_CODES: [string] = [
     "E1202",
     "E1203",
     "E1204",
+    "E1205",
+    "E1206",
+    "E1207",
+    "E1208",
+    "E1209",
     "E1301",
     "E1302",
     "E1303",
@@ -296,6 +302,11 @@ const HELP_RULE_TEXTS: [string] = [
     "Handle the null case before dereferencing or provide a valid initialized reference.",
     "Use a pointer to the required pointee type and verify the pointee representation before performing an explicit conversion.",
     "Allocate or offset the storage so the accessed value satisfies the required alignment.",
+    "Keep the referenced value alive for at least as long as the reference, and use a direct local or parameter borrow whose origin the bootstrap can track.",
+    "End the existing borrow before creating an overlapping exclusive reference; use shared references only when no mutation is required.",
+    "Wait until the incompatible reference is no longer used, or access the value through the active reference with its permitted mutability.",
+    "End every reference to the value before moving it, or move a different local value that is not currently borrowed.",
+    "Initialize the binding again before using it, or remove the move if the original value is still needed.",
     "Prefer a safe API; when this low-level operation is required, establish its safety invariants and place it in an explicit unsafe context.",
     "Match assembly instructions, operands and constraints to the selected target architecture.",
     "Use the intrinsic's required argument types and compile-time values on a target that supports the intrinsic.",
@@ -350,7 +361,7 @@ form HelpExpectedTokens {
 }
 
 proc help_text_present(text: string) -> bool {
-    return text.length() != 0;
+    return text.len() != 0;
 }
 
 proc help_ascii_lower(value: u8) -> u8 {
@@ -396,7 +407,7 @@ proc help_explicit_annotation(
     }
     let mut index: usize = 0;
     while index < diagnostic_value.annotations.len() {
-        let annotation = &diagnostic_value.annotations[index];
+        let annotation: &DiagnosticAnnotation = &diagnostic_value.annotations[index];
         if annotation.kind == DiagnosticAnnotationKind.Help and
            help_text_present(annotation.message) {
             return annotation.message;
@@ -446,7 +457,7 @@ proc help_quote_fragment(text: string, maximum: usize) -> string {
     let mut written: usize = 0;
 
     while index < bytes.len() and written < maximum {
-        let byte = bytes[index];
+        let byte: u8 = bytes[index];
 
         if byte < 32 as u8 or byte == 127 as u8 {
             set index += 1;
@@ -594,7 +605,7 @@ proc help_source_excerpt(
         return "";
     }
 
-    let mut source_slice = SourceSlice {
+    let mut source_slice: SourceSlice = SourceSlice {
         data: "",
         length: 0,
         source_id: diagnostic_value.source_id,
@@ -680,13 +691,18 @@ proc help_detail(diagnostic_value: *const Diagnostic) -> string {
     return help_first_cause(diagnostic_value);
 }
 
+proc help_byte_is_space(value: u8) -> bool {
+    return value == 32 as u8 or value == 9 as u8 or
+           value == 10 as u8 or value == 13 as u8;
+}
+
 proc help_trim(text: string) -> string {
     let mut begin: usize = 0;
-    let mut end: usize = text.length();
-    while begin < end and text[begin].is_space() {
+    let mut end: usize = text.len();
+    while begin < end and help_byte_is_space(text[begin] as u8) {
         set begin += 1;
     }
-    while end > begin and text[end - 1].is_space() {
+    while end > begin and help_byte_is_space(text[end - 1] as u8) {
         set end -= 1;
     }
     if begin == end {
@@ -740,20 +756,20 @@ proc help_extract_expected_token(reason: string) -> HelpExpectedTokens {
     let trimmed = help_trim(reason);
     let bytes: [u8] = trimmed.bytes();
     let prefix = "expected ";
-    if bytes.len() < prefix.bytes().len() or
-       trimmed.slice(0, prefix.bytes().len()) != prefix {
+    if bytes.len() < 9 or
+       trimmed.slice(0, 9) != prefix {
         return HelpExpectedTokens { valid: false, expected: "", found: "" };
     }
 
     let suffix_position = help_find_bytes(trimmed, ", found ");
-    let expected_end = if suffix_position ==
+    let expected_end: usize = if suffix_position ==
         18446744073709551615 as usize {
         bytes.len()
     } else {
         suffix_position
     };
     let expected = help_prefix_bytes(
-        help_trim(trimmed.slice(prefix.bytes().len(), expected_end)),
+        help_trim(trimmed.slice(9, expected_end)),
         HELP_EXPECTED_TOKEN_LIMIT - 1
     );
     if expected == "" {
@@ -764,7 +780,7 @@ proc help_extract_expected_token(reason: string) -> HelpExpectedTokens {
     if suffix_position != 18446744073709551615 as usize {
         found = help_prefix_bytes(
             help_trim(trimmed.slice(
-                suffix_position + ", found ".bytes().len(),
+                suffix_position + 8,
                 bytes.len()
             )),
             HELP_EXPECTED_TOKEN_LIMIT - 1
@@ -916,28 +932,28 @@ proc help_registry_entry(
     if diagnostic_value == null {
         return null;
     }
-    let mut entry: *const DiagnosticRegistryEntry = null;
+    let mut registry_value: *const DiagnosticRegistryEntry = null;
     if help_text_present(diagnostic_value.code) {
-        entry = vitte_diagnostic_registry_find_internal(diagnostic_value.code);
-        if entry == null {
-            entry = vitte_diagnostic_registry_find_public(diagnostic_value.code);
+        registry_value = vitte_diagnostic_registry_find_internal(diagnostic_value.code);
+        if registry_value == null {
+            registry_value = vitte_diagnostic_registry_find_public(diagnostic_value.code);
         }
     }
-    if entry == null and help_text_present(diagnostic_value.short_code) {
-        entry = vitte_diagnostic_registry_find_public(diagnostic_value.short_code);
-        if entry == null {
-            entry = vitte_diagnostic_registry_find_internal(diagnostic_value.short_code);
+    if registry_value == null and help_text_present(diagnostic_value.short_code) {
+        registry_value = vitte_diagnostic_registry_find_public(diagnostic_value.short_code);
+        if registry_value == null {
+            registry_value = vitte_diagnostic_registry_find_internal(diagnostic_value.short_code);
         }
     }
-    return entry;
+    return registry_value;
 }
 
 proc help_public_code(
     diagnostic_value: *const Diagnostic,
-    entry: *const DiagnosticRegistryEntry
+    registry_value: *const DiagnosticRegistryEntry
 ) -> string {
-    if entry != null and help_text_present(entry.public_code) {
-        return entry.public_code;
+    if registry_value != null and help_text_present(registry_value.public_code) {
+        return registry_value.public_code;
     }
     if diagnostic_value != null and help_text_present(diagnostic_value.short_code) {
         return diagnostic_value.short_code;
@@ -1065,8 +1081,8 @@ proc help_format_text(
         return "";
     }
 
-    let entry = help_registry_entry(diagnostic_value);
-    let public_code = help_public_code(diagnostic_value, entry);
+    let registry_value = help_registry_entry(diagnostic_value);
+    let public_code = help_public_code(diagnostic_value, registry_value);
     let policy = vitte_diagnostic_help_for_code(public_code);
     let reason = help_detail(diagnostic_value);
     let source_text = help_source_excerpt(diagnostic_value, sources);

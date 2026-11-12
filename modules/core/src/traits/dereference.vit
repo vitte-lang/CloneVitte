@@ -1,12 +1,10 @@
 /// Contrat de déréférencement.
 space core::traits::dereference;
 
-export trait Deref {
-    type Target;
-    proc deref(&self) -> &Self::Target;
+export trait Deref<Receiver, Target> {
+    proc deref(receiver: &Receiver) -> &Target;
 }
 
-export trait DerefMut {
-    type Target;
-    proc deref_mut(&mut self) -> &mut Self::Target;
+export trait DerefMut<Receiver, Target> {
+    proc deref_mut(receiver: &mut Receiver) -> &mut Target;
 }

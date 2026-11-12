@@ -492,7 +492,7 @@ proc tu_emit_features(unit: &C17TranslationUnit, backend: &mut C17Backend) -> bo
         let bytes = unit.features[i].name.as_bytes();
         let mut j: usize = 0;
         while j < unit.features[i].name_length {
-            let byte = bytes[j];
+            let byte: u8 = bytes[j];
             let output = if byte >= 97 and byte <= 122 { byte - 32 }
                 else { if (byte >= 65 and byte <= 90) or (byte >= 48 and byte <= 57) or byte == 95 { byte } else { 95 as u8 } };
             if not vitte_c17_backend_write_char(backend, output as char) { return false; }
@@ -576,7 +576,7 @@ pub proc vitte_c17_translation_unit_emit(unit: &mut C17TranslationUnit) -> bool 
     set unit.state = C17TranslationUnitState.Emitting;
     set unit.stats.emitted_fragment_count = 0;
     set unit.stats.emitted_fragment_bytes = 0;
-    let backend = &mut *unit.backend;
+    let backend: *mut C17Backend = &mut *unit.backend;
     if not tu_emit_features(unit, backend) or not tu_emit_includes(unit, backend) {
         return tu_fail(unit, C17TranslationUnitError.Backend);
     }
@@ -599,7 +599,7 @@ pub proc vitte_c17_translation_unit_emit(unit: &mut C17TranslationUnit) -> bool 
 
 pub proc vitte_c17_translation_unit_emit_adapter(backend: &mut C17Backend, translation_unit: *const u8, user_data: *u8) -> bool {
     if translation_unit == null or not vitte_c17_backend_is_valid(backend) { return false; }
-    let unit = &mut *(translation_unit as *mut C17TranslationUnit);
+    let unit: *mut C17TranslationUnit = &mut *(translation_unit as *mut C17TranslationUnit);
     if not vitte_c17_translation_unit_is_valid(unit) { return false; }
     set unit.backend = backend as *mut C17Backend;
     return vitte_c17_translation_unit_emit(unit);
@@ -645,7 +645,7 @@ proc tu_hash_string(hash: u64, value: string, length: usize) -> u64 {
 
 pub proc vitte_c17_translation_unit_hash(unit: &C17TranslationUnit) -> u64 {
     if not vitte_c17_translation_unit_is_valid(unit) { return 0; }
-    let mut hash = TU_HASH_OFFSET;
+    let mut hash: u64 = TU_HASH_OFFSET;
     if unit.program != null { set hash = tu_hash_u64(hash, vitte_c17_program_hash(&*unit.program)); }
     set hash = tu_hash_u64(hash, unit.includes.len() as u64);
     set hash = tu_hash_u64(hash, unit.features.len() as u64);

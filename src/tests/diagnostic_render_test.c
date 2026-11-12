@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "api/api.h"
 #include "diagnostic/diagnostic.h"
 #include "diagnostic/cli_bridge.h"
 #include "diagnostic/help.h"
@@ -10,6 +11,79 @@
 #include "diagnostic/render_lsp.h"
 #include "diagnostic/registry.h"
 #include "diagnostic/render_terminal.h"
+
+static void
+test_api_invalid_utf8_source_diagnostic(void)
+{
+    static const char prefix[] =
+        "proc main() -> i64 { return 0; }\n";
+    char source[sizeof(prefix)];
+    vitte_api_t *api = NULL;
+    vitte_api_result_t *result = NULL;
+    vitte_status_t status;
+    const char *diagnostics;
+
+    memcpy(source, prefix, sizeof(prefix) - 1u);
+    source[sizeof(prefix) - 1u] = (char)0xff;
+    status = vitte_api_create(&api);
+    assert(status == VITTE_STATUS_OK);
+    assert(api != NULL);
+
+    status = vitte_api_compile_source(
+        api,
+        "invalid-utf8.vit",
+        source,
+        sizeof(source),
+        &result);
+    assert(status != VITTE_STATUS_OK);
+    assert(result != NULL);
+    assert(vitte_api_result_error_count(result) == 1u);
+    diagnostics = vitte_api_result_diagnostics(result, NULL);
+    assert(diagnostics != NULL);
+    assert(strstr(diagnostics, "E0108") != NULL);
+    assert(strstr(diagnostics, "phase: lexer") != NULL);
+    assert(strstr(diagnostics, "invalid-utf8.vit:2:1") != NULL);
+
+    vitte_api_result_destroy(result);
+    vitte_api_destroy(api);
+}
+
+static void
+test_api_contract_diagnostics(void)
+{
+    static const char *const sources[] = {
+        "proc f(x: int) -> int requires x + 1; { return x; }",
+        "proc f() -> int ensures false; { return 0; }",
+        "proc f() -> int { }",
+        "proc f(x: int) -> int requires x > 0; { return x; } proc main() -> int { return f(0); }",
+        "proc f() -> int { return 1 / 0; }",
+        "proc f() -> int { let a = [1]; return a[1]; }",
+        "proc f(x: bool) -> int { match x { true => 1, } }"
+    };
+    static const char *const codes[] = {"E0704", "E0702", "E1101", "E0701", "E1503", "E1201", "E1601"};
+    size_t index;
+    for (index = 0u; index < sizeof(sources) / sizeof(sources[0]); ++index) {
+        vitte_api_t *api = NULL;
+        vitte_api_result_t *result = NULL;
+        const char *diagnostics;
+        assert(vitte_api_create(&api) == VITTE_STATUS_OK);
+        assert(vitte_api_compile_source(api, "contract.vit", sources[index],
+            strlen(sources[index]), &result) != VITTE_STATUS_OK);
+        assert(result != NULL);
+        assert(vitte_api_result_error_count(result) == 1u);
+        diagnostics = vitte_api_result_diagnostics(result, NULL);
+        assert(diagnostics != NULL && strstr(diagnostics, codes[index]) != NULL);
+        assert(strstr(diagnostics, index < 2u || index == 3u ? "phase: contract" :
+            index == 4u ? "phase: constant-eval" : "phase: type-check") != NULL);
+        if (index < 2u || index == 3u) {
+            assert(strstr(diagnostics, "contract:") != NULL);
+            assert(strstr(diagnostics, "procedure: f") != NULL);
+        }
+        assert(strstr(diagnostics, "help:") != NULL);
+        vitte_api_result_destroy(result);
+        vitte_api_destroy(api);
+    }
+}
 
 /* The fixture is an ASCII line: UTF-8 and UTF-16 offsets coincide. */
 static bool
@@ -80,6 +154,13 @@ test_cli_bridge_consistency(void)
     input.suggestions = &suggestion;
     input.suggestion_count = 1u;
     input.has_machine_fix = true;
+    input.has_contract = true;
+    input.contract.kind = VITTE_CLI_DIAGNOSTIC_CONTRACT_REQUIRES;
+    input.contract.expression = "bridge_condition";
+    input.contract.procedure = "bridge_procedure";
+    input.contract.reason = "bridge_contract_reason";
+    input.contract.has_contract_span = true;
+    input.contract.contract_span = suggestion.span;
 
     for (index = 0u; index < sizeof(formats) / sizeof(formats[0]); ++index) {
         vitte_cli_diagnostic_render_options_t options;
@@ -103,6 +184,9 @@ test_cli_bridge_consistency(void)
         assert(strstr(output, "Insert `;") != NULL);
         assert(strstr(output, "parser::demo") != NULL);
         assert(strstr(output, "statement") != NULL);
+        assert(strstr(output, "bridge_condition") != NULL);
+        assert(strstr(output, "bridge_procedure") != NULL);
+        assert(strstr(output, "bridge_contract_reason") != NULL);
         if (formats[index] == VITTE_CLI_DIAGNOSTIC_TERMINAL) {
             assert(strstr(output, "bridge.vit:1:1") != NULL);
             assert(strstr(output, "expected `semicolon`") != NULL);
@@ -641,6 +725,8 @@ test_format_parity_metadata(void)
 int
 main(void)
 {
+    test_api_invalid_utf8_source_diagnostic();
+    test_api_contract_diagnostics();
     test_classification_metadata();
     test_classification_rendering();
     test_contextual_help();
