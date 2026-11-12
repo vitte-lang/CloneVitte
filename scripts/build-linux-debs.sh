@@ -131,6 +131,24 @@ EOF
       "$vim_root/ftdetect/vitte.vim" \
       "$vim_root/ftplugin/vitte.vim"
   done
+  # Install all additional Vim components supplied by the repository.
+  for vim_root in \
+    "$data_root/usr/local/share/vim/vimfiles" \
+    "$data_root/usr/share/vim/vimfiles"
+  do
+    for component in indent compiler colors after; do
+      if [ -d "$EDITORS_DIR/vim/$component" ]; then
+        scripts_build_copy_tree \
+          "$EDITORS_DIR/vim/$component" \
+          "$vim_root/$component"
+      fi
+    done
+    if [ -f "$EDITORS_DIR/vim/ultisnips/vitte.snippets" ]; then
+      mkdir -p "$vim_root/UltiSnips"
+      install -m 0644 "$EDITORS_DIR/vim/ultisnips/vitte.snippets" \
+        "$vim_root/UltiSnips/vitte.snippets"
+    fi
+  done
   printf '%s\n' \
     '[build-linux-debs] installed Vim/Neovim integration'
 }
@@ -154,6 +172,14 @@ install_emacs_integration() {
   install -m 0644 \
     "$emacs_mode" \
     "$system_root/vitte-mode.el"
+  if [ -f "$EDITORS_DIR/emacs/vitte-indent.el" ]; then
+    install -m 0644 "$EDITORS_DIR/emacs/vitte-indent.el" \
+      "$system_root/vitte-indent.el"
+  fi
+  if [ -d "$EDITORS_DIR/emacs/snippets" ]; then
+    scripts_build_copy_tree "$EDITORS_DIR/emacs/snippets" \
+      "$data_root/usr/share/vitte/emacs/snippets"
+  fi
   cat > "$startup_root/50vitte.el" <<'EOF'
 ;;; 50vitte.el --- system-wide Vitte mode registration
 (add-to-list 'load-path "/usr/local/share/emacs/site-lisp")
@@ -208,8 +234,28 @@ install_geany_integration() {
       "$geany_definition" \
       "$geany_root/filetypes.Vitte.conf"
   done
+  # Store extension/snippet definitions as managed resources.
+  # Do not overwrite the user's ~/.config/geany files from a Debian maintainer script.
+  geany_resources="$data_root/usr/share/vitte/geany"
+  mkdir -p "$geany_resources"
+  for filename in filetype_extensions.conf filetypes.common snippets.vitte.conf; do
+    if [ -f "$EDITORS_DIR/geany/$filename" ]; then
+      install -m 0644 "$EDITORS_DIR/geany/$filename" \
+        "$geany_resources/$filename"
+    fi
+  done
   printf '%s\n' \
     '[build-linux-debs] installed Geany integration'
+}
+install_language_tooling() {
+  data_root=$1
+  # These are source modules/resources, not executable editor plugins.
+  for component in grammar semantic_tokens snippets tree-sitter; do
+    if [ -d "$EDITORS_DIR/$component" ]; then
+      scripts_build_copy_tree "$EDITORS_DIR/$component" \
+        "$data_root/usr/local/share/vitte/editors/$component"
+    fi
+  done
 }
 install_shell_completions() {
   data_root=$1
@@ -235,6 +281,7 @@ install_editor_integrations() {
   install_emacs_integration "$data_root"
   install_nano_integration "$data_root"
   install_geany_integration "$data_root"
+  install_language_tooling "$data_root"
   install_shell_completions "$data_root"
 }
 add_assets() {
@@ -291,6 +338,15 @@ verify_payload() {
   scripts_build_require_file \
     "$data_root/usr/share/geany/filedefs/filetypes.Vitte.conf" \
     "Geany Vitte filetype"
+  for required in \
+    "$data_root/usr/share/vim/vimfiles/indent/vitte.vim" \
+    "$data_root/usr/share/vim/vimfiles/compiler/vitte.vim" \
+    "$data_root/usr/share/vim/vimfiles/UltiSnips/vitte.snippets" \
+    "$data_root/usr/share/emacs/site-lisp/vitte/vitte-indent.el" \
+    "$data_root/usr/share/vitte/geany/snippets.vitte.conf" \
+    "$data_root/usr/local/share/vitte/editors/tree-sitter/grammar.js"; do
+    scripts_build_require_file "$required" "Vitte editor integration"
+  done
   scripts_build_require_file \
     "$data_root/usr/share/bash-completion/completions/vitte" \
     "Bash Vitte completion"
@@ -356,9 +412,8 @@ Section: devel
 Priority: optional
 Architecture: $arch
 Maintainer: Vitte Team <maintainers@vitte-lang.org>
-Depends: bash, python3, make
-Recommends: git, clang | gcc
-Suggests: vim | neovim, emacs, nano, geany
+Depends: bash, python3, make, gcc, g++, clang, lld, binutils, git, pkg-config, cmake, ninja-build, gdb, nano, vim, neovim, emacs, geany, bash-completion, fish, zsh, curl, ca-certificates
+Recommends: python3-venv, python3-pip
 Provides: vitte-compiler, vitte-toolchain, vitte-editor-support
 Installed-Size: $installed_size
 Homepage: https://vitte-lang.org/
@@ -372,6 +427,22 @@ EOF
 }
 write_maintainer_scripts() {
   control_root=$1
+  cat > "$control_root/preinst" <<'EOF'
+#!/bin/sh
+set -eu
+# Only remove broken, unowned legacy symlinks. dpkg handles package upgrades.
+case "${1:-}" in
+  install|upgrade)
+    for path in /usr/local/bin/vitte /usr/local/bin/vittec /usr/bin/vitte /usr/bin/vittec; do
+      if [ -L "$path" ] && [ ! -e "$path" ] && ! dpkg-query -S "$path" >/dev/null 2>&1; then
+        rm -f -- "$path"
+      fi
+    done
+    ;;
+esac
+exit 0
+EOF
+  chmod 0755 "$control_root/preinst"
   cat > "$control_root/postinst" <<'EOF'
 #!/bin/sh
 set -eu
@@ -464,7 +535,7 @@ verify_debian_package() {
   dpkg-deb -e "$package_file" "$control_directory"
   dpkg-deb -x "$package_file" "$extract_directory"
 
-  for member in control md5sums postinst prerm postrm; do
+  for member in control md5sums preinst postinst prerm postrm; do
     [ -s "$control_directory/$member" ] ||
       die "missing Debian $member file"
   done
@@ -556,7 +627,7 @@ build_one() {
 
   chmod 0755 "$control_root"
   chmod 0644 "$control_root/control" "$control_root/md5sums"
-  chmod 0755 "$control_root/postinst" "$control_root/prerm" "$control_root/postrm"
+  chmod 0755 "$control_root/preinst" "$control_root/postinst" "$control_root/prerm" "$control_root/postrm"
   normalize_payload "$package_root"
 
   # dpkg-deb creates Debian-compatible tar members without bsdtar PAX headers.
