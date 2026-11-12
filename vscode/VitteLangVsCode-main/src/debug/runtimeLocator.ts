@@ -1,3 +1,4 @@
+import { workspaceBinaryRoots, expandToolPath } from "../utils/project";
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -152,19 +153,7 @@ function cmpSemver(a: VSemVer, b: VSemVer): number {
 // discovery
 // -----------------------------
 function discoverWorkspaceBinRoots(): string[] {
-  const roots: string[] = [];
-  const folders = vscode.workspace.workspaceFolders ?? [];
-  for (const f of folders) {
-    const base = f.uri.fsPath;
-    const cands = [
-      path.join(base, '.vitte', 'bin'),
-      path.join(base, 'vitte', 'bin'),
-      path.join(base, '.bin'),
-      path.join(base, 'tools', 'vitte', 'bin'),
-    ];
-    for (const c of cands) if (exists(c)) roots.push(c);
-  }
-  return roots;
+  return workspaceBinaryRoots((vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath));
 }
 
 /** Detect toolchain root by checking settings, env vars, workspace bins, or bin location. */
@@ -219,7 +208,8 @@ let MEMO_RESULT: VitteRuntimePaths | undefined;
 export function clearRuntimeLocatorCache(): void { MEMO_RESULT = undefined; }
 
 function resolveFromSettingOrRoot(cfg: vscode.WorkspaceConfiguration, root: string | undefined, name: string, settingKey: string): string | undefined {
-  const fromSetting = cfg.get<string>(settingKey);
+  const raw = cfg.get<string>(settingKey);
+  const fromSetting = raw ? expandToolPath(raw, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(), root) : undefined;
   if (fromSetting && isExecutableSync(fromSetting)) return real(fromSetting) ?? fromSetting;
   if (root) {
     const candidate = path.join(root, 'bin', name + (isWindows() ? '.exe' : ''));
@@ -243,14 +233,9 @@ export function locateVitteRuntime(minRequired?: string): Promise<VitteRuntimePa
   const cfg = vscode.workspace.getConfiguration('vitte');
   const toolchainRoot = detectVitteToolchainRoot();
 
-  const cliPath = resolveFromSettingOrRoot(cfg, toolchainRoot, 'vitte', 'debug.program')
-    ?? resolveFromSettingOrRoot(cfg, toolchainRoot, 'vitte', 'compiler.path')
-    ?? resolveFromSettingOrRoot(cfg, toolchainRoot, 'vitte', 'runtime.path')
+  const cliPath = resolveFromSettingOrRoot(cfg, toolchainRoot, 'vitte', 'compiler.path')
     ?? which('vitte');
-  const runtimePath = cliPath
-    ?? resolveFromSettingOrRoot(cfg, toolchainRoot, 'vitte-runtime', 'runtime.path')
-    ?? resolveFromSettingOrRoot(cfg, toolchainRoot, 'vitte-runtime', 'debug.program')
-    ?? 'vitte';
+  const runtimePath = cliPath ?? 'vitte';
   const lspPath   = resolveFromSettingOrRoot(cfg, toolchainRoot, 'vitte-lsp',   'lsp.path');
   const buildPath = resolveFromSettingOrRoot(cfg, toolchainRoot, 'vitte', 'build.path') ?? cliPath;
   const fmtPath   = resolveFromSettingOrRoot(cfg, toolchainRoot, 'vitte-fmt', 'fmt.path');
@@ -375,7 +360,7 @@ export function registerRuntimeLocatorCommand(ctx: vscode.ExtensionContext): voi
       vscode.window.showErrorMessage('Le fichier sélectionné ne semble pas exécutable.');
       return;
     }
-    await vscode.workspace.getConfiguration('vitte').update('debug.program', fsPath, vscode.ConfigurationTarget.Workspace);
+    await vscode.workspace.getConfiguration('vitte').update('compiler.path', fsPath, vscode.ConfigurationTarget.Workspace);
     clearRuntimeLocatorCache();
     vscode.window.showInformationMessage(`Vitte: CLI défini sur ${fsPath}`);
   });

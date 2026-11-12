@@ -77,25 +77,25 @@ function runNativeDapSmoke(): Promise<DapMessage[]> {
           ],
         });
       } else if (responseFor(message, 'setBreakpoints')) {
-        const breakpoints = message.body?.breakpoints as Array<Record<string, unknown>> | undefined;
+        const breakpoints = message.body?.breakpoints as Record<string, unknown>[] | undefined;
         assert.equal(breakpoints?.every((breakpoint) => breakpoint.verified === true), true);
         send('configurationDone');
       } else if (message.type === 'event' && message.event === 'stopped' && !stopped) {
         stopped = true;
         send('stackTrace', { threadId: 1, levels: 20 });
       } else if (responseFor(message, 'stackTrace')) {
-        const stackFrames = message.body?.stackFrames as Array<Record<string, unknown>> | undefined;
+        const stackFrames = message.body?.stackFrames as Record<string, unknown>[] | undefined;
         assert.ok((stackFrames?.length ?? 0) >= 3);
         assert.equal(stackFrames?.[0]?.line, 49);
         topFrameId = Number(stackFrames?.[0]?.id);
         send('scopes', { frameId: stackFrames?.[0]?.id });
       } else if (responseFor(message, 'scopes')) {
-        const scopes = message.body?.scopes as Array<Record<string, unknown>> | undefined;
+        const scopes = message.body?.scopes as Record<string, unknown>[] | undefined;
         scopeReference = Number(scopes?.[0]?.variablesReference);
         assert.ok(scopeReference > 0);
         send('variables', { variablesReference: scopeReference });
       } else if (responseFor(message, 'variables')) {
-        const variables = message.body?.variables as Array<Record<string, unknown>> | undefined;
+        const variables = message.body?.variables as Record<string, unknown>[] | undefined;
         assert.equal(variables?.find((item) => item.name === 'value')?.value, '42');
         send('evaluate', { frameId: topFrameId, expression: 'value + 1', context: 'watch' });
       } else if (responseFor(message, 'evaluate')) {

@@ -11,13 +11,41 @@ source -> lexer -> parser/AST -> semantic analysis -> HIR -> IR -> C17
 
 ## Build
 
-Prérequis : un compilateur C17, `make` et Python 3 pour les vérifications.
+Prérequis : un compilateur C17, Steel et Python 3 pour les vérifications.
+Le fichier de build natif recommandé est [steelconf](steelconf), écrit en
+MUF4 (`!muf 4`). Le Makefile historique reste documenté pendant la migration,
+mais les nouvelles intégrations doivent cibler Steelconf.
 
 ```sh
 cc --version
-make --version
+steel --version
 python3 --version
 ```
+
+### Build natif Steelconf
+
+Depuis la racine de Vitte :
+
+```sh
+steel run --file steelconf
+steel run --file steelconf --bake bootstrap
+steel run --file steelconf --jobs 4
+steel run --file steelconf --bake check
+steel run --file steelconf --bake test
+```
+
+Les équivalents des opérations usuelles sont également disponibles :
+
+```sh
+steel clean --file steelconf
+steel test --file steelconf --jobs 4
+steel install --file steelconf
+```
+
+Les variables de compatibilité Make peuvent être fournies par l’environnement,
+par exemple `FILE=examples/hello.vit steel run --file steelconf --bake
+compile`. Les cibles sont des bakes MUF4 ; leurs dépendances, sorties, profils
+et recettes sont donc validés avant exécution.
 
 ### Seed C : `vitte-bootstrap`
 

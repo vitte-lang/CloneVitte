@@ -1,3 +1,4 @@
+import { maskNonCode } from "./lexical.js";
 // indexer.ts — indexation robuste des symboles pour Vitte/Vit (LSP prêt, sans dépendance runtime)
 
 // Import minimal côté serveur LSP.
@@ -690,114 +691,6 @@ function dedupe<T>(arr: T[], key: (t: T) => string): T[] {
     out.push(x);
   }
   return out;
-}
-
-function maskNonCode(src: string): string {
-  const chars = Array.from(src);
-  const len = chars.length;
-  let i = 0;
-
-  const blank = (idx: number) => {
-    if (idx >= 0 && idx < len && chars[idx] !== "\n") {
-      chars[idx] = " ";
-    }
-  };
-
-  while (i < len) {
-    const ch = chars[i];
-
-    if (ch === "#" && i + 1 < len && chars[i + 1] !== "[") {
-      blank(i);
-      i += 1;
-      while (i < len && chars[i] !== "\n") {
-        blank(i);
-        i++;
-      }
-      continue;
-    }
-    if (ch === "/" && i + 1 < len && chars[i + 1] === "/") {
-      blank(i);
-      blank(i + 1);
-      i += 2;
-      while (i < len && chars[i] !== "\n") {
-        blank(i);
-        i++;
-      }
-      continue;
-    }
-
-    if (ch === "/" && i + 1 < len && chars[i + 1] === "*") {
-      blank(i);
-      blank(i + 1);
-      i += 2;
-      while (i + 1 < len && !(chars[i] === "*" && chars[i + 1] === "/")) {
-        if (chars[i] !== "\n") chars[i] = " ";
-        i++;
-      }
-      if (i < len) {
-        blank(i);
-        i++;
-      }
-      if (i < len) {
-        blank(i);
-        i++;
-      }
-      continue;
-    }
-
-    if (ch === "'" || ch === "\"") {
-      const quote = ch;
-      blank(i);
-      i++;
-      while (i < len) {
-        const current = chars[i];
-        if (current === "\n") {
-          i++;
-          break;
-        }
-        blank(i);
-        if (current === quote && chars[i - 1] !== "\\") {
-          i++;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-
-    if (ch === "r") {
-      let j = i + 1;
-      while (j < len && chars[j] === "#") j++;
-      if (j < len && chars[j] === "\"") {
-        const hashCount = j - (i + 1);
-        const terminator = "\"" + "#".repeat(hashCount);
-        blank(i);
-        for (let t = i + 1; t <= j; t++) blank(t);
-        let k = j + 1;
-        while (k < len) {
-          if (chars[k] === "\n") {
-            k++;
-            continue;
-          }
-          if (src.startsWith(terminator, k)) {
-            for (let t = 0; t < terminator.length; t++) {
-              blank(k + t);
-            }
-            k += terminator.length;
-            break;
-          }
-          blank(k);
-          k++;
-        }
-        i = k;
-        continue;
-      }
-    }
-
-    i++;
-  }
-
-  return chars.join("");
 }
 
 function isWhitespace(ch: string | undefined): boolean {

@@ -1,3 +1,4 @@
+import { scanLexical } from "./lexical.js";
 // navigation.ts — symboles, définitions, références, rename, workspace symbols
 // Version enrichie :
 // - Parsing tolérant qui ignore commentaires/chaînes
@@ -47,74 +48,7 @@ interface DocIndex {
 // Supporte //, /* */, "...", '...', r"..." et r#"..."# (style Rust/Vitte). Sans interpolation.
 
 export function buildCodeMask(text: string): Uint8Array {
-  const n = text.length;
-  const mask = new Uint8Array(n);
-  let i = 0;
-  const setCode = (from: number, to: number) => {
-    for (let k = from; k < to; k++) mask[k] = 1;
-  };
-  while (i < n) {
-    const c = text.charCodeAt(i);
-    const c2 = i + 1 < n ? text.charCodeAt(i + 1) : 0;
-    // Line comment #... (ignore attributes #[...])
-    if (c === 0x23 /* # */ && c2 !== 0x5b /* [ */) {
-      i += 1;
-      while (i < n && text.charCodeAt(i) !== 0x0a) i++;
-      continue;
-    }
-    // Line comment
-    if (c === 0x2f /*/ */ && c2 === 0x2f) {
-      i += 2;
-      while (i < n && text.charCodeAt(i) !== 0x0a) i++;
-      continue;
-    }
-    // Block comment (supports nesting depth 1 minimal)
-    if (c === 0x2f && c2 === 0x2a /* * */) {
-      i += 2;
-      while (i < n) {
-        if (text.charCodeAt(i) === 0x2a && i + 1 < n && text.charCodeAt(i + 1) === 0x2f) {
-          i += 2;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-    // Raw string r#*" ... "#*
-    const rawStringEnd = rawStringEndAt(text, i);
-    if (rawStringEnd !== undefined) {
-      i = rawStringEnd;
-      continue;
-    }
-    // Normal string "..." ou '...'
-    if (c === 0x22 || c === 0x27) {
-      const quote = c;
-      i++;
-      while (i < n) {
-        if (text.charCodeAt(i) === 0x5c /* \\ */) { i += 2; continue; }
-        if (text.charCodeAt(i) === quote) { i++; break; }
-        i++;
-      }
-      continue;
-    }
-    // Code token
-    const start = i;
-    // Avance jusqu’à prochain début de com/str pour marquer code en bloc
-    while (i < n) {
-      const a = text.charCodeAt(i);
-      const b = i + 1 < n ? text.charCodeAt(i + 1) : 0;
-      if (
-        (a === 0x2f && (b === 0x2f || b === 0x2a)) ||
-        a === 0x22 ||
-        a === 0x27 ||
-        (a === 0x72 && rawStringEndAt(text, i) !== undefined) ||
-        (a === 0x23 && b !== 0x5b)
-      ) break;
-      i++;
-    }
-    setCode(start, i);
-  }
-  return mask;
+  return scanLexical(text).mask;
 }
 
 function isIdentChar(ch: number): boolean {
@@ -126,32 +60,6 @@ function isIdentChar(ch: number): boolean {
 
 function isPathChar(ch: number): boolean {
   return isIdentChar(ch) || ch === 0x2f /* / */ || ch === 0x2e /* . */ || ch === 0x3a /* : */ || ch === 0x2d /* - */;
-}
-
-function rawStringEndAt(text: string, start: number): number | undefined {
-  if (text.charCodeAt(start) !== 0x72 /* r */) return undefined;
-  let cursor = start + 1;
-  let hashes = 0;
-  while (cursor < text.length && text.charCodeAt(cursor) === 0x23 /* # */) {
-    hashes++;
-    cursor++;
-  }
-  if (text.charCodeAt(cursor) !== 0x22 /* " */) return undefined;
-
-  cursor++;
-  while (cursor < text.length) {
-    if (text.charCodeAt(cursor) === 0x22 /* " */) {
-      let closing = cursor + 1;
-      let matched = 0;
-      while (matched < hashes && text.charCodeAt(closing) === 0x23 /* # */) {
-        matched++;
-        closing++;
-      }
-      if (matched === hashes) return closing;
-    }
-    cursor++;
-  }
-  return text.length;
 }
 
 function wordAt(doc: TextDocument, pos: Position): string | null {

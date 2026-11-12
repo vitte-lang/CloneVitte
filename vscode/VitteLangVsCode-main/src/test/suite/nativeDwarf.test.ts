@@ -24,7 +24,7 @@ interface DapScenario {
   program: string;
   args?: string[];
   stopOnEntry?: boolean;
-  breakpoints?: Array<number | BreakpointRequest>;
+  breakpoints?: (number | BreakpointRequest)[];
   expectedFailures?: string[];
   onMessage: (message: DapMessage, send: (command: string, args?: Record<string, unknown>) => void, finish: (error?: Error) => void) => void;
 }
@@ -152,7 +152,7 @@ suite('Vitte native DWARF debugger', () => {
           state = 'waiting-for-stack';
           send('stackTrace', { threadId: 1, levels: 8 });
         } else if (message.type === 'response' && message.command === 'stackTrace' && state === 'waiting-for-stack') {
-          const stackFrames = responseBody(message, 'stackTrace').stackFrames as Array<Record<string, unknown>> | undefined;
+          const stackFrames = responseBody(message, 'stackTrace').stackFrames as Record<string, unknown>[] | undefined;
           const top = stackFrames?.[0];
           assert.ok(top);
           assert.match(String(top?.name), /vitte_entry_main/);
@@ -184,8 +184,8 @@ suite('Vitte native DWARF debugger', () => {
     const parallelWatchResults = new Set<string>();
     let parallelWatchResponses = 0;
 
-    const variablesOf = (message: DapMessage): Array<Record<string, unknown>> => (
-      (responseBody(message, 'variables').variables as Array<Record<string, unknown>> | undefined) ?? []
+    const variablesOf = (message: DapMessage): Record<string, unknown>[] => (
+      (responseBody(message, 'variables').variables as Record<string, unknown>[] | undefined) ?? []
     );
 
     const messages = await runNativeDapScenario({
@@ -198,7 +198,7 @@ suite('Vitte native DWARF debugger', () => {
           state = 'waiting-for-inspect-stack';
           send('stackTrace', { threadId: 1, levels: 8 });
         } else if (message.type === 'response' && message.command === 'stackTrace' && state === 'waiting-for-inspect-stack') {
-          const stackFrames = responseBody(message, 'stackTrace').stackFrames as Array<Record<string, unknown>> | undefined;
+          const stackFrames = responseBody(message, 'stackTrace').stackFrames as Record<string, unknown>[] | undefined;
           assert.equal(stackFrames?.[0]?.line, 21);
           assert.equal(stackFrames?.[0]?.name, 'inspect');
           inspectFrameId = Number(stackFrames?.[0]?.id);
@@ -207,7 +207,7 @@ suite('Vitte native DWARF debugger', () => {
           state = 'waiting-for-caller-scopes';
           send('scopes', { frameId: mainFrameId });
         } else if (message.type === 'response' && message.command === 'scopes' && state === 'waiting-for-caller-scopes') {
-          const scopes = responseBody(message, 'scopes').scopes as Array<Record<string, unknown>> | undefined;
+          const scopes = responseBody(message, 'scopes').scopes as Record<string, unknown>[] | undefined;
           state = 'waiting-for-caller-locals';
           send('variables', { variablesReference: Number(scopes?.[0]?.variablesReference) });
         } else if (message.type === 'response' && message.command === 'variables' && state === 'waiting-for-caller-locals') {
@@ -224,7 +224,7 @@ suite('Vitte native DWARF debugger', () => {
             send('scopes', { frameId: inspectFrameId });
           }
         } else if (message.type === 'response' && message.command === 'scopes' && state === 'waiting-for-inspect-scopes') {
-          const scopes = responseBody(message, 'scopes').scopes as Array<Record<string, unknown>> | undefined;
+          const scopes = responseBody(message, 'scopes').scopes as Record<string, unknown>[] | undefined;
           scopeReference = Number(scopes?.[0]?.variablesReference);
           assert.ok(scopeReference > 0);
           state = 'waiting-for-inspect-locals';
@@ -295,7 +295,7 @@ suite('Vitte native DWARF debugger', () => {
           state = 'waiting-for-shadow-stack';
           send('stackTrace', { threadId: 1, levels: 8 });
         } else if (message.type === 'response' && message.command === 'stackTrace' && state === 'waiting-for-shadow-stack') {
-          const stackFrames = responseBody(message, 'stackTrace').stackFrames as Array<Record<string, unknown>> | undefined;
+          const stackFrames = responseBody(message, 'stackTrace').stackFrames as Record<string, unknown>[] | undefined;
           assert.equal(stackFrames?.[0]?.line, 47);
           const shadowFrameId = Number(stackFrames?.[0]?.id);
           assert.notEqual(shadowFrameId, inspectFrameId);
@@ -308,7 +308,7 @@ suite('Vitte native DWARF debugger', () => {
           state = 'waiting-for-shadow-scopes';
           send('scopes', { frameId: inspectFrameId });
         } else if (message.type === 'response' && message.command === 'scopes' && state === 'waiting-for-shadow-scopes') {
-          const scopes = responseBody(message, 'scopes').scopes as Array<Record<string, unknown>> | undefined;
+          const scopes = responseBody(message, 'scopes').scopes as Record<string, unknown>[] | undefined;
           scopeReference = Number(scopes?.[0]?.variablesReference);
           assert.notEqual(scopeReference, staleScopeReference);
           state = 'waiting-for-stale-locals';
@@ -338,13 +338,13 @@ suite('Vitte native DWARF debugger', () => {
           state = 'waiting-for-after-stack';
           send('stackTrace', { threadId: 1, levels: 8 });
         } else if (message.type === 'response' && message.command === 'stackTrace' && state === 'waiting-for-after-stack') {
-          const stackFrames = responseBody(message, 'stackTrace').stackFrames as Array<Record<string, unknown>> | undefined;
+          const stackFrames = responseBody(message, 'stackTrace').stackFrames as Record<string, unknown>[] | undefined;
           assert.equal(stackFrames?.[0]?.line, 53);
           assert.notEqual(stackFrames?.[0]?.id, inspectFrameId);
           state = 'waiting-for-after-scopes';
           send('scopes', { frameId: stackFrames?.[0]?.id });
         } else if (message.type === 'response' && message.command === 'scopes' && state === 'waiting-for-after-scopes') {
-          const scopes = responseBody(message, 'scopes').scopes as Array<Record<string, unknown>> | undefined;
+          const scopes = responseBody(message, 'scopes').scopes as Record<string, unknown>[] | undefined;
           scopeReference = Number(scopes?.[0]?.variablesReference);
           state = 'waiting-for-after-locals';
           send('variables', { variablesReference: scopeReference });
@@ -380,7 +380,7 @@ suite('Vitte native DWARF debugger', () => {
       ],
       onMessage: (message, send, finish) => {
         if (message.type === 'event' && message.event === 'output' && message.body?.category === 'console') {
-          const text = String(message.body.output ?? '').trim();
+          const text = typeof message.body.output === 'string' ? message.body.output.trim() : '';
           if (/^index=\d+ total=\d+$/.test(text)) logs.push(text);
         } else if (message.type === 'event' && message.event === 'stopped') {
           assert.equal(message.body?.reason, 'breakpoint');
@@ -389,7 +389,7 @@ suite('Vitte native DWARF debugger', () => {
           state = 'waiting-for-conditional-stack';
           send('stackTrace', { threadId: 1, levels: 4 });
         } else if (message.type === 'response' && message.command === 'stackTrace' && state === 'waiting-for-conditional-stack') {
-          const stackFrames = responseBody(message, 'stackTrace').stackFrames as Array<Record<string, unknown>> | undefined;
+          const stackFrames = responseBody(message, 'stackTrace').stackFrames as Record<string, unknown>[] | undefined;
           assert.equal(stackFrames?.[0]?.line, 10);
           state = 'running';
           send('continue');
@@ -431,20 +431,20 @@ suite('Vitte native DWARF debugger', () => {
           send('stackTrace', { threadId: 1, levels: 20 });
         } else if (message.type === 'response' && message.command === 'stackTrace' && state === 'waiting-for-stack') {
           const body = responseBody(message, 'stackTrace');
-          const stackFrames = body.stackFrames as Array<Record<string, unknown>> | undefined;
+          const stackFrames = body.stackFrames as Record<string, unknown>[] | undefined;
           assert.ok((stackFrames?.length ?? 0) >= 3);
           assert.equal(stackFrames?.[0]?.line, 34);
           topFrameId = Number(stackFrames?.[0]?.id);
           state = 'waiting-for-scopes';
           send('scopes', { frameId: stackFrames?.[0]?.id });
         } else if (message.type === 'response' && message.command === 'scopes' && state === 'waiting-for-scopes') {
-          const scopes = responseBody(message, 'scopes').scopes as Array<Record<string, unknown>> | undefined;
+          const scopes = responseBody(message, 'scopes').scopes as Record<string, unknown>[] | undefined;
           scopeReference = Number(scopes?.[0]?.variablesReference);
           assert.ok(scopeReference > 0);
           state = 'waiting-for-locals';
           send('variables', { variablesReference: scopeReference });
         } else if (message.type === 'response' && message.command === 'variables' && state === 'waiting-for-locals') {
-          const variables = responseBody(message, 'variables').variables as Array<Record<string, unknown>> | undefined;
+          const variables = responseBody(message, 'variables').variables as Record<string, unknown>[] | undefined;
           const snapshot = variables?.find((item) => item.name === 'snapshot');
           assert.equal(snapshot?.type, 'Snapshot');
           assert.match(String(snapshot?.value), /\{/);
@@ -454,7 +454,7 @@ suite('Vitte native DWARF debugger', () => {
           state = 'waiting-for-aggregate';
           send('variables', { variablesReference: snapshotReference });
         } else if (message.type === 'response' && message.command === 'variables' && state === 'waiting-for-aggregate') {
-          const variables = responseBody(message, 'variables').variables as Array<Record<string, unknown>> | undefined;
+          const variables = responseBody(message, 'variables').variables as Record<string, unknown>[] | undefined;
           const point = variables?.find((item) => item.name === 'point');
           pointReference = Number(point?.variablesReference);
           assert.ok(pointReference > 0);
@@ -463,7 +463,7 @@ suite('Vitte native DWARF debugger', () => {
           state = 'waiting-for-point';
           send('variables', { variablesReference: pointReference });
         } else if (message.type === 'response' && message.command === 'variables' && state === 'waiting-for-point') {
-          const variables = responseBody(message, 'variables').variables as Array<Record<string, unknown>> | undefined;
+          const variables = responseBody(message, 'variables').variables as Record<string, unknown>[] | undefined;
           assert.equal(variables?.find((item) => item.name === 'x')?.value, '20');
           assert.equal(variables?.find((item) => item.name === 'y')?.value, '22');
           state = 'waiting-for-expression';
@@ -524,7 +524,8 @@ suite('Vitte native DWARF debugger', () => {
     const helperSource = path.join(repositoryRoot, 'src/tests/debug/signal_helper.c');
     const helperDirectory = mkdtempSync(path.join(os.tmpdir(), 'vitte-dap-signal-'));
     const helperProgram = path.join(helperDirectory, 'signal-helper');
-    execFileSync(process.env.CC?.trim() || 'cc', [helperSource, '-o', helperProgram], {
+    const compiler = process.env.CC?.trim() ?? '';
+    execFileSync(compiler.length > 0 ? compiler : 'cc', [helperSource, '-o', helperProgram], {
       cwd: repositoryRoot,
       stdio: 'pipe',
     });

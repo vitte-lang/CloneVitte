@@ -5,6 +5,26 @@ and adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.3.0] — 2026-11-02
+### Fixed
+- Prevent semantic highlighting from hanging on ordinary `r` identifiers, including `return`.
+- Share lexical boundaries across completion, navigation, indexing, and semantic tokens, including nested block comments, zone comments, raw/triple strings, and inner attributes.
+- Preserve UTF-16 symbol offsets after non-BMP characters and exclude CRLF and empty lines from semantic token spans.
+- Correct snippets for `pick`, `match`, external procedures, imports, exports, aliases, and procedure contracts.
+- Fix existing lint errors in the native debugger and its tests while preserving empty environment-variable fallbacks.
+
+### Added
+- `return`, `ensures`, and unary `!` in language facts; null literal prefix suggestions.
+- Snippets for entry procedures, returns, `elif`, loops, deferred/unsafe blocks, assertions, static values, opaque types, and intrinsics.
+- TextMate and semantic support for hexadecimal floats, exponent-only decimals, trailing decimal points, uppercase radix prefixes, and ranges.
+- Headless regression tests with the real TextMate/Oniguruma tokenizer and a stdio LSP session (`npm run test:unit`).
+
+### Changed
+- Regenerated the bundled catalog with 226 current module import paths.
+- Remove unused runtime dependencies and restrict VSIX contents to runtime assets, excluding source/tests and workspace diagnostic caches.
+- Keep the dependency lockfile when cleaning build outputs.
+- Replace shell-specific build copying with a portable Node.js script that reports missing output.
+
 ## [2.2.0] — 2026-09-20
 ### Changed
 - Aligned TextMate highlighting, language facts, completions, snippets, comments, operators, literals, and primitive types with the canonical EBNF and Pest grammars.

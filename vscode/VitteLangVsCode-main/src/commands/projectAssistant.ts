@@ -1,3 +1,5 @@
+import { workspaceConfiguration, projectSource, PROJECT_CONFIG } from "../utils/project";
+import { locateVitteRuntime } from "../debug/runtimeLocator";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -94,52 +96,8 @@ async function writeWithOverwriteConfirm(p: string, content: string): Promise<bo
 async function generateWorkspaceVscodeFiles(base: string): Promise<void> {
   const tasksPath = path.join(base, ".vscode", "tasks.json");
   const launchPath = path.join(base, ".vscode", "launch.json");
-  const cfg = vscode.workspace.getConfiguration("vitte");
-  const runtimeHint = String(cfg.get<string>("runtime.path", "") || cfg.get<string>("debug.program", "") || "").trim();
-
-  const tasks = {
-    version: "2.0.0",
-    tasks: [
-      { label: "vitte: check (dev)", type: "shell", command: "vitte check --profile dev", group: "build", problemMatcher: [] },
-      { label: "vitte: check (ci)", type: "shell", command: "vitte check --profile test", group: "build", problemMatcher: [] },
-      { label: "vitte: lint", type: "shell", command: "vitte lint --json", problemMatcher: [] },
-      { label: "vitte: format", type: "shell", command: "vitte fmt .", problemMatcher: [] },
-      { label: "vitte: test (ci)", type: "shell", command: "vitte test --profile test --json", group: "test", problemMatcher: [] },
-      { label: "vitte: perf", type: "shell", command: "vitte bench --profile bench --json", problemMatcher: [] },
-      { label: "vitte: doctor", type: "shell", command: "vitte check --json && vitte lint --json && vitte test --json && vitte bench --json", problemMatcher: [] },
-    ],
-  };
-
-  const launch = {
-    version: "0.2.0",
-    configurations: [
-      {
-        name: "Vitte: Launch project entry (dev)",
-        type: "vitte",
-        request: "launch",
-        program: runtimeHint,
-        cwd: "${workspaceFolder}",
-        args: ["run"],
-      },
-      {
-        name: "Vitte: Launch current file (debug)",
-        type: "vitte",
-        request: "launch",
-        program: runtimeHint,
-        cwd: "${workspaceFolder}",
-        args: ["run", "${file}"],
-        trace: true,
-      },
-      {
-        name: "Vitte: Launch project entry (perf)",
-        type: "vitte",
-        request: "launch",
-        program: runtimeHint,
-        cwd: "${workspaceFolder}",
-        args: ["run", "--profile", "bench"],
-      },
-    ],
-  };
+  const runtime = await locateVitteRuntime();
+  const { tasks, launch } = workspaceConfiguration(base, runtime.cliPath ?? "vitte");
 
   await writeIfMissing(tasksPath, `${JSON.stringify(tasks, null, 2)}\n`);
   await writeIfMissing(launchPath, `${JSON.stringify(launch, null, 2)}\n`);
@@ -164,8 +122,8 @@ async function createNewProject(): Promise<void> {
     return;
   }
   await ensureDir(path.join(dir, "src"));
-  await writeIfMissing(path.join(dir, "src", "main.vit"), `space ${name}\n\nentry main at ${name} {\n  give 0\n}\n`);
-  await writeIfMissing(path.join(dir, "vitte.config.json"), `${JSON.stringify({ name, version: "0.1.0" }, null, 2)}\n`);
+  await writeIfMissing(path.join(dir, "src", "main.vit"), projectSource(name));
+  await writeIfMissing(path.join(dir, "vitte.toml"), PROJECT_CONFIG);
   await generateWorkspaceVscodeFiles(dir);
   await promptOpenProjectFolder(dir);
 }
@@ -185,7 +143,7 @@ async function createNewModule(): Promise<void> {
     void vscode.window.showErrorMessage("Invalid module path.");
     return;
   }
-  const wrote = await writeWithOverwriteConfirm(file, `space ${rel}\n\nshare run\n\nproc run() -> i32 {\n  give 0\n}\n`);
+  const wrote = await writeWithOverwriteConfirm(file, `space ${rel};\n\npub proc run() -> i32 {\n  return 0;\n}\n`);
   if (!wrote) return;
   await generateWorkspaceVscodeFiles(ws);
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
@@ -202,17 +160,17 @@ async function createNewPackage(): Promise<void> {
     void vscode.window.showErrorMessage("Invalid package name. Use letters, digits, and underscore only.");
     return;
   }
-  const dir = path.join(ws, "packages", name);
+  const dir = path.join(ws, "modules", name);
   if (!isSafeChildPath(ws, dir)) {
     void vscode.window.showErrorMessage("Invalid package path.");
     return;
   }
-  await ensureDir(dir);
-  const modFile = path.join(dir, "mod.vit");
-  const pkgPath = `vitte/${name}`;
+  await ensureDir(path.join(dir, "src"));
+  const modFile = path.join(dir, "src", "lib.vit");
+  const pkgPath = name;
   const wrote = await writeWithOverwriteConfirm(
     modFile,
-    `<<<\nmod.vit\npackage ${pkgPath}\n>>>\n\nspace ${pkgPath}\n\nshare ready\n\nproc ready() -> bool {\n  give true\n}\n\n<<< ROLE-CONTRACT\npackage: ${pkgPath}\nrole: Package responsibility\ninput_contract: Explicit normalized inputs\noutput_contract: Stable explicit outputs\nboundary: No business policy decisions\n>>>\n`,
+    `space ${pkgPath};\n\npub proc ready() -> bool {\n  return true;\n}\n`,
   );
   if (!wrote) return;
   await generateWorkspaceVscodeFiles(ws);
@@ -220,7 +178,7 @@ async function createNewPackage(): Promise<void> {
   await vscode.window.showTextDocument(doc, { preview: false });
 }
 
-type DoctorTool = "check" | "lint" | "test" | "bench";
+type DoctorTool = "check" | "lex" | "parse";
 
 interface ToolRunResult {
   tool: DoctorTool;
@@ -234,9 +192,6 @@ interface ToolRunResult {
 
 const doctorCollection = vscode.languages.createDiagnosticCollection("vitte-doctor");
 
-function chooseToolCommand(tool: DoctorTool): { cmd: string; args: string[] } {
-  return { cmd: "vitte", args: [tool, "--json"] };
-}
 
 function asStringPrimitive(value: unknown): string | undefined {
   if (typeof value === "string") return value;
@@ -303,7 +258,9 @@ function normalizeRecords(value: unknown): Record<string, unknown>[] {
 }
 
 function fileUriFromRecord(ws: string, rec: Record<string, unknown>): vscode.Uri {
-  const locationFile = typeof rec.location === "object" && rec.location
+  const locationFile = typeof rec.position === "object" && rec.position
+    ? (rec.position as Record<string, unknown>).source
+    : typeof rec.location === "object" && rec.location
     ? (rec.location as Record<string, unknown>).file
     : undefined;
   const pathLike = firstText(rec.uri, rec.file, rec.path, locationFile) ?? "";
@@ -312,7 +269,7 @@ function fileUriFromRecord(ws: string, rec: Record<string, unknown>): vscode.Uri
     const fsPath = path.isAbsolute(pathLike) ? pathLike : path.join(ws, pathLike);
     return vscode.Uri.file(fsPath);
   }
-  return vscode.Uri.file(path.join(ws, "vitte.config.json"));
+  return vscode.Uri.file(path.join(ws, "vitte.toml"));
 }
 
 function diagnosticsFromToolResult(ws: string, res: ToolRunResult): Map<string, vscode.Diagnostic[]> {
@@ -321,7 +278,7 @@ function diagnosticsFromToolResult(ws: string, res: ToolRunResult): Map<string, 
   const records = payloads.flatMap(normalizeRecords);
   if (records.length === 0) {
     if (res.code !== 0 || res.stderr.trim()) {
-      const uri = vscode.Uri.file(path.join(ws, "vitte.config.json"));
+      const uri = vscode.Uri.file(path.join(ws, "vitte.toml"));
       const d = new vscode.Diagnostic(
         new vscode.Range(0, 0, 0, 1),
         `${res.tool} failed (${res.code}): ${res.stderr.trim() || "no structured output"}`,
@@ -337,11 +294,11 @@ function diagnosticsFromToolResult(ws: string, res: ToolRunResult): Map<string, 
   for (const rec of records) {
     const uri = fileUriFromRecord(ws, rec);
     const line = parseLineInt(
-      rec.line ?? (typeof rec.location === "object" && rec.location ? (rec.location as Record<string, unknown>).line : 1),
+      rec.line ?? (typeof rec.position === "object" && rec.position ? (rec.position as Record<string, unknown>).start_line : undefined) ?? (typeof rec.location === "object" && rec.location ? (rec.location as Record<string, unknown>).line : 1),
       1
     ) - 1;
     const col = parseLineInt(
-      rec.column ?? rec.col ?? (typeof rec.location === "object" && rec.location ? (rec.location as Record<string, unknown>).column : 1),
+      rec.column ?? rec.col ?? (typeof rec.position === "object" && rec.position ? (rec.position as Record<string, unknown>).start_column : undefined) ?? (typeof rec.location === "object" && rec.location ? (rec.location as Record<string, unknown>).column : 1),
       1
     ) - 1;
     const message = firstText(rec.message, rec.msg, rec.error, rec.reason) ?? `${res.tool} issue`;
@@ -368,7 +325,17 @@ function diagnosticsFromToolResult(ws: string, res: ToolRunResult): Map<string, 
 }
 
 async function runTool(ws: string, tool: DoctorTool): Promise<ToolRunResult> {
-  const { cmd, args } = chooseToolCommand(tool);
+  const runtime = await locateVitteRuntime();
+  const current = vscode.window.activeTextEditor?.document.uri;
+  const candidates = [
+    ...(current?.scheme === "file" && /\.(vit|vitl|vitte)$/i.test(current.fsPath) ? [current.fsPath] : []),
+    path.join(ws, "src/main.vit"), path.join(ws, "main.vit"), path.join(ws, "examples/hello.vit"),
+  ];
+  let input: string | undefined;
+  for (const candidate of candidates) if (await existsFile(candidate)) { input = candidate; break; }
+  const cmd = runtime.cliPath ?? "vitte";
+  const args = [tool, "--diagnostic=json", "--no-color", ...(input ? [input] : [])];
+  if (!input) return { tool, cmd, args, code: 1, stdout: "", stderr: "Open a Vitte source file or create src/main.vit before running Doctor.", durationMs: 0 };
   const t0 = Date.now();
   return await new Promise<ToolRunResult>((resolve) => {
     const child = spawn(cmd, args, { cwd: ws, shell: false });
@@ -388,7 +355,7 @@ async function runTool(ws: string, tool: DoctorTool): Promise<ToolRunResult> {
 async function runDoctor(output: vscode.OutputChannel, selected?: DoctorTool): Promise<void> {
   const roots = workspaceRoots();
   if (roots.length === 0) return;
-  const tools: DoctorTool[] = selected ? [selected] : ["check", "lint", "test", "bench"];
+  const tools: DoctorTool[] = selected ? [selected] : ["check"];
   const finalMap = new Map<string, vscode.Diagnostic[]>();
   output.appendLine(`[doctor] run ${tools.join(", ")} on ${roots.length} root(s)`);
 
@@ -502,7 +469,7 @@ export function registerProjectAssistant(
     vscode.commands.registerCommand("vitte.doctor", async () => runDoctor(output)),
     vscode.commands.registerCommand("vitte.doctor.runTool", async (tool?: string) => {
       const t = String(tool ?? "").toLowerCase();
-      if (t === "check" || t === "lint" || t === "test" || t === "bench") {
+      if (t === "check" || t === "lex" || t === "parse") {
         await runDoctor(output, t);
       }
     }),

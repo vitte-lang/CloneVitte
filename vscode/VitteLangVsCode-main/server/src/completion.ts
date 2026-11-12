@@ -1,3 +1,4 @@
+import { lexicalContextAt } from "./lexical.js";
 // completion.ts — complétions LSP sans dépendance externe, robustes et contextuelles
 
 import * as path from "node:path";
@@ -129,11 +130,11 @@ const SYMBOL_KIND_LABEL: Record<number, string> = {
 
 const SNIPPETS: CompletionItem[] = [
   ciSnippet("space", "Déclare un espace", "Déclare l’espace courant.",
-    "space ${1:std/os/user}"),
+    "space ${1:std/os/user};"),
   ciSnippet("use", "Importe un module", "Importe un module ou un symbole avec alias optionnel.",
-    "use ${1:std/io}${2: as ${3:io}}"),
+    "use ${1:std/io}${2: as ${3:io}};"),
   ciSnippet("export", "Exporte tout le module", "Ré-exporte la surface du module courant.",
-    "export *"),
+    "export *;"),
   ciSnippet("proc", "Déclare une procédure",
     "Procédure avec paramètres et type de retour optionnel.",
     "proc ${1:name}(${2:params})${3: -> ${4:Type}} {\n\t$0\n}"),
@@ -147,11 +148,11 @@ const SNIPPETS: CompletionItem[] = [
   ciSnippet("trait", "Déclare un trait", "Contrat de capacités.",
     "trait ${1:Name} {\n\t$0\n}"),
   ciSnippet("pick", "Déclare un pick", "Somme de variantes nommées.",
-    "pick ${1:Name} {\n\tcase ${2:Variant}(${3:value}: ${4:Type}),\n\t$0\n}"),
+    "pick ${1:Name} {\n\t${2:Variant}(${3:Type}),\n\t$0\n}"),
   ciSnippet("type", "Alias de type", "Déclare un alias de type.",
-    "type ${1:Alias} = ${2:Existing}"),
+    "type ${1:Alias} = ${2:Existing};"),
   ciSnippet("match", "Match expression", "Expression de branchement avec motifs.",
-    "match ${1:expr} {\n\tcase ${2:Pattern} {\n\t\t$0\n\t}\n\telse {\n\t}\n}"),
+    "match ${1:expr} {\n\t${2:Pattern} => {\n\t\t$0\n\t},\n}"),
   ciSnippet("ifelse", "If / Else", "Structure conditionnelle complète.",
     "if ${1:cond} {\n\t${2}\n} else {\n\t${0}\n}"),
   ciSnippet("for", "Boucle for", "Boucle for-in sur un itérable.",
@@ -161,11 +162,13 @@ const SNIPPETS: CompletionItem[] = [
   ciSnippet("let", "Binding local", "Déclare une variable locale.",
     "let ${1:name}${2: : ${3:Type}} = ${4:value};"),
   ciSnippet("const", "Constante", "Déclare une constante globale.",
-    "const ${1:NAME}: ${2:Type} = ${3:value}"),
-  ciSnippet("share", "Export explicite", "Ré-exporte un symbole du module courant.",
-    "share ${1:name}"),
+    "const ${1:NAME}: ${2:Type} = ${3:value};"),
+  ciSnippet("return", "Retour de procédure", "Retourne une valeur depuis une procédure.",
+    "return ${1:value};"),
+  ciSnippet("give", "Retour de procédure", "Retourne une valeur depuis une procédure.",
+    "give ${1:value};"),
   ciSnippet("print", "Affichage console", "Affiche un message sur la sortie standard.",
-    "println(\"${1:msg}\")"),
+    "println(\"${1:msg}\");"),
   ciSnippet("doc", "Doc comment", "Insert a documentation comment.",
     "/// ${1:Summary}\n///\n/// ${0:Details}")
 ];
@@ -260,134 +263,8 @@ function currentToken(doc: TextDocument, pos: Position): { token: string; range:
 }
 
 function detectPositionContext(doc: TextDocument, pos: Position): CompletionPositionContext {
-  const text = doc.getText();
-  const cursor = doc.offsetAt(pos);
-  const limit = Math.min(Math.max(0, cursor), text.length);
-  let i = 0;
-
-  let inLineComment = false;
-  let inBlockComment = false;
-  let inZoneComment = false;
-  let inString = false;
-  let quote = "";
-  let inRawString = false;
-  let rawStringHashes = 0;
-  let inTripleString = false;
-
-  while (i < limit) {
-    const ch = text[i] ?? "";
-    const next = text[i + 1] ?? "";
-
-    if (inLineComment) {
-      if (ch === "\n") inLineComment = false;
-      i++;
-      continue;
-    }
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        i += 2;
-        continue;
-      }
-      i++;
-      continue;
-    }
-    if (inZoneComment) {
-      if (ch === ">" && next === ">" && text[i + 2] === ">") {
-        inZoneComment = false;
-        i += 3;
-        continue;
-      }
-      i++;
-      continue;
-    }
-    if (inTripleString) {
-      if (ch === "\"" && next === "\"" && text[i + 2] === "\"") {
-        inTripleString = false;
-        i += 3;
-        continue;
-      }
-      i++;
-      continue;
-    }
-    if (inRawString) {
-      if (ch === "\"") {
-        const j = i + 1;
-        let ok = true;
-        for (let h = 0; h < rawStringHashes; h++) {
-          if (text[j + h] !== "#") {
-            ok = false;
-            break;
-          }
-        }
-        if (ok) {
-          inRawString = false;
-          i = j + rawStringHashes;
-          continue;
-        }
-      }
-      i++;
-      continue;
-    }
-    if (inString) {
-      if (ch === "\\") {
-        i += 2;
-        continue;
-      }
-      if (ch === quote) {
-        inString = false;
-        quote = "";
-      }
-      i++;
-      continue;
-    }
-
-    if (ch === "#" && next !== "[") {
-      inLineComment = true;
-      i++;
-      continue;
-    }
-    if (ch === "/" && next === "/") {
-      inLineComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      inBlockComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "<" && next === "<" && text[i + 2] === "<") {
-      inZoneComment = true;
-      i += 3;
-      continue;
-    }
-    if (ch === "\"" && next === "\"" && text[i + 2] === "\"") {
-      inTripleString = true;
-      i += 3;
-      continue;
-    }
-    if (ch === "r") {
-      let j = i + 1;
-      while (text[j] === "#") j++;
-      if (text[j] === "\"") {
-        inRawString = true;
-        rawStringHashes = j - (i + 1);
-        i = j + 1;
-        continue;
-      }
-    }
-    if (ch === "\"" || ch === "'") {
-      inString = true;
-      quote = ch;
-      i++;
-      continue;
-    }
-    i++;
-  }
-
-  if (inLineComment || inBlockComment) return "comment";
-  if (inString) return "string";
+  const context = lexicalContextAt(doc.getText(), doc.offsetAt(pos));
+  if (context !== "code") return context;
 
   const linePrefix = getLinePrefix(doc, pos);
   if (/^\s*use\s+/.test(linePrefix)) return "import";

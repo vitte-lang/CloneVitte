@@ -1,0 +1,350 @@
+!muf 4
+
+;; Vitte root build migrated from Makefile to native Steelconf MUF4.
+;; The Makefile remains available during the migration; Steelconf is the
+;; canonical declarative entry point for the same build targets.
+
+[workspace]
+  .set name "vitte"
+  .set root "."
+  .set target_dir "build"
+  .set default "all"
+  .set jobs 4
+  .set prefix "/usr/local"
+..
+
+[profile debug]
+  .set opt "0"
+  .set symbols "-g3"
+..
+
+[profile release]
+  .set opt "2"
+  .set symbols "-DNDEBUG"
+..
+
+[tool cc]
+  .exec "cc"
+..
+
+[tool sh]
+  .exec "sh"
+..
+
+[tool rm]
+  .exec "rm"
+..
+
+;; --------------------------------------------------------------------------
+;; Main compiler targets
+;; --------------------------------------------------------------------------
+
+[bake bootstrap]
+  .make sources cglob "src/bootstrap/**/*.c"
+  [run cc]
+    .include "src/bootstrap"
+    .include "src"
+    .include "include"
+    .include "src/include"
+    .set "-std=c17" true
+    .set "-Wall" true
+    .set "-Wextra" true
+    .set "-Wpedantic" true
+    .set "-Wconversion" true
+    .set "-Wsign-conversion" true
+    .set "-Wshadow" true
+    .set "-Wcast-align" true
+    .set "-Wwrite-strings" true
+    .set "-Wundef" true
+    .set "-Wformat" true
+    .set "-Wstrict-prototypes" true
+    .set "-Wold-style-definition" true
+    .set "-Wimplicit-fallthrough" true
+    .set "-Wvla" true
+    .set "-Wpointer-arith" true
+    .set "-Wbad-function-cast" true
+    .set "-O0" true
+    .set "-g3" true
+    .takes sources as "@args"
+    .emits exe as "-o"
+    .lib "m"
+  ..
+  .output exe "build/bin/vitte-bootstrap"
+..
+
+[bake app]
+  .make sources cglob "src/bootstrap/**/*.c"
+  [run cc]
+    .include "src/bootstrap"
+    .include "src"
+    .include "include"
+    .include "src/include"
+    .set "-std=c17" true
+    .set "-Wall" true
+    .set "-Wextra" true
+    .set "-Wpedantic" true
+    .set "-Wconversion" true
+    .set "-Wsign-conversion" true
+    .set "-Wshadow" true
+    .set "-Wcast-align" true
+    .set "-Wwrite-strings" true
+    .set "-Wundef" true
+    .set "-Wformat" true
+    .set "-Wstrict-prototypes" true
+    .set "-Wold-style-definition" true
+    .set "-Wimplicit-fallthrough" true
+    .set "-Wvla" true
+    .set "-Wpointer-arith" true
+    .set "-Wbad-function-cast" true
+    .set "-O${opt}" true
+    .set "${symbols}" true
+    .takes sources as "@args"
+    .emits exe as "-o"
+    .lib "m"
+  ..
+  .output exe "build/bin/vitte"
+..
+
+[bake all]
+  .needs app
+  .phony true
+  [run sh]
+    .set "-c" "true"
+  ..
+  .output stamp "build/.all"
+..
+
+[bake debug]
+  .needs all
+  .phony true
+  [run sh]
+    .set "-c" "true"
+  ..
+  .output stamp "build/.debug"
+..
+
+[bake release]
+  .make sources cglob "src/bootstrap/**/*.c"
+  .phony true
+  [run cc]
+    .include "src/bootstrap"
+    .include "src"
+    .include "include"
+    .include "src/include"
+    .set "-std=c17" true
+    .set "-Wall" true
+    .set "-Wextra" true
+    .set "-Wpedantic" true
+    .set "-O2" true
+    .set "-DNDEBUG" true
+    .takes sources as "@args"
+    .emits exe as "-o"
+    .lib "m"
+  ..
+  .output exe "build/bin/vitte-release"
+..
+
+[bake asan]
+  .make sources cglob "src/bootstrap/**/*.c"
+  .phony true
+  [run cc]
+    .include "src/bootstrap"
+    .include "src"
+    .include "include"
+    .include "src/include"
+    .set "-std=c17" true
+    .set "-Wall" true
+    .set "-Wextra" true
+    .set "-O1" true
+    .set "-g3" true
+    .set "-fno-omit-frame-pointer" true
+    .set "-fsanitize=address,undefined" true
+    .takes sources as "@args"
+    .emits exe as "-o"
+    .lib "m"
+  ..
+  .output exe "build/bin/vitte-asan"
+..
+
+[bake ubsan]
+  .make sources cglob "src/bootstrap/**/*.c"
+  .phony true
+  [run cc]
+    .include "src/bootstrap"
+    .include "src"
+    .include "include"
+    .include "src/include"
+    .set "-std=c17" true
+    .set "-Wall" true
+    .set "-Wextra" true
+    .set "-O1" true
+    .set "-g3" true
+    .set "-fno-omit-frame-pointer" true
+    .set "-fsanitize=undefined" true
+    .takes sources as "@args"
+    .emits exe as "-o"
+    .lib "m"
+  ..
+  .output exe "build/bin/vitte-ubsan"
+..
+
+;; --------------------------------------------------------------------------
+;; Compiler commands
+;; --------------------------------------------------------------------------
+
+[bake run]
+  .needs all
+  .phony true
+  [run sh]
+    .set "-c" "build/bin/vitte"
+  ..
+  .output stamp "build/.run"
+..
+
+[bake version]
+  .needs all
+  .phony true
+  [run sh]
+    .set "-c" "build/bin/vitte --version"
+  ..
+  .output stamp "build/.version"
+..
+
+[bake cli-help]
+  .needs all
+  .phony true
+  [run sh]
+    .set "-c" "build/bin/vitte --help"
+  ..
+  .output stamp "build/.cli-help"
+..
+
+[bake compile]
+  .needs all
+  .phony true
+  [run sh]
+    .set "-c" "test -n \"${FILE}\" && build/bin/vitte compile \"${FILE}\""
+  ..
+  .output stamp "build/.compile"
+..
+
+[bake vitte-check]
+  .needs all
+  .phony true
+  [run sh]
+    .set "-c" "test -n \"${FILE}\" && build/bin/vitte check \"${FILE}\""
+  ..
+  .output stamp "build/.vitte-check"
+..
+
+[bake emit-c]
+  .needs all
+  .phony true
+  [run sh]
+    .set "-c" "test -n \"${FILE}\" && mkdir -p build && build/bin/vitte compile \"${FILE}\" --emit-c -o build/generated.c"
+  ..
+  .output c "build/generated.c"
+..
+
+;; --------------------------------------------------------------------------
+;; Verification and tests
+;; --------------------------------------------------------------------------
+
+[bake check]
+  .make sources cglob "src/bootstrap/**/*.c"
+  .phony true
+  [run sh]
+    .set "-c" "set -e; find src/bootstrap -type f -name '*.c' -exec cc -Isrc/bootstrap -Isrc -Iinclude -Isrc/include -std=c17 -Wall -Wextra -Wpedantic -fsyntax-only {} +"
+  ..
+  .output stamp "build/.check"
+..
+
+[bake test]
+  .needs all
+  .phony true
+  [run sh]
+    .set "-c" "set -e; build/bin/vitte --version; test -d src/tests || true"
+  ..
+  .output stamp "build/.test"
+..
+
+[bake test-grammar]
+  .needs all
+  .phony true
+  [run sh]
+    .set "-c" "python3 scripts/check-ebnf-frontend-sync.py"
+  ..
+  .output stamp "build/.test-grammar"
+..
+
+[bake verify]
+  .needs check
+  .needs test
+  .needs version
+  .phony true
+  [run sh]
+    .set "-c" "true"
+  ..
+  .output stamp "build/.verify"
+..
+
+;; --------------------------------------------------------------------------
+;; Installation and cleanup
+;; --------------------------------------------------------------------------
+
+[bake install]
+  .needs all
+  .phony true
+  [run sh]
+    .set "-c" "set -e; install -d \"${prefix}/bin\"; install -m 755 build/bin/vitte \"${prefix}/bin/vitte\""
+  ..
+  .output stamp "build/.install"
+..
+
+[bake uninstall]
+  .phony true
+  [run sh]
+    .set "-c" "rm -f \"${prefix}/bin/vitte\""
+  ..
+  .output stamp "build/.uninstall"
+..
+
+[bake clean]
+  .phony true
+  [run rm]
+    .set "-rf" true
+    .set "build" true
+  ..
+  .output stamp "build/.clean"
+..
+
+[bake clean-target]
+  .phony true
+  [run rm]
+    .set "-rf" true
+    .set "target" true
+  ..
+  .output stamp "target/.clean"
+..
+
+[bake distclean]
+  .needs clean
+  .needs clean-target
+  .phony true
+  [run sh]
+    .set "-c" "true"
+  ..
+  .output stamp "build/.distclean"
+..
+
+;; --------------------------------------------------------------------------
+;; Information
+;; --------------------------------------------------------------------------
+
+[bake info]
+  .phony true
+  [run sh]
+    .set "-c" "printf 'Project: Vitte\\nTarget: build/bin/vitte\\nCompiler: cc\\nSource root: src/bootstrap\\nBuild root: build\\n'"
+  ..
+  .output stamp "build/.info"
+..

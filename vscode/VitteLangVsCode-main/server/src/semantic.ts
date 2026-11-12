@@ -1,3 +1,4 @@
+import { scanLexical } from "./lexical.js";
 // semantic.ts — simple, robuste, et plus complet
 // Améliorations clés:
 // - Lexer en un seul passage: collecte des plages commentaires et chaînes + masque code
@@ -19,7 +20,7 @@ import type {
   SemanticTokens,
 } from "vscode-languageserver/node";
 import type { TextDocument } from "vscode-languageserver-textdocument";
-import { RESERVED_WORDS, PRIMITIVE_TYPE_SET, BOOL_LITERAL_SET, NIL_LITERAL_SET } from "./languageFacts.js";
+import { RESERVED_WORDS, PRIMITIVE_TYPE_SET, BOOL_LITERAL_SET, NIL_LITERAL_SET, NUMBER_PATTERN } from "./languageFacts.js";
 
 /* ------------------------------ Legend stable ----------------------------- */
 // Garder l’ordre en phase avec server.ts
@@ -81,6 +82,11 @@ const HOVER_DOC: Record<string, string> = {
   continue: "Passe à l’itération suivante.",
   return: "Retourne depuis une fonction.",
   give: "Retourne depuis une procédure.",
+  requires: "Déclare une précondition de procédure.",
+  ensures: "Déclare une postcondition de procédure.",
+  elif: "Ajoute une branche conditionnelle.",
+  set: "Affecte une valeur à une cible modifiable.",
+  defer: "Déclare une action différée.",
   true: "Booléen vrai.",
   false: "Booléen faux.",
 };
@@ -116,7 +122,7 @@ export function buildSemanticTokens(doc: TextDocument): SemanticTokens {
   if (cached && cached.version === doc.version) return cached.tokens;
 
   const text = doc.getText();
-  const lex = scanLex(text); // { mask, strings, comments }
+  const lex = scanLexical(text);
   const nlIdx = buildLineIndex(text);
 
   // On collecte d’abord tous les spans, puis on trie, puis on émet
@@ -124,11 +130,10 @@ export function buildSemanticTokens(doc: TextDocument): SemanticTokens {
   const spans: Span[] = [];
 
   // 1) commentaires et chaînes (priorité forte)
-  for (const [s, e] of lex.comments) insertSpan(spans, s, e, TYPE_INDEX.comment);
-  for (const [s, e] of lex.strings) insertSpan(spans, s, e, TYPE_INDEX.string);
+  for (const span of lex.spans) insertSpan(spans, span.start, span.end, TYPE_INDEX[span.kind]);
 
   // 2) nombres en zones de code
-  for (const m of matchAll(/\b\d(?:_?\d)*(?:\.(?:\d(?:_?\d)*)?)?(?:[eE][+-]?\d+)?\b/g, text)) {
+  for (const m of matchAll(NUMBER_PATTERN, text)) {
     if (!lex.mask[m.index]) continue;
     insertSpan(spans, m.index, m.index + m[0].length, TYPE_INDEX.number);
   }
@@ -143,7 +148,7 @@ export function buildSemanticTokens(doc: TextDocument): SemanticTokens {
   for (const m of matchAll(/\b[A-Za-z_]\w*\b/g, text)) {
     if (!lex.mask[m.index]) continue;
     if (!KW.has(m[0])) continue;
-    insertSpan(spans, m.index, m.index + m[0].length, TYPE_INDEX.keyword);
+    insertSpan(spans, m.index, m.index + m[0].length, PRIMITIVE_TYPE_SET.has(m[0]) ? TYPE_INDEX.type : TYPE_INDEX.keyword);
   }
 
   // 5) déclarations: colorer uniquement le nom
@@ -154,7 +159,7 @@ export function buildSemanticTokens(doc: TextDocument): SemanticTokens {
   addDeclSpans(text, lex.mask, /\btrait\s+([A-Za-z_]\w*)/g, 1, TYPE_INDEX.type, spans);
   addDeclSpans(text, lex.mask, /\btype\s+([A-Za-z_]\w*)/g, 1, TYPE_INDEX.type, spans);
   addDeclSpans(text, lex.mask, /\bproc\s+([A-Za-z_]\w*)\s*\(/g, 1, TYPE_INDEX.function, spans);
-  addDeclSpans(text, lex.mask, /\b(?:let|make|const)\s+([A-Za-z_]\w*)/g, 1, TYPE_INDEX.variable, spans);
+  addDeclSpans(text, lex.mask, /\b(?:let|const|static)\s+(?:mut\s+)?([A-Za-z_]\w*)/g, 1, TYPE_INDEX.variable, spans);
 
   // 6) paramètres de fonctions
   for (const m of matchAll(/\bproc\s+[A-Za-z_]\w*\s*\(([^)]*)\)/g, text)) {
@@ -177,7 +182,7 @@ export function buildSemanticTokens(doc: TextDocument): SemanticTokens {
   for (const m of matchAll(/\bform\s+[A-Za-z_]\w*\s*\{([\s\S]*?)\}/g, text)) {
     const body = m[1] ?? "";
     const bodyStart = m.index + m[0].indexOf("{") + 1;
-    for (const fm of matchAll(/\bfield\s+([A-Za-z_]\w*)/g, body)) {
+    for (const fm of matchAll(/\b([A-Za-z_]\w*)\s*(?=:)/g, body)) {
       const name = fm[1];
       const off = bodyStart + fm.index + fm[0].lastIndexOf(name);
       if (lex.mask[off]) insertSpan(spans, off, off + name.length, TYPE_INDEX.property);
@@ -187,7 +192,7 @@ export function buildSemanticTokens(doc: TextDocument): SemanticTokens {
   // Tri global et émission
   spans.sort((a, b) => a.start - b.start || a.end - b.end);
   const builder = new SemanticTokensBuilder();
-  for (const s of spans) pushMultiline(builder, nlIdx, s.start, s.end, s.type);
+  for (const s of spans) pushMultiline(builder, text, nlIdx, s.start, s.end, s.type);
 
   const tokens = builder.build();
   semCache.set(doc, { version: doc.version, tokens });
@@ -203,98 +208,6 @@ function wordAt(doc: TextDocument, pos: Position): string | null {
   while (s > 0 && /[A-Za-z0-9_]/.test(text.charAt(s - 1))) s--;
   while (e < text.length && /[A-Za-z0-9_]/.test(text.charAt(e))) e++;
   return e > s ? text.slice(s, e) : null;
-}
-
-// Scan lexical: collecte commentaires/chaînes et construit un masque code
-function scanLex(text: string): { mask: Uint8Array; strings: [number, number][]; comments: [number, number][] } {
-  const n = text.length;
-  const mask = new Uint8Array(n); // 1 = code, 0 = non-code
-  const strings: [number, number][] = [];
-  const comments: [number, number][] = [];
-
-  let i = 0;
-  const markCode = (from: number, to: number) => { for (let k = from; k < to; k++) mask[k] = 1; };
-
-  while (i < n) {
-    const c = text.charCodeAt(i);
-    const c2 = i + 1 < n ? text.charCodeAt(i + 1) : 0;
-
-    // line comment #... (ignore attributes #[...])
-    if (c === 0x23 /* # */ && c2 !== 0x5b /* [ */) {
-      const start = i;
-      i += 1;
-      while (i < n && text.charCodeAt(i) !== 0x0a) i++;
-      comments.push([start, i]);
-      continue;
-    }
-    // line comment //...
-    if (c === 0x2f && c2 === 0x2f) {
-      const start = i;
-      i += 2;
-      while (i < n && text.charCodeAt(i) !== 0x0a) i++;
-      comments.push([start, i]);
-      continue;
-    }
-    // block comment /* ... */
-    if (c === 0x2f && c2 === 0x2a) {
-      const start = i;
-      i += 2;
-      while (i < n) {
-        if (text.charCodeAt(i) === 0x2a && i + 1 < n && text.charCodeAt(i + 1) === 0x2f) { i += 2; break; }
-        i++;
-      }
-      comments.push([start, i]);
-      continue;
-    }
-    // raw string r#*"..."#*
-    if (c === 0x72 /* r */) {
-      let j = i + 1, hashes = 0;
-      while (j < n && text.charCodeAt(j) === 0x23 /* # */) { hashes++; j++; }
-      if (j < n && text.charCodeAt(j) === 0x22 /* " */) {
-        const start = i; j++;
-        for (; j < n; j++) {
-          if (text.charCodeAt(j) === 0x22) {
-            let k = j + 1, ok = true;
-            for (let h = 0; h < hashes; h++) { if (k >= n || text.charCodeAt(k) !== 0x23) { ok = false; break; } k++; }
-            if (ok) { j = k; break; }
-          }
-        }
-        strings.push([start, j]);
-        i = j;
-        continue;
-      }
-    }
-    // normal string "..." ou '...'
-    if (c === 0x22 || c === 0x27) {
-      const start = i;
-      const quote = c; i++;
-      while (i < n) {
-        if (text.charCodeAt(i) === 0x5c /* \\ */) { i += 2; continue; }
-        if (text.charCodeAt(i) === quote) { i++; break; }
-        i++;
-      }
-      strings.push([start, i]);
-      continue;
-    }
-
-    // code chunk jusqu’au prochain début de com/str
-    const start = i;
-    while (i < n) {
-      const a = text.charCodeAt(i);
-      const b = i + 1 < n ? text.charCodeAt(i + 1) : 0;
-      if (
-        (a === 0x2f && (b === 0x2f || b === 0x2a)) ||
-        a === 0x22 ||
-        a === 0x27 ||
-        a === 0x72 ||
-        (a === 0x23 && b !== 0x5b)
-      ) break;
-      i++;
-    }
-    markCode(start, i);
-  }
-
-  return { mask, strings, comments };
 }
 
 // Index des débuts de lignes pour conversion rapide offset→(line, char)
@@ -318,28 +231,20 @@ function offsetToLC(nlIdx: number[], off: number): [line: number, char: number] 
 
 function pushMultiline(
   builder: SemanticTokensBuilder,
+  text: string,
   nlIdx: number[],
   startOff: number,
   endOff: number,
   tokenType: number,
 ) {
-  const [sLine, sChar] = offsetToLC(nlIdx, startOff);
-  const [eLine, eChar] = offsetToLC(nlIdx, endOff);
-  if (sLine === eLine) {
-    builder.push(sLine, sChar, endOff - startOff, tokenType, 0);
-    return;
+  const [sLine] = offsetToLC(nlIdx, startOff);
+  const [eLine] = offsetToLC(nlIdx, endOff);
+  for (let line = sLine; line <= eLine; line++) {
+    const start = Math.max(startOff, nlIdx[line]);
+    let end = Math.min(endOff, nlIdx[line + 1] ?? text.length);
+    while (end > start && (text[end - 1] === "\n" || text[end - 1] === "\r")) end--;
+    if (end > start) builder.push(line, start - nlIdx[line], end - start, tokenType, 0);
   }
-  // première ligne
-  const lineEnd = nlIdx[sLine + 1] ?? endOff;
-  builder.push(sLine, sChar, lineEnd - startOff, tokenType, 0);
-  // lignes intermédiaires
-  for (let ln = sLine + 1; ln < eLine; ln++) {
-    const ls = nlIdx[ln];
-    const le = (nlIdx[ln + 1] ?? endOff) - 1; // exclure saut de ligne
-    if (le > ls) builder.push(ln, 0, le - ls, tokenType, 0);
-  }
-  // dernière ligne
-  builder.push(eLine, 0, eChar, tokenType, 0);
 }
 
 function addDeclSpans(

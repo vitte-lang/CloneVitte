@@ -2,31 +2,33 @@
   "space declaration": {
     "scope": "vit,vitte",
     "prefix": "space",
-    "body": ["space ${1:package/module}"],
+    "body": [
+      "space ${1:package/module};"
+    ],
     "description": "Declare the canonical Vitte module path"
   },
   "use declaration": {
     "scope": "vit,vitte",
     "prefix": "use",
-    "body": ["use ${1:package/module}.${2:{Symbol}}"],
+    "body": [
+      "use ${1:package/module}.${2:{Symbol}};"
+    ],
     "description": "Import a Vitte module or symbol"
   },
   "use alias": {
     "scope": "vit,vitte",
     "prefix": "useas",
-    "body": ["use ${1:package/module} as ${2:alias}"],
+    "body": [
+      "use ${1:package/module} as ${2:alias};"
+    ],
     "description": "Import a Vitte module with an alias"
-  },
-  "share symbols": {
-    "scope": "vit,vitte",
-    "prefix": "share",
-    "body": ["share ${1:symbol}"],
-    "description": "Publish symbols from the current module"
   },
   "export symbols": {
     "scope": "vit,vitte",
     "prefix": "export",
-    "body": ["export { ${1:Symbol} }"],
+    "body": [
+      "export { ${1:Symbol} };"
+    ],
     "description": "Export an explicit symbol set"
   },
   "procedure": {
@@ -59,16 +61,6 @@
     ],
     "description": "Declare an asynchronous Vitte procedure"
   },
-  "procedure with effects": {
-    "scope": "vit,vitte",
-    "prefix": "proceffects",
-    "body": [
-      "proc ${1:name}(${2}) -> ${3:int} effects(${4:io}) requires(${5:capability}) {",
-      "\t${0}",
-      "}"
-    ],
-    "description": "Declare a procedure with effects and capabilities"
-  },
   "form declaration": {
     "scope": "vit,vitte",
     "prefix": "form",
@@ -85,7 +77,7 @@
     "prefix": "pick",
     "body": [
       "pick ${1:Name} {",
-      "\tcase ${2:Variant}(${3:value}: ${4:Type}),",
+      "\t${2:Variant}(${3:Type}),",
       "\t${0}",
       "}"
     ],
@@ -96,8 +88,9 @@
     "prefix": "trait",
     "body": [
       "trait ${1:Name} {",
-      "\tproc ${2:method}(self) -> ${3:Type};",
-      "\t${0}",
+      "\tproc ${2:method}(self: ref ${1:Name}) -> ${3:Type} {",
+      "\t\t${0}",
+      "\t}",
       "}"
     ],
     "description": "Declare a Vitte trait"
@@ -115,37 +108,49 @@
   "type alias": {
     "scope": "vit,vitte",
     "prefix": "type",
-    "body": ["type ${1:Alias} = ${2:ExistingType}"],
+    "body": [
+      "type ${1:Alias} = ${2:ExistingType};"
+    ],
     "description": "Declare a Vitte type alias"
   },
   "constant": {
     "scope": "vit,vitte",
     "prefix": "const",
-    "body": ["const ${1:NAME}: ${2:Type} = ${3:value}"],
+    "body": [
+      "const ${1:NAME}: ${2:Type} = ${3:value};"
+    ],
     "description": "Declare a typed constant"
   },
   "local binding": {
     "scope": "vit,vitte",
     "prefix": "let",
-    "body": ["let ${1:name}${2: : ${3:Type}} = ${4:value};"],
+    "body": [
+      "let ${1:name}${2: : ${3:Type}} = ${4:value};"
+    ],
     "description": "Declare an initialized local binding"
   },
   "mutable local binding": {
     "scope": "vit,vitte",
     "prefix": "letmut",
-    "body": ["let mut ${1:name}${2: : ${3:Type}} = ${4:value};"],
+    "body": [
+      "let mut ${1:name}${2: : ${3:Type}} = ${4:value};"
+    ],
     "description": "Declare an initialized mutable binding"
   },
   "assignment": {
     "scope": "vit,vitte",
     "prefix": "set",
-    "body": ["set ${1:target} = ${2:value};"],
+    "body": [
+      "set ${1:target} = ${2:value};"
+    ],
     "description": "Assign through a Vitte place expression"
   },
   "give value": {
     "scope": "vit,vitte",
     "prefix": "give",
-    "body": ["give ${1:value};"],
+    "body": [
+      "give ${1:value};"
+    ],
     "description": "Return a value from a procedure"
   },
   "if expression": {
@@ -165,12 +170,9 @@
     "prefix": "match",
     "body": [
       "match ${1:value} {",
-      "\tcase ${2:Pattern} {",
-      "\t\t${3}",
-      "\t}",
-      "\telse {",
+      "\t${2:Pattern} => {",
       "\t\t${0}",
-      "\t}",
+      "\t},",
       "}"
     ],
     "description": "Insert a canonical match expression"
@@ -199,12 +201,9 @@
     "scope": "vit,vitte",
     "prefix": "extern",
     "body": [
-      "extern C {",
-      "\tproc ${1:name}(${2}) -> ${3:c_int};",
-      "\t${0}",
-      "}"
+      "extern \"C\" proc ${1:name}(${2}) -> ${3:c_int};"
     ],
-    "description": "Declare an extern C block"
+    "description": "Declare an external C procedure"
   },
   "test block": {
     "scope": "vit,vitte",
@@ -219,19 +218,149 @@
   "outer attribute": {
     "scope": "vit,vitte",
     "prefix": "attr",
-    "body": ["#[${1:name}(${2})]"],
+    "body": [
+      "#[${1:name}(${2})]"
+    ],
     "description": "Insert an outer Vitte attribute"
   },
   "documentation comment": {
     "scope": "vit,vitte",
     "prefix": "doc",
-    "body": ["/// ${1:Summary}", "///", "/// ${0:Details}"],
+    "body": [
+      "/// ${1:Summary}",
+      "///",
+      "/// ${0:Details}"
+    ],
     "description": "Insert Vitte documentation comments"
   },
   "zone comment": {
     "scope": "vit,vitte",
     "prefix": "zone",
-    "body": ["<<<", "${1:comment}", ">>>"],
+    "body": [
+      "<<<",
+      "${1:comment}",
+      ">>>"
+    ],
     "description": "Insert a Vitte zone comment"
+  },
+  "procedure with contracts": {
+    "scope": "vit,vitte",
+    "prefix": "proccontracts",
+    "body": [
+      "proc ${1:name}(${2}) -> ${3:int}",
+      "requires ${4:condition};",
+      "ensures ${5:condition};",
+      "{",
+      "\t${0}",
+      "}"
+    ],
+    "description": "Declare a procedure with preconditions and postconditions"
+  },
+  "return value": {
+    "scope": "vit,vitte",
+    "prefix": "return",
+    "body": [
+      "return ${1:value};"
+    ],
+    "description": "Return a value from a procedure"
+  },
+  "entry procedure": {
+    "scope": "vit,vitte",
+    "prefix": "main",
+    "body": [
+      "proc main() -> i32 {",
+      "\t${0}",
+      "\treturn 0;",
+      "}"
+    ],
+    "description": "Declare a program entry procedure"
+  },
+  "else if branch": {
+    "scope": "vit,vitte",
+    "prefix": "elif",
+    "body": [
+      "elif ${1:condition} {",
+      "\t${0}",
+      "}"
+    ],
+    "description": "Add a conditional branch"
+  },
+  "infinite loop": {
+    "scope": "vit,vitte",
+    "prefix": "loop",
+    "body": [
+      "loop {",
+      "\t${0}",
+      "}"
+    ],
+    "description": "Repeat until break"
+  },
+  "deferred block": {
+    "scope": "vit,vitte",
+    "prefix": "defer",
+    "body": [
+      "defer {",
+      "\t${0}",
+      "}"
+    ],
+    "description": "Defer a block"
+  },
+  "unsafe block": {
+    "scope": "vit,vitte",
+    "prefix": "unsafe",
+    "body": [
+      "unsafe {",
+      "\t${0}",
+      "}"
+    ],
+    "description": "Insert an unsafe block"
+  },
+  "assertion": {
+    "scope": "vit,vitte",
+    "prefix": "assert",
+    "body": [
+      "assert(${1:condition});"
+    ],
+    "description": "Assert a condition"
+  },
+  "break loop": {
+    "scope": "vit,vitte",
+    "prefix": "break",
+    "body": [
+      "break;"
+    ],
+    "description": "Exit the current loop"
+  },
+  "continue loop": {
+    "scope": "vit,vitte",
+    "prefix": "continue",
+    "body": [
+      "continue;"
+    ],
+    "description": "Continue the current loop"
+  },
+  "static binding": {
+    "scope": "vit,vitte",
+    "prefix": "static",
+    "body": [
+      "static ${1:NAME}: ${2:Type} = ${3:value};"
+    ],
+    "description": "Declare a static value"
+  },
+  "opaque type": {
+    "scope": "vit,vitte",
+    "prefix": "opaque",
+    "body": [
+      "opaque ${1:Name};"
+    ],
+    "description": "Declare an opaque type"
+  },
+  "intrinsic procedure": {
+    "scope": "vit,vitte",
+    "prefix": "intrinsic",
+    "body": [
+      "intrinsic ${1:name}(${2}) -> ${3:Type};"
+    ],
+    "description": "Declare an intrinsic procedure"
   }
 }

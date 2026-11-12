@@ -40,6 +40,7 @@ export const KEYWORDS = [
   "where",
   "effects",
   "requires",
+  "ensures",
   "operator",
   "noexcept",
   "as",
@@ -48,6 +49,7 @@ export const KEYWORDS = [
   "let",
   "set",
   "give",
+  "return",
   "try",
   "defer",
   "asm",
@@ -188,10 +190,23 @@ export const BUILTIN_FUNCTIONS = [
 export const OPERATORS = [
   "<<=", ">>=", "..=", "...", "??", "&&", "||", "==", "!=", "<=", ">=", "<<", ">>",
   "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "->", "=>", "::", "..",
-  "=", "+", "-", "*", "/", "%", "<", ">", "&", "|", "^", "~", "?", ".", ",", ":", ";",
+  "!", "=", "+", "-", "*", "/", "%", "<", ">", "&", "|", "^", "~", "?", ".", ",", ":", ";",
 ] as const;
 
 export const BRACKETS = ["(", ")", "[", "]", "{", "}"] as const;
+
+// Longest forms first; the decimal dot must never consume a range operator.
+const DECIMAL_DIGITS = "[0-9](?:_?[0-9])*";
+const HEX_DIGITS = "[0-9A-Fa-f](?:_?[0-9A-Fa-f])*";
+export const NUMBER_PATTERN = new RegExp([
+  `0[xX]${HEX_DIGITS}(?:\\.(?:${HEX_DIGITS})?)?[pP][+-]?${DECIMAL_DIGITS}`,
+  `${DECIMAL_DIGITS}\\.(?!\\.)(?:${DECIMAL_DIGITS})?(?:[eE][+-]?${DECIMAL_DIGITS})?`,
+  `${DECIMAL_DIGITS}[eE][+-]?${DECIMAL_DIGITS}`,
+  `0[xX]${HEX_DIGITS}`,
+  "0[bB][01](?:_?[01])*",
+  "0[oO][0-7](?:_?[0-7])*",
+  DECIMAL_DIGITS,
+].map((pattern) => `(?<![\\w])${pattern}(?!\\w)`).join("|"), "g");
 
 export const KEYWORD_SET: ReadonlySet<string> = new Set(KEYWORDS);
 export const DECL_KEYWORD_SET: ReadonlySet<string> = new Set(DECL_KEYWORDS);
@@ -277,7 +292,7 @@ export function suggestCompletions(prefix: string): string[] {
   const startWith = (s: string) => s.startsWith(p);
   const kw = KEYWORDS.filter(startWith);
   const ty = PRIMITIVE_TYPES.filter(startWith);
-  const lit = [...BOOL_LITERALS].filter(startWith);
+  const lit = [...BOOL_LITERALS, ...NIL_LITERALS].filter(startWith);
   return [...kw, ...ty, ...lit];
 }
 

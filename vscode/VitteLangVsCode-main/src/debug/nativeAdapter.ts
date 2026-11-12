@@ -96,12 +96,11 @@ let debuggeePid: number | undefined;
 let debuggeeStarted = false;
 let debuggeeExited = false;
 let stopOnEntry = false;
-let configurationReady = false;
 let frames: FrameInfo[] = [];
 let nextFrameId = FRAME_ID_BASE;
 let currentStopReason = '';
 let breakpointSpecs: BreakpointSpec[] = [];
-let variableHandles = new Map<number, VariableHandle>();
+const variableHandles = new Map<number, VariableHandle>();
 let nextVariableHandle = VARIABLES_HANDLE_BASE;
 let exitEventSent = false;
 let frameCommandQueue: Promise<void> = Promise.resolve();
@@ -169,11 +168,11 @@ function isVitteSource(program: string): boolean {
 }
 
 function compilerPath(): string {
-  return process.env.VITTE_COMPILER?.trim() || 'vitte';
+  return stringValue(process.env.VITTE_COMPILER) ?? 'vitte';
 }
 
 function lldbPath(): string {
-  return process.env.VITTE_LLDB?.trim() || 'lldb';
+  return stringValue(process.env.VITTE_LLDB) ?? 'lldb';
 }
 
 function pathForProgram(program: string, cwd: string): string {
@@ -287,7 +286,7 @@ function singleLineExpression(value: string): string {
 }
 
 function looksExpandable(type: string, value: string): boolean {
-  if (type.includes('*') || /\{/.test(value) || /^\(.*\)$/.test(value) || value.startsWith('0x')) return true;
+  if (type.includes('*') || value.includes('{') || /^\(.*\)$/.test(value) || value.startsWith('0x')) return true;
   return !/^(?:bool|char|signed char|unsigned char|short|unsigned short|int|unsigned int|long|unsigned long|long long|unsigned long long|float|double|long double|int\d+_t|uint\d+_t)$/i.test(type);
 }
 
@@ -644,7 +643,7 @@ async function compileAndCreateTarget(program: string, cwd: string, env: NodeJS.
     'process handle -s true -n true -p true SIGABRT SIGBUS SIGFPE SIGILL SIGSEGV SIGTRAP',
   );
   await lldb.command(`settings set -- target.process.cwd ${quoteLldb(cwd)}`);
-  const args = stringArray((launchObject(currentLaunchRequest as DapRequest)).args);
+  const args = stringArray((launchObject(currentLaunchRequest!)).args);
   if (args.length > 0) {
     await lldb.command(`settings set -- target.run-args ${args.map(quoteLldb).join(' ')}`);
   } else {
@@ -709,7 +708,6 @@ async function launch(request: DapRequest): Promise<void> {
   debuggeeStarted = false;
   debuggeeExited = false;
   exitEventSent = false;
-  configurationReady = false;
   try {
     await compileAndCreateTarget(program, cwd, env);
     respond(request, true);
@@ -753,7 +751,6 @@ async function handle(request: DapRequest): Promise<void> {
       return;
 
     case 'configurationDone':
-      configurationReady = true;
       respond(request, true);
       await startDebuggee();
       return;

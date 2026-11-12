@@ -1,3 +1,4 @@
+import { workspaceBinaryRoots, expandToolPath } from "./project";
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -55,7 +56,7 @@ export async function resolveBinary(
   for (const k of keys) {
     const raw = cfg.get<string>(k)?.trim();
     if (raw) {
-      const p = absolutize(raw, opts?.root);
+      const p = expandToolPath(raw, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(), opts?.root);
       if (await exists(p)) return p;
     }
   }
@@ -63,6 +64,10 @@ export async function resolveBinary(
   const root = opts?.root ?? configuredToolchainRoot();
   if (root) {
     const candidate = path.join(root, 'bin', nameWithExt(name));
+    if (await exists(candidate)) return candidate;
+  }
+  for (const binRoot of workspaceBinaryRoots((vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath))) {
+    const candidate = path.join(binRoot, nameWithExt(name));
     if (await exists(candidate)) return candidate;
   }
   // 3) PATH lookup
@@ -82,10 +87,10 @@ export async function getToolchain(ctx?: vscode.ExtensionContext, forceRefresh =
   if (!root) messages.push('Aucun "vitte.toolchain.root" configuré — recherche via PATH…');
 
   const rootOpt = root !== undefined ? { root } : undefined;
-  const cli = await resolveBinary('vitte', { settingKeys: ['debug.program', 'runtime.path', 'runtime', 'compiler.path'], ...rootOpt });
-  const runtime = cli ?? await resolveBinary('vitte-runtime', { settingKeys: ['debug.program', 'runtime.path', 'runtime'], ...rootOpt });
+  const cli = await resolveBinary('vitte', { settingKeys: ['compiler.path'], ...rootOpt });
+  const runtime = cli;
   const lsp = await resolveBinary('vitte-lsp', { settingKeys: ['lsp.path'], ...rootOpt });
-  const build = cli ?? await resolveBinary('vitte-build', { settingKeys: ['build.path'], ...rootOpt });
+  const build = await resolveBinary('vitte', { settingKeys: ['build.path', 'compiler.path'], ...rootOpt }) ?? cli;
   const fmt = await resolveBinary('vitte-fmt', { settingKeys: ['fmt.path'], ...rootOpt });
   const bench = await resolveBinary('vitte-bench', { settingKeys: ['bench.path'], ...rootOpt });
 
@@ -98,7 +103,7 @@ export async function getToolchain(ctx?: vscode.ExtensionContext, forceRefresh =
   if (bench !== undefined) bins.bench = bench;
 
   const ok = !!cli || !!runtime;
-  if (!ok) messages.push('vitte introuvable (paramètre vitte.debug.program, vitte.compiler.path, vitte.toolchain.root ou PATH).');
+  if (!ok) messages.push('vitte introuvable (paramètre vitte.compiler.path, vitte.toolchain.root ou PATH).');
 
   const info: ToolchainInfo = { bins, versions: {}, ok, messages };
   if (root !== undefined) info.root = root;
@@ -231,8 +236,3 @@ export function childEnvWithToolchain(info: ToolchainInfo, base: NodeJS.ProcessE
   return env;
 }
 
-function absolutize(p: string, root?: string): string {
-  if (path.isAbsolute(p)) return p;
-  if (root) return path.join(root, p);
-  return path.resolve(p);
-}

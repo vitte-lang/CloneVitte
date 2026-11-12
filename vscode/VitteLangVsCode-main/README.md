@@ -61,7 +61,7 @@ logpoints, and `setVariable` are resolved from the native debug information;
 there is no compiler probe channel in this path. External adapters remain
 supported through `adapter` or `vitte.debug.program`.
 
-The 2.2 release aligns highlighting, snippets, operators, literals, and primitive types with the canonical EBNF and Pest grammars. Legacy spellings are not suggested as canonical syntax.
+The 2.3 release synchronizes editor support with the current parser grammar, including `return` / `give`, procedure contracts (`requires` / `ensures`), `pick` variants, `match` arms, and external procedures. Shared lexical scanning keeps completion, navigation, indexing, and semantic highlighting consistent inside nested comments and strings.
 
 ```vit
 space hello
@@ -79,7 +79,8 @@ proc main() -> int {
 
 Debugging uses the bundled native DAP backend by default. It compiles a `.vit`
 source with `--debug-info --line-directives`, launches the resulting native
-program, and delegates native inspection to LLDB/DWARF. Configure
+program, and delegates native inspection to LLDB/DWARF. The bundled native
+adapter requires `lldb` and `expect` on the executable search path. Configure
 `vitte.debug.program` or `adapter` to select an external DAP adapter when a
 different target toolchain is required. To connect to an already running
 adapter, use **Vitte: Debug: Attach** or set `request` to `attach` with a
@@ -147,8 +148,29 @@ Open **Preferences: Open Settings (UI)** and search for `vitte`.
 
 ## Project
 
-- Extension: `VitteStudio.vitte-studio` · version `2.2.0`
+- Extension: `VitteStudio.vitte-studio` · version `2.3.0`
 - Requires VS Code `1.105` or later
 - License: [MIT](LICENSE)
 - Release notes: [CHANGELOG.md](CHANGELOG.md)
 - Repository: [vitte-lang/VitteLangVsCode](https://github.com/vitte-lang/VitteLangVsCode)
+
+## Development and validation
+
+Run these commands from `vscode/VitteLangVsCode-main` in the compiler repository,
+or from the extension root in a standalone checkout:
+
+```sh
+npm ci
+npm run test:unit
+npm run lint
+npm test
+npm run vsix
+```
+
+`test:unit` builds the client and server, then checks lexical boundaries, grammar
+vocabulary, TextMate tokenization, completion, indexing, signatures, semantic
+tokens, and a real stdio LSP session without starting a graphical editor.
+`npm test` additionally runs the VS Code integration suite, which needs a display
+(on Linux CI, use `xvfb-run -a npm test`). Import paths are regenerated from this
+repository's modules during the build; standalone checkouts retain the checked-in
+catalog. Server output copying uses Node.js and works on Windows, macOS, and Linux.

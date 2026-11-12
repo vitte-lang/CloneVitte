@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import { workspaceBinaryRoots, expandToolPath } from "../utils/project";
 import * as vscode from 'vscode';
 import * as path from 'node:path';
 
@@ -75,8 +77,10 @@ export class VitteDebugAdapterDescriptorFactory implements vscode.DebugAdapterDe
         || readString(settings.get('debug.nodePath'))
         ? [nativeAdapter]
         : ['--ms-enable-electron-run-as-node', nativeAdapter];
-      const compiler = readString(config.compiler)
-        ?? readString(settings.get('compiler.path'));
+      const explicitCompiler = readString(config.compiler) ?? readString(settings.get('compiler.path'));
+      const compiler = explicitCompiler ? expandToolPath(explicitCompiler, cwd) : workspaceBinaryRoots([cwd])
+        .map(root => path.join(root, process.platform === 'win32' ? 'vitte.exe' : 'vitte'))
+        .find(candidate => fs.existsSync(candidate));
       const nativeEnv: Record<string, string> = { ...(options.env ?? {}) };
       if (compiler && !nativeEnv.VITTE_COMPILER) nativeEnv.VITTE_COMPILER = compiler;
       options.env = nativeEnv;

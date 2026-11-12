@@ -1,3 +1,5 @@
+import { workspaceBinaryRoots, expandToolPath } from "./utils/project";
+import { normalizeCompilerDiagnostics } from "./utils/compilerDiagnostics";
 /*
  * extension.ts — VS Code client for Vitte/Vit
  * - Full LSP client (start/stop/restart, traces, status, watchers)
@@ -1211,8 +1213,9 @@ export interface ExtensionApi {
 
 const LANGUAGES = ["vitte", "vit"] as const;
 const WATCH_PATTERNS = [
-  "**/*.{vitte,vit}",
+  "**/*.{vitte,vit,vitl}",
   "**/vitte.toml",
+  "**/.vitte/config",
   "**/.vitteconfig"
 ] as const;
 const LANGUAGE_SET = new Set<string>(LANGUAGES);
@@ -3791,7 +3794,7 @@ function isVitteDocument(doc: vscode.TextDocument): boolean {
 function shouldRunLiveSyntaxDiagnostics(doc: vscode.TextDocument): boolean {
   if (!syntaxLintCollection) return false;
   if (!isVitteDocument(doc)) return false;
-  if (doc.uri.scheme !== "file") return false;
+  if (doc.uri.scheme !== "file" || doc.isDirty) return false;
   const cfg = vscode.workspace.getConfiguration("vitte");
   return cfg.get<boolean>("syntax.liveDiagnostics", true);
 }
@@ -4083,7 +4086,7 @@ function explainHelpFromVitte(
   try {
     const out = cp.spawnSync(
       resolved.bin,
-      ["--explain", code, `--lang=${lang}`],
+      ["explain", code],
       {
         cwd: resolved.cwd,
         shell: false,
@@ -4097,7 +4100,9 @@ function explainHelpFromVitte(
     const fix = lines.find((line) => /^Fix:\s*/i.test(line));
     const summary = lines.find((line) => /^Summary:\s*/i.test(line));
     const picked = (fix ?? summary ?? "").replace(/^(Fix|Summary):\s*/i, "").trim();
-    if (!picked) return undefined;
+    const guidanceIndex = lines.findIndex(line => line === "Guidance");
+    const guidance = guidanceIndex >= 0 ? lines.slice(guidanceIndex + 2).join(" ").trim() : "";
+    if (!picked && !guidance) return undefined;
     const exampleIndex = lines.findIndex((line) => /^Example:\s*/i.test(line));
     let example: string | undefined;
     if (exampleIndex >= 0) {
@@ -4114,9 +4119,9 @@ function explainHelpFromVitte(
         example = collected.join("\n");
       }
     }
-    touchVitteExplainHelpCache(key, picked, now, example);
+    touchVitteExplainHelpCache(key, picked || guidance, now, example);
     schedulePersistVitteExplainHelpCache(cachePath, versionSignature);
-    const payload: DiagnosticExplainPayload = { help: picked, source: "external" };
+    const payload: DiagnosticExplainPayload = { help: picked || guidance, source: "external" };
     if (example) payload.example = example;
     return payload;
   } catch {
@@ -4200,7 +4205,7 @@ function extractDiagJson(stdout: string, stderr: string): string | undefined {
     const j = text.lastIndexOf("}");
     if (i < 0 || j <= i) continue;
     const json = text.slice(i, j + 1);
-    if (json.includes("\"diag_schema\"") && json.includes("\"diagnostics\"")) {
+    if (json.includes("\"diagnostics\"")) {
       return json;
     }
   }
@@ -4210,7 +4215,7 @@ function extractDiagJson(stdout: string, stderr: string): string | undefined {
 function normalizeDiagSchemaSignature(parsed: unknown): string {
   if (!parsed || typeof parsed !== "object") return "invalid";
   const asRecord = parsed as Record<string, unknown>;
-  const schema = asRecord.diag_schema;
+  const schema = asRecord.diag_schema ?? asRecord.schema;
   if (schema === undefined || schema === null) return "missing";
   if (typeof schema === "string" || typeof schema === "number" || typeof schema === "boolean") {
     return String(schema);
@@ -4232,13 +4237,13 @@ function resolveVitteBinary(doc: vscode.TextDocument): { bin: string; cwd: strin
   const explicit = cfg.get<string>("compiler.path", "").trim();
   const root = cfg.get<string>("toolchain.root", "").trim() || cfg.get<string>("toolchainPath", "").trim();
   const candidates = [
-    explicit,
-    root ? path.join(root, "bin", compilerName("vittec")) : "",
-    lastActivationContext ? path.resolve(lastActivationContext.extensionPath, "..", "..", "bin", compilerName("vittec")) : "",
-    findExecutableOnPath("vittec"),
+    explicit ? expandToolPath(explicit, folder) : "",
+    root ? path.join(expandToolPath(root, folder), "bin", compilerName("vitte")) : "",
+    ...workspaceBinaryRoots([folder]).map(binRoot => path.join(binRoot, compilerName("vitte"))),
     findExecutableOnPath("vitte"),
   ].filter((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
-  const bin = candidates.find((candidate) => fs.existsSync(candidate)) ?? "vittec";
+  const bin = candidates.find(candidate => fs.existsSync(candidate));
+  if (!bin) return undefined;
   return { bin, cwd: folder };
 }
 
@@ -4285,7 +4290,7 @@ function parseVitteTextDiagnostics(
     const parseCode = prefixedDiagCode("COMPILER", code || "UNKNOWN");
     const target = diagnosticDocUri(code);
     diag.code = target ? { value: parseCode, target } : parseCode;
-    diag.source = "vittec";
+    diag.source = "vitte";
     diagnostics.push(diag);
   }
   return diagnostics;
@@ -4307,7 +4312,7 @@ function runLiveSyntaxDiagnosticsNow(doc: vscode.TextDocument, seq: number): voi
   const lang = cfg.get<string>("lang", "en");
   const helpSource = cfg.get<DiagnosticHelpSource>("diagnostics.helpSource", "auto");
   const explainTimeoutMs = Math.max(100, Math.min(5000, cfg.get<number>("diagnostics.explainTimeoutMs", 450)));
-  const args = ["parse", "--diagnostics-json", "--lang", lang, "--src", doc.uri.fsPath];
+  const args = ["check", "--diagnostic=json", "--no-color", doc.uri.fsPath];
   const key = doc.uri.toString();
   const prev = syntaxLintProcByDoc.get(key);
   if (prev && !prev.killed) {
@@ -4334,7 +4339,7 @@ function runLiveSyntaxDiagnosticsNow(doc: vscode.TextDocument, seq: number): voi
     }
     syntaxParsingInFlight = Math.max(0, syntaxParsingInFlight - 1);
     applyStatusBar();
-    if ((syntaxLintSeq.get(key) ?? 0) !== seq) return;
+    if ((syntaxLintSeq.get(key) ?? 0) !== seq || doc.isDirty) return;
     if (!syntaxLintCollection) return;
 
     const payload = extractDiagJson(stdout, stderr);
@@ -4362,7 +4367,7 @@ function runLiveSyntaxDiagnosticsNow(doc: vscode.TextDocument, seq: number): voi
           diagnosticsCount: Array.isArray(parsed.diagnostics) ? parsed.diagnostics.length : 0,
         });
       }
-      const incoming = Array.isArray(parsed.diagnostics) ? parsed.diagnostics : [];
+      const incoming = normalizeCompilerDiagnostics(parsed, doc.getText(), doc.uri.fsPath, resolved.cwd);
       const diagnostics: vscode.Diagnostic[] = [];
       const strictSeen = new Set<string>();
       const firstErrorLine = new Set<number>();

@@ -1,0 +1,27 @@
+# Development files and generated workspace data never belong in the VSIX.
+.github/**
+.gitignore
+.vscode/**
+.vscode-test/**
+.vitte/**
+.vitte-cache/**
+client/**
+src/**
+scripts/**
+test/**
+colorize-fixtures/**
+docs/**
+exemple/**
+server/src/**
+server/features/**
+server/package*.json
+server/tsconfig*.json
+server/tsconfig.tsbuildinfo
+out/test/**
+**/*.map
+**/*.tsbuildinfo
+package-lock.json
+tsconfig.json
+eslint.config.mjs
+settings.json
+entitlements.plist

@@ -192,7 +192,7 @@ function findReturnType(code: string, start: number): string | undefined {
 }
 
 function maskText(text: string, mask: Uint8Array): string {
-  return Array.from(text, (character, index) =>
+  return text.split("").map((character, index) =>
     mask[index] || character === "\n" || character === "\r" ? character : " ",
   ).join("");
 }

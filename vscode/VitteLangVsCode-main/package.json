@@ -1,17 +1,18 @@
 {
   "name": "vitte-studio",
   "displayName": "Vitte Language Support",
-  "description": "Vitte language support, Microsoft C/C++-style IntelliSense, native DAP process debugging, and external DAP integration.",
-  "version": "2.2.0",
+  "description": "Editor support for the official Vitte C17 compiler: completion, diagnostics, navigation, Make workflows and native debugging.",
+  "version": "2.3.0",
   "publisher": "VitteStudio",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vitte-lang/VitteLangVsCode.git"
+    "url": "https://github.com/vitte-lang/vitte.git",
+    "directory": "vscode/VitteLangVsCode-main"
   },
-  "homepage": "https://github.com/vitte-lang/VitteLangVsCode#readme",
+  "homepage": "https://github.com/vitte-lang/vitte/tree/main/vscode/VitteLangVsCode-main",
   "bugs": {
-    "url": "https://github.com/vitte-lang/VitteLangVsCode/issues"
+    "url": "https://github.com/vitte-lang/vitte/issues"
   },
   "engines": {
     "vscode": "^1.105.0"
@@ -1065,7 +1066,20 @@
               "build",
               "run",
               "test",
-              "clean",
+              "clean"
+            ]
+          }
+        }
+      },
+      {
+        "type": "vitte-bench",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
               "bench"
             ]
           }
@@ -2127,7 +2141,7 @@
         },
         "vitte.syntax.liveDiagnosticsOnSaveOnly": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Only refresh live syntax diagnostics on save (useful for large projects or slower machines)."
         },
         "vitte.syntax.firstErrorMode": {
@@ -2208,7 +2222,7 @@
         "vitte.compiler.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the vittec compiler binary used for live diagnostics."
+          "description": "Vitte compiler executable. Relative paths resolve from the workspace; build/bin/vitte is detected in compiler checkouts."
         },
         "vitte.experimental.commands": {
           "type": "boolean",
@@ -2233,13 +2247,15 @@
         "vitte.build.profile": {
           "type": "string",
           "enum": [
-            "dev",
-            "test",
+            "default",
+            "debug",
             "release",
-            "bench"
+            "size",
+            "sanitize",
+            "freestanding"
           ],
-          "default": "dev",
-          "description": "Default build profile."
+          "default": "default",
+          "description": "Compiler profile. In the Vitte compiler checkout, Build and Test use Make with the corresponding build mode."
         },
         "vitte.build.incremental": {
           "type": "boolean",
@@ -2293,7 +2309,7 @@
         "vitte.quickActions.sequences": {
           "type": "array",
           "default": [],
-          "description": "Define custom sequences for the “Vitte: Quick” command. Each entry triggers multiple VS Code commands sequentially.",
+          "description": "Define custom sequences for the \u201cVitte: Quick\u201d command. Each entry triggers multiple VS Code commands sequentially.",
           "items": {
             "type": "object",
             "required": [
@@ -2441,7 +2457,7 @@
     "build": "npm run generate:imports && npm run build:client && npm run build:server && npm run build:servercopy",
     "build:client": "tsc -p ./",
     "build:server": "tsc -p server",
-    "build:servercopy": "mkdir -p out server/out && (cp server/out/src/server.js out/server.js || true) && (cp -R server/out/src/* server/out/ || true)",
+    "build:servercopy": "node ./scripts/copy-server.mjs",
     "watch": "tsc -w -p ./",
     "compile": "npm run build",
     "lint": "eslint .",
@@ -2454,23 +2470,19 @@
     "test:perf-gate": "npm run build && node ./out/test/runTest.js --grep \"Performance Gate\"",
     "test:node20": "npx -y -p node@20 -p npm@10 npm test",
     "ci:release-gate": "node ./scripts/release-gate.mjs",
-    "clean": "rimraf node_modules package-lock.json dist && npm ci",
+    "clean": "rimraf out server/out server/tsconfig.tsbuildinfo dist",
     "audit:fix": "npm audit fix",
-    "test": "npm run check:imports-sync && npm run check:manifest && npm run build && node ./out/test/runTest.js",
+    "test": "npm run check:imports-sync && npm run check:manifest && npm run build && node --test test/*.test.cjs && node ./out/test/runTest.js",
     "generate:imports": "node ./scripts/generate-vitte-imports.mjs",
     "check:imports-sync": "node ./scripts/check-vitte-imports-sync.mjs",
-    "check:manifest": "node ./scripts/check-extension-manifest.mjs"
+    "check:manifest": "node ./scripts/check-extension-manifest.mjs",
+    "test:unit": "npm run build && node --test test/*.test.cjs"
   },
   "dependencies": {
-    "azure-devops-node-api": "^11.2.0",
-    "tough-cookie": "^6.0.0",
-    "typed-rest-client": "^2.1.0",
     "vscode-jsonrpc": "^8.2.0",
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1",
-    "vscode-languageserver-textdocument": "^1.0.11",
-    "vscode-nls": "^5.2.0",
-    "vscode-uri": "^3.0.8"
+    "vscode-languageserver-textdocument": "^1.0.11"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -2485,6 +2497,8 @@
     "prettier": "^3.6.2",
     "rimraf": "^6.0.1",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.3"
+    "typescript-eslint": "^8.46.3",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.2.0"
   }
 }

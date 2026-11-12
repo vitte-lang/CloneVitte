@@ -1,3 +1,5 @@
+import { projectCommand, BUILD_PROFILES, findCompilerRepository } from "../utils/project";
+import type { ProjectCommand } from "../utils/project";
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';
@@ -15,7 +17,7 @@ import { locateVitteRuntime } from '../debug/runtimeLocator';
  *  - vitte.testCurrent       → runs tests for the current file when supported
  *  - vitte.runTests          → alias for full test run
  *  - vitte.refreshTests      → refresh VS Code Testing view
- *  - vitte.switchProfile     → cycles dev → test → release → bench
+ *  - vitte.switchProfile     → cycles default → debug → release → size → sanitize → freestanding
  *  - vitte.toggleIncremental → toggles incremental build
  *
  * Task provider:
@@ -47,70 +49,41 @@ export function registerBuildTasks(ctx: vscode.ExtensionContext) {
         { cmd: 'run', label: 'Vitte Run' },
         { cmd: 'test', label: 'Vitte Test' },
       ];
-      return Promise.all(defs.map(async ({ cmd, label }) => {
-        const exec = new vscode.ProcessExecution(await buildBin(), await buildArgs(cmd));
+      const tasks = await Promise.all(defs.map(async ({ cmd, label }) => {
+        try {
+        const plan = await buildCommand(cmd);
+        if (plan.outputDir) await fs.promises.mkdir(plan.outputDir, { recursive: true });
+        const exec = new vscode.ProcessExecution(plan.bin, plan.args, { cwd: plan.cwd });
         const definition: VitteTaskDefinition = { type: 'vitte', command: cmd };
         return new vscode.Task(definition, vscode.TaskScope.Workspace, label, 'vitte', exec);
+        } catch { return undefined; }
       }));
+      return tasks.filter((task): task is vscode.Task => !!task);
     },
-    resolveTask: (task: vscode.Task) => task,
+    resolveTask: async (task: vscode.Task) => {
+      const command: unknown = task.definition.command;
+      if (command !== 'build' && command !== 'run' && command !== 'test') return undefined;
+      try {
+        const plan = await buildCommand(command);
+        if (plan.outputDir) await fs.promises.mkdir(plan.outputDir, { recursive: true });
+        task.execution = new vscode.ProcessExecution(plan.bin, plan.args, { cwd: plan.cwd });
+        return task;
+      } catch { return undefined; }
+    },
   } as unknown as vscode.TaskProvider;
   ctx.subscriptions.push(vscode.tasks.registerTaskProvider('vitte', provider));
 }
 
 type SubCmd = 'build' | 'clean' | 'run' | 'test';
 
-interface VitteBuildConfig {
-  build?: {
-    profile?: string;
-    distributed?: boolean;
-    incremental?: boolean;
-  };
-  targets?: (string | { triple?: string })[];
-}
-
 interface VitteTaskDefinition extends vscode.TaskDefinition {
   type: 'vitte';
   command: SubCmd;
 }
 
-async function readProjectConfig(): Promise<VitteBuildConfig | undefined> {
-  try {
-    const files = await vscode.workspace.findFiles('vitte.config.json', '**/node_modules/**', 1);
-    const first = Array.isArray(files) ? files[0] : undefined;
-    if (!first) return undefined;
-    const doc = await vscode.workspace.openTextDocument(first);
-    return JSON.parse(doc.getText()) as VitteBuildConfig;
-  } catch {
-    return undefined;
-  }
-}
-
 async function buildBin(): Promise<string> {
   const located = await locateVitteRuntime();
   return located.buildPath ?? located.cliPath ?? located.runtimePath ?? 'vitte';
-}
-
-async function buildArgs(sub: SubCmd, extra?: { currentFile?: string }): Promise<string[]> {
-  if (sub === 'clean') {
-    return [];
-  }
-
-  if (sub === 'test') {
-    const input = extra?.currentFile ?? await defaultInputFile();
-    return input ? ['check', input] : ['check'];
-  }
-
-  const input = extra?.currentFile ?? await defaultInputFile();
-  if (sub === 'run') {
-    return input ? ['run', input] : ['run'];
-  }
-
-  if (input) {
-    return ['build', input, '-o', defaultOutputFor(input)];
-  }
-
-  return ['build'];
 }
 
 async function defaultInputFile(): Promise<string | undefined> {
@@ -123,7 +96,7 @@ async function defaultInputFile(): Promise<string | undefined> {
   const candidates = [
     path.join(root, 'src', 'main.vit'),
     path.join(root, 'main.vit'),
-    path.join(root, 'src', 'vitte', 'compiler', 'main.vit'),
+    path.join(findCompilerRepository(root) ?? root, 'examples', 'hello.vit'),
   ];
   for (const candidate of candidates) {
     try {
@@ -136,17 +109,14 @@ async function defaultInputFile(): Promise<string | undefined> {
   return undefined;
 }
 
-function defaultOutputFor(input: string): string {
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const parsed = path.parse(input);
-  const outDir = root ? path.join(root, 'build') : path.join(parsed.dir, 'build');
-  return path.join(outDir, parsed.name);
-}
-
-async function buildCommand(sub: SubCmd, extra?: { currentFile?: string }): Promise<{ bin: string; args: string[] }> {
-  const bin = await buildBin();
-  const args = await buildArgs(sub, extra);
-  return { bin, args };
+async function buildCommand(sub: SubCmd, extra?: { currentFile?: string }): Promise<ProjectCommand> {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+  const cfg = vscode.workspace.getConfiguration('vitte');
+  return projectCommand({
+    root, compiler: await buildBin(), action: sub,
+    input: extra?.currentFile ?? await defaultInputFile(), currentFileOnly: !!extra?.currentFile,
+    profile: cfg.get<string>('build.profile', 'default'), incremental: cfg.get<boolean>('build.incremental', false),
+  });
 }
 
 function formatCommandForDisplay(bin: string, args: string[]): string {
@@ -160,27 +130,15 @@ async function runBuild(sub: SubCmd, extra?: { currentFile?: string }) {
     return;
   }
 
-  if (sub === 'clean') {
-    const targets = [path.join(root, 'build'), path.join(root, 'target', 'vitte'), path.join(root, '.vitte', 'cache')];
-    for (const target of targets) {
-      await fs.promises.rm(target, { recursive: true, force: true });
-    }
-    void vscode.window.showInformationMessage('Vitte: artefacts build/cache supprimés.');
+  let plan: ProjectCommand;
+  try { plan = await buildCommand(sub, extra); }
+  catch (error) { void vscode.window.showErrorMessage(`Vitte: ${String(error)}`); return; }
+  if (sub === 'clean' && !plan.bin) {
+    if (plan.outputDir) await fs.promises.rm(plan.outputDir, { recursive: true, force: true });
     return;
   }
-
-  let commandExtra = extra;
-  if ((sub === 'run' || sub === 'build') && !commandExtra?.currentFile) {
-    const current = vscode.window.activeTextEditor?.document.uri.fsPath;
-    const isVitte = !!(current && /\.(vit|vitl|vitte)$/i.test(current));
-    commandExtra = isVitte && current ? { currentFile: current } : undefined;
-  }
-
-  const { bin, args } = await buildCommand(sub, commandExtra);
-  if ((sub === 'build' || sub === 'run' || sub === 'test') && args.length <= 1) {
-    void vscode.window.showErrorMessage('Vitte: aucun fichier .vit/.vitl/.vitte trouvé pour cette commande.');
-    return;
-  }
+  if (plan.outputDir) await fs.promises.mkdir(plan.outputDir, { recursive: true });
+  const { bin, args } = plan;
 
   const chan = vscode.window.createOutputChannel('Vitte Build');
   await vscode.window.withProgress({
@@ -192,7 +150,7 @@ async function runBuild(sub: SubCmd, extra?: { currentFile?: string }) {
     chan.show(true);
     chan.appendLine(`[cmd] ${formatCommandForDisplay(bin, args)}`);
     await new Promise<void>((resolve) => {
-      const proc = cp.spawn(bin, args, { cwd: root, shell: false, env: process.env });
+      const proc = cp.spawn(bin, args, { cwd: plan.cwd, shell: false, env: process.env });
       proc.stdout?.on('data', (b: Buffer) => chan.append(b.toString()));
       proc.stderr?.on('data', (b: Buffer) => chan.append(b.toString()));
       proc.on('error', (e) => { chan.appendLine(`\n[error] ${e.message}`); resolve(); });
@@ -217,9 +175,9 @@ async function runTestCurrentFile() {
 
 async function cycleProfile() {
   const cfg = vscode.workspace.getConfiguration('vitte');
-  const current = (cfg.get<string>('build.profile') ?? 'dev').toLowerCase();
-  const order = ['dev', 'test', 'release', 'bench'];
-  const idx = order.indexOf(current);
+  const current = (cfg.get<string>('build.profile') ?? 'default').toLowerCase();
+  const order = [...BUILD_PROFILES];
+  const idx = order.findIndex(profile => profile === current);
   const next = order[(idx + 1) % order.length];
   await cfg.update('build.profile', next, vscode.ConfigurationTarget.Workspace);
   void vscode.window.showInformationMessage(`Vitte: profil → ${next}`);

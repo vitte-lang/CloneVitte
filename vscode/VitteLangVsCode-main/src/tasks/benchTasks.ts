@@ -34,7 +34,7 @@ export function registerBenchTasks(ctx: vscode.ExtensionContext) {
     provideTasks: async (_token?: vscode.CancellationToken): Promise<vscode.Task[]> => {
       const bin = await benchBin();
       if (!bin) return [];
-      const definition: VitteBenchTaskDefinition = { type: 'vitte', command: 'bench' };
+      const definition: VitteBenchTaskDefinition = { type: 'vitte-bench', command: 'bench' };
       const exec = new vscode.ProcessExecution(bin, await benchArgs(bin));
       const task = new vscode.Task(
         definition,
@@ -47,7 +47,7 @@ export function registerBenchTasks(ctx: vscode.ExtensionContext) {
     },
     resolveTask: (task: vscode.Task) => task,
   } as unknown as vscode.TaskProvider;
-  ctx.subscriptions.push(vscode.tasks.registerTaskProvider('vitte', provider));
+  ctx.subscriptions.push(vscode.tasks.registerTaskProvider('vitte-bench', provider));
 }
 
 interface VitteConfig {
@@ -64,7 +64,7 @@ interface VitteConfig {
 }
 
 interface VitteBenchTaskDefinition extends vscode.TaskDefinition {
-  type: 'vitte';
+  type: 'vitte-bench';
   command: 'bench';
 }
 
