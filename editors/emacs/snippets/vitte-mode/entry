@@ -1,7 +1,7 @@
 # -*- mode: snippet -*-
-# name: entry
+# name: Entry procedure
 # key: entry
 # --
-proc ${1:main}() {
-  $0
+proc main() {
+    $0
 }

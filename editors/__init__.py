@@ -1,0 +1,1 @@
+"""Vitte editor support."""

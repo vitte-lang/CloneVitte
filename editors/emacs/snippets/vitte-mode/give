@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: Return value
+# key: give
+# --
+give ${1:value};

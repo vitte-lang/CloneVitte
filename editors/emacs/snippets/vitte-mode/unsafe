@@ -1,0 +1,7 @@
+# -*- mode: snippet -*-
+# name: Unsafe block
+# key: unsafe
+# --
+unsafe {
+    $0
+}

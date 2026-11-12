@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: Export
+# key: export
+# --
+export ${1:name};

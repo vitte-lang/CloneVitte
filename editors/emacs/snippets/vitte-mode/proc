@@ -1,7 +1,7 @@
 # -*- mode: snippet -*-
-# name: proc
+# name: Procedure
 # key: proc
 # --
-proc ${1:name}(${2:value}: ${3:type}) -> ${4:void} {
-  $0
+proc ${1:name}(${2:value}: ${3:int}) -> ${4:void} {
+    $0
 }

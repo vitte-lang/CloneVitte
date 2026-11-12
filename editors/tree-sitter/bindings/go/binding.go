@@ -1,6 +1,6 @@
 package tree_sitter_vitte
 
-// #cgo CFLAGS: -std=c11 -fPIC
+// #cgo CFLAGS: -std=c11 -fPIC -I${SRCDIR}/../../src
 // #include "../../src/parser.c"
 // #include "../../src/scanner.c"
 import "C"
