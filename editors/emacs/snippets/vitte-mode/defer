@@ -1,0 +1,7 @@
+# -*- mode: snippet -*-
+# name: Defer
+# key: defer
+# --
+defer {
+    $0
+}

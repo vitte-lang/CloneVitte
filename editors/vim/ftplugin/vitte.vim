@@ -18,8 +18,7 @@ setlocal tabstop=2
 setlocal softtabstop=2
 setlocal expandtab
 setlocal autoindent
-setlocal smartindent
-setlocal smarttab
+setlocal nosmartindent
 
 " ============================================================================
 " Comments
@@ -48,16 +47,12 @@ setlocal formatoptions+=c
 setlocal formatoptions+=r
 setlocal formatoptions+=o
 
-" External formatter.
-"
-" Examples:
-"
-"   :%!vitte fmt -
-"   gq{motion}
-"
-" The command must accept source through stdin and write the formatted source
-" to stdout.
-setlocal formatprg=vitte\ fmt\ -
+" The bundled formatter works without a compiler fmt subcommand.
+let b:vitte_editor = get(g:, 'vitte_editor', fnamemodify(expand('<sfile>:p'), ':h:h:h') . '/vitte-editor')
+if !filereadable(b:vitte_editor)
+  let b:vitte_editor = 'vitte-editor'
+endif
+let &l:formatprg = get(g:, 'vitte_formatprg', shellescape(b:vitte_editor) . ' format -')
 
 " ============================================================================
 " Compiler / diagnostics
@@ -157,16 +152,13 @@ setlocal keywordprg=vitte\ help
 " Buffer-local commands
 " ============================================================================
 
-if !exists(":VitteFormat")
-  command -buffer VitteFormat
-        \ silent keepjumps %!vitte fmt -
-endif
-
-if !exists(":VitteFormatWrite")
-  command -buffer VitteFormatWrite
-        \ silent keepjumps %!vitte fmt - |
-        \ update
-endif
+command! -buffer VitteFormat call vitte#Format(0)
+command! -buffer VitteFormatWrite call vitte#Format(1)
+command! -buffer VitteBuild call vitte#Run('build')
+command! -buffer VitteRun call vitte#Run('run')
+command! -buffer VitteTest call vitte#Run('test')
+command! -buffer VitteSymbols call vitte#Run('symbols')
+command! -buffer VitteTags call vitte#Tags()
 
 " ============================================================================
 " Undo
@@ -201,3 +193,10 @@ let b:undo_ftplugin =
       \ "keywordprg< " .
       \ " | silent! delcommand VitteFormat" .
       \ " | silent! delcommand VitteFormatWrite"
+let b:undo_ftplugin .= " | unlet! b:current_compiler"
+for s:command in ['VitteBuild', 'VitteRun', 'VitteTest', 'VitteSymbols', 'VitteTags', 'VitteCheck', 'VitteCheckOpen', 'VitteCheckClose', 'VitteErrors', 'VitteErrorsClose', 'VitteNextError', 'VittePreviousError', 'VitteFirstError', 'VitteLastError']
+  let b:undo_ftplugin .= ' | silent! delcommand ' . s:command
+endfor
+unlet s:command
+
+let b:undo_ftplugin .= ' | unlet! b:vitte_editor'

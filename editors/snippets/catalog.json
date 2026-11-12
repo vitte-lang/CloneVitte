@@ -1,0 +1,172 @@
+[
+  {
+    "prefix": "proc",
+    "description": "Procedure",
+    "body": "proc ${1:name}(${2:value}: ${3:int}) -> ${4:void} {\n    $0\n}"
+  },
+  {
+    "prefix": "aproc",
+    "description": "Async procedure",
+    "body": "async proc ${1:name}() {\n    $0\n}"
+  },
+  {
+    "prefix": "uproc",
+    "description": "Unsafe procedure",
+    "body": "unsafe proc ${1:name}() {\n    $0\n}"
+  },
+  {
+    "prefix": "extern",
+    "description": "Extern procedure",
+    "body": "extern \"C\" proc ${1:name}(${2:value}: ${3:int}) -> ${4:void};"
+  },
+  {
+    "prefix": "const",
+    "description": "Constant",
+    "body": "const ${1:NAME}: ${2:int} = ${3:0};"
+  },
+  {
+    "prefix": "static",
+    "description": "Static",
+    "body": "static ${1:name}: ${2:type} = ${3:value};"
+  },
+  {
+    "prefix": "let",
+    "description": "Local binding",
+    "body": "let ${1:name}: ${2:type} = ${3:value};"
+  },
+  {
+    "prefix": "letm",
+    "description": "Mutable local binding",
+    "body": "let mut ${1:name}: ${2:type} = ${3:value};"
+  },
+  {
+    "prefix": "set",
+    "description": "Assignment",
+    "body": "set ${1:name} = ${2:value};"
+  },
+  {
+    "prefix": "form",
+    "description": "Form",
+    "body": "form ${1:Name} {\n    ${2:field}: ${3:type},\n    $0\n}"
+  },
+  {
+    "prefix": "pick",
+    "description": "Pick",
+    "body": "pick ${1:Name} {\n    ${2:Ready},\n    ${3:Failed}(i32),\n    $0\n}"
+  },
+  {
+    "prefix": "type",
+    "description": "Type alias",
+    "body": "type ${1:Name} = ${2:type};"
+  },
+  {
+    "prefix": "opaque",
+    "description": "Opaque type",
+    "body": "opaque ${1:Name};"
+  },
+  {
+    "prefix": "trait",
+    "description": "Trait",
+    "body": "trait ${1:Name} {\n    $0\n}"
+  },
+  {
+    "prefix": "impl",
+    "description": "Implementation",
+    "body": "impl ${1:Type} {\n    $0\n}"
+  },
+  {
+    "prefix": "match",
+    "description": "Match",
+    "body": "match ${1:value} {\n    ${2:pattern} => {\n        $0\n    },\n}"
+  },
+  {
+    "prefix": "if",
+    "description": "If",
+    "body": "if ${1:condition} {\n    $0\n}"
+  },
+  {
+    "prefix": "ife",
+    "description": "If / else",
+    "body": "if ${1:condition} {\n    ${2}\n} else {\n    $0\n}"
+  },
+  {
+    "prefix": "while",
+    "description": "While loop",
+    "body": "while ${1:condition} {\n    $0\n}"
+  },
+  {
+    "prefix": "loop",
+    "description": "Loop",
+    "body": "loop {\n    $0\n}"
+  },
+  {
+    "prefix": "for",
+    "description": "For loop",
+    "body": "for ${1:item} in ${2:items} {\n    $0\n}"
+  },
+  {
+    "prefix": "unsafe",
+    "description": "Unsafe block",
+    "body": "unsafe {\n    $0\n}"
+  },
+  {
+    "prefix": "defer",
+    "description": "Defer",
+    "body": "defer {\n    $0\n}"
+  },
+  {
+    "prefix": "give",
+    "description": "Return value",
+    "body": "give ${1:value};"
+  },
+  {
+    "prefix": "assert",
+    "description": "Assertion",
+    "body": "assert(${1:condition});"
+  },
+  {
+    "prefix": "main",
+    "description": "Entry procedure",
+    "body": "proc main() {\n    $0\n}"
+  },
+  {
+    "prefix": "use",
+    "description": "Use module",
+    "body": "use ${1:module}::{${2:item}};"
+  },
+  {
+    "prefix": "export",
+    "description": "Export",
+    "body": "export ${1:name};"
+  },
+  {
+    "prefix": "space",
+    "description": "Space",
+    "body": "space ${1:app};"
+  },
+  {
+    "prefix": "test",
+    "description": "Test",
+    "body": "test ${1:name} {\n    $0\n}"
+  },
+  {
+    "prefix": "macro",
+    "description": "Macro",
+    "body": "macro ${1:name}(${2:value}: ${3:type}) {\n    $0\n}"
+  },
+  {
+    "prefix": "intrinsic",
+    "description": "Intrinsic",
+    "body": "intrinsic ${1:name}(${2:value}: ${3:type}) -> ${4:void};"
+  },
+  {
+    "prefix": "asm",
+    "description": "Assembly",
+    "body": "asm(\"${1:instruction}\");"
+  },
+  {
+    "prefix": "entry",
+    "description": "Entry procedure",
+    "body": "proc main() {\n    $0\n}"
+  }
+]

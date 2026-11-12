@@ -36,3 +36,7 @@ dist/
 *.wasm
 *.obj
 *.o
+
+# Keep the Go binding reproducible despite repository-wide *.mod* ignores.
+!bindings/go/go.mod
+!bindings/go/go.sum

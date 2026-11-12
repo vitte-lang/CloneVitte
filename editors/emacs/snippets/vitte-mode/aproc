@@ -1,0 +1,7 @@
+# -*- mode: snippet -*-
+# name: Async procedure
+# key: aproc
+# --
+async proc ${1:name}() {
+    $0
+}

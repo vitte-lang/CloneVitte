@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: Type alias
+# key: type
+# --
+type ${1:Name} = ${2:type};

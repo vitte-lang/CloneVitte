@@ -1,0 +1,7 @@
+# -*- mode: snippet -*-
+# name: Entry procedure
+# key: main
+# --
+proc main() {
+    $0
+}

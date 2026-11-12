@@ -1,0 +1,22 @@
+name: Editor integrations
+on:
+  push:
+    paths: ['editors/**', 'scripts/install-unix-integrations.sh', 'completions/**', '.github/workflows/editors.yml']
+  pull_request:
+    paths: ['editors/**', 'scripts/install-unix-integrations.sh', 'completions/**', '.github/workflows/editors.yml']
+permissions:
+  contents: read
+jobs:
+  editors:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: sudo apt-get update && sudo apt-get install -y vim emacs-nox
+      - run: python3 editors/tests/check.py
+      - run: npm ci && npm test && npm run test:node
+        working-directory: editors/tree-sitter
+      - run: cargo test
+        working-directory: editors/tree-sitter

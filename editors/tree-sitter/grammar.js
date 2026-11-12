@@ -27,6 +27,7 @@ module.exports = grammar({
   externals: $ => [$.trailing_decimal_float],
 
   conflicts: $ => [
+    [$.primary_expression, $.generic_variant_path],
     [$.defer_statement, $.primary_expression],
     [$.match_arm, $.primary_expression],
   ],
@@ -203,14 +204,18 @@ module.exports = grammar({
       '>'
     ),
 
-    generic_parameter: $ => seq($.identifier, optional(seq(':', $.type))),
+    generic_parameter: $ => choice(
+      seq($.identifier, optional(seq(':', $.type, repeat(seq('+', $.type))))),
+      seq('const', $.identifier, ':', $.type)
+    ),
 
     where_clause: $ => seq(
       'where',
       $.type,
       ':',
       $.type,
-      repeat(seq(',', $.type, ':', $.type))
+      repeat(seq('+', $.type)),
+      repeat(seq(',', $.type, ':', $.type, repeat(seq('+', $.type))))
     ),
 
     parameter_list: $ => seq('(', optional(commaSep1Trailing($.parameter)), ')'),
@@ -221,10 +226,13 @@ module.exports = grammar({
       $.reference_type,
       $.pointer_type,
       $.array_type,
+      $.optional_type,
       $.path_type
     ),
 
     reference_type: $ => seq(choice('&', 'ref'), optional('mut'), $.type),
+
+    optional_type: $ => seq('?', $.type),
 
     pointer_type: $ => seq('*', $.type),
 
@@ -355,7 +363,7 @@ module.exports = grammar({
 
     postfix_expression: $ => choice(
       $.primary_expression,
-      prec.left(PREC.call, seq($.postfix_expression, '(', optional(commaSep1($.expression)), ')')),
+      prec.left(PREC.call, seq($.postfix_expression, '(', optional(commaSep1Trailing($.expression)), ')')),
       prec.left(PREC.member, seq($.postfix_expression, '[', $.expression, ']')),
       prec.left(PREC.member, seq($.postfix_expression, '.', $.identifier)),
       prec.left(PREC.member, seq($.postfix_expression, '?'))
@@ -364,11 +372,14 @@ module.exports = grammar({
     primary_expression: $ => choice(
       $.literal,
       $.path,
+      $.generic_variant_path,
       'self',
       $.array_literal,
       $.parenthesized_expression,
       $.block
     ),
+
+    generic_variant_path: $ => prec.dynamic(1, seq($.path, '<', optional(commaSep1($.type)), '>', '::', $.identifier)),
 
     array_literal: $ => seq('[', optional(commaSep1Trailing($.expression)), ']'),
 

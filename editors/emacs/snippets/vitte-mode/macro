@@ -1,0 +1,7 @@
+# -*- mode: snippet -*-
+# name: Macro
+# key: macro
+# --
+macro ${1:name}(${2:value}: ${3:type}) {
+    $0
+}

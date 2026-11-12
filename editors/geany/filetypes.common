@@ -1,10 +1,3 @@
-# Geany common override fragment for Vitte association.
-# Install to: ~/.config/geany/filedefs/filetypes.common (append/merge, do not replace).
-#
-# Note: Geany primarily reads extension associations from
-# ~/.config/geany/filetype_extensions.conf. This fragment is kept as a
-# common override companion as requested.
-
-[filetype_extensions]
-Vitte=*.vit;*.vitte;*.vitl;
-vitte=*.vit;*.vitte;*.vitl;
+# Vitte requires no overrides in filetypes.common.
+# Associations are installed into filetype_extensions.conf [Extensions].
+# See filetype_extensions.conf in this directory for the supported mapping.

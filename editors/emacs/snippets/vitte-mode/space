@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: Space
+# key: space
+# --
+space ${1:app};

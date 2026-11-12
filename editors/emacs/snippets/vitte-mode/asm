@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: Assembly
+# key: asm
+# --
+asm("${1:instruction}");

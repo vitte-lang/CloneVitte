@@ -1,0 +1,5 @@
+# -*- mode: snippet -*-
+# name: Assignment
+# key: set
+# --
+set ${1:name} = ${2:value};

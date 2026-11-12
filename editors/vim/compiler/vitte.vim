@@ -19,10 +19,8 @@ endif
 
 " Run the Vitte checker against the current source file.
 "
-" fnameescape() cannot be embedded directly in 'makeprg', therefore Vim's
-" standard % expansion is used here. Vim applies the filename expansion when
-" :make is executed.
-CompilerSet makeprg=vitte\ check\ %
+" Quote the absolute filename for paths containing spaces or shell characters.
+let &l:makeprg = shellescape(get(g:, 'vitte_binary', 'vitte')) . ' check --no-color ' . shellescape(expand('%:p'))
 
 " ============================================================================
 " Diagnostic formats
@@ -61,21 +59,21 @@ CompilerSet makeprg=vitte\ check\ %
 " ============================================================================
 
 let &l:errorformat =
-      \ '%E%f:%l:%c: error[%n]: %m,' .
+      \ '%E%f:%l:%c: error[%*[^]]]: %m,' .
       \ '%E%f:%l:%c: error: %m,' .
-      \ '%E%f:%l: error[%n]: %m,' .
+      \ '%E%f:%l: error[%*[^]]]: %m,' .
       \ '%E%f:%l: error: %m,' .
-      \ '%E%f: error[%n]: %m,' .
+      \ '%E%f: error[%*[^]]]: %m,' .
       \ '%E%f: error: %m,' .
-      \ '%Eerror[%n]: %m,' .
+      \ '%Eerror[%*[^]]]: %m,' .
       \ '%Eerror: %m,' .
-      \ '%W%f:%l:%c: warning[%n]: %m,' .
+      \ '%W%f:%l:%c: warning[%*[^]]]: %m,' .
       \ '%W%f:%l:%c: warning: %m,' .
-      \ '%W%f:%l: warning[%n]: %m,' .
+      \ '%W%f:%l: warning[%*[^]]]: %m,' .
       \ '%W%f:%l: warning: %m,' .
-      \ '%W%f: warning[%n]: %m,' .
+      \ '%W%f: warning[%*[^]]]: %m,' .
       \ '%W%f: warning: %m,' .
-      \ '%Wwarning[%n]: %m,' .
+      \ '%Wwarning[%*[^]]]: %m,' .
       \ '%Wwarning: %m,' .
       \ '%I%f:%l:%c: note: %m,' .
       \ '%I%f:%l: note: %m,' .
@@ -106,8 +104,7 @@ endif
 " Quickfix behavior
 " ============================================================================
 
-" Do not redirect compiler errors through a temporary error file.
-CompilerSet makeef=
+" Use Vim's default temporary error file handling.
 
 " Do not override 'shellpipe' here.
 "
@@ -127,6 +124,8 @@ function! s:VitteMake(open_mode) abort
   if &l:modified
     silent update
   endif
+
+  let &l:makeprg = shellescape(get(g:, 'vitte_binary', 'vitte')) . ' check --no-color ' . shellescape(expand('%:p'))
 
   " Execute without automatically jumping to the first diagnostic.
   silent make!
