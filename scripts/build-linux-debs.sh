@@ -610,6 +610,9 @@ build_one() {
     "$PAYLOAD_SCRIPT" "$data_root" linux "$arch" unix
 
   install_editor_integrations "$data_root"
+  # Install per-user activation helper as a packaged tool; do not run it in postinst.
+  install -D -m 0755 "$ROOT_DIR/scripts/vitte-editor-setup.py" \
+    "$data_root/usr/local/bin/vitte-editor-setup"
   add_assets "$data_root"
   verify_payload "$data_root" "$arch"
   normalize_payload "$data_root"
