@@ -2109,19 +2109,6 @@ proc parse_array_value(
         }
     }
 
-    return JsonValueParseResult {
-        ok: false,
-
-        value: null_value(),
-
-        next: cursor,
-
-        diagnostic_message:
-            "internal JSON array parser error",
-
-        diagnostic_span:
-            open.span,
-    };
 }
 
 /// -------------------------------------------------------------------------
@@ -2694,19 +2681,6 @@ proc parse_object_value(
         }
     }
 
-    return JsonValueParseResult {
-        ok: false,
-
-        value: null_value(),
-
-        next: cursor,
-
-        diagnostic_message:
-            "internal JSON object parser error",
-
-        diagnostic_span:
-            open.span,
-    };
 }
 
 /// -------------------------------------------------------------------------

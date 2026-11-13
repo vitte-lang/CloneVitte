@@ -2579,6 +2579,7 @@ vitte_constant_fold_comparison(
             case VITTE_CONSTANT_BINARY_EQUAL:
             case VITTE_CONSTANT_BINARY_NOT_EQUAL:
             case VITTE_CONSTANT_BINARY_COUNT:
+            default:
                 return
                     vitte_constant_result_error(
                         VITTE_CONSTANT_ERROR_INVALID_OPERATOR);
@@ -2635,6 +2636,7 @@ vitte_constant_fold_comparison(
             case VITTE_CONSTANT_BINARY_EQUAL:
             case VITTE_CONSTANT_BINARY_NOT_EQUAL:
             case VITTE_CONSTANT_BINARY_COUNT:
+            default:
                 return
                     vitte_constant_result_error(
                         VITTE_CONSTANT_ERROR_INVALID_OPERATOR);
@@ -2691,6 +2693,7 @@ vitte_constant_fold_comparison(
             case VITTE_CONSTANT_BINARY_EQUAL:
             case VITTE_CONSTANT_BINARY_NOT_EQUAL:
             case VITTE_CONSTANT_BINARY_COUNT:
+            default:
                 return
                     vitte_constant_result_error(
                         VITTE_CONSTANT_ERROR_INVALID_OPERATOR);
@@ -2743,6 +2746,7 @@ vitte_constant_fold_comparison(
             case VITTE_CONSTANT_BINARY_EQUAL:
             case VITTE_CONSTANT_BINARY_NOT_EQUAL:
             case VITTE_CONSTANT_BINARY_COUNT:
+            default:
                 return
                     vitte_constant_result_error(
                         VITTE_CONSTANT_ERROR_INVALID_OPERATOR);

@@ -1,0 +1,38 @@
+space json::tests::import_smoke;
+
+use json::encode::encoder::{
+    encode_compact
+};
+use json::parser::parser::{
+    JsonParseResult,
+    parse
+};
+
+export proc main() -> int {
+    let parsed: JsonParseResult =
+        parse("{\"ready\":true}");
+
+    if not parsed.ok {
+        return 1;
+    }
+
+    let encoded =
+        encode_compact(&parsed.value);
+
+    if not encoded.ok {
+        return 2;
+    }
+
+    if encoded.text.length != 14 ||
+       encoded.text[0] != '{' ||
+       encoded.text[1] != '"' ||
+       encoded.text[2] != 'r' ||
+       encoded.text[7] != '"' ||
+       encoded.text[8] != ':' ||
+       encoded.text[9] != 't' ||
+       encoded.text[13] != '}' {
+        return 3;
+    }
+
+    return 0;
+}

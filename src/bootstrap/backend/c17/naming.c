@@ -578,6 +578,9 @@ vitte_c17_naming_error_name(
 
         case VITTE_C17_NAMING_ERROR_COUNT:
             return "count";
+
+        default:
+            return "unknown";
     }
 }
 
@@ -645,6 +648,9 @@ vitte_c17_name_kind_name(
 
         case VITTE_C17_NAME_COUNT:
             return "count";
+
+        default:
+            return "invalid";
     }
 }
 
@@ -710,6 +716,7 @@ vitte_c17_naming_kind_tag(
 
         case VITTE_C17_NAME_INVALID:
         case VITTE_C17_NAME_COUNT:
+        default:
             if (length != NULL) {
                 *length = 0u;
             }

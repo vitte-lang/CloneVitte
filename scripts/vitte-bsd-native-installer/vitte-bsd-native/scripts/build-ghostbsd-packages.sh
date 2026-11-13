@@ -1,111 +1,37 @@
-vim) runtime=$DEST/share/vim/vimfiles ;;
-    neovim) runtime=$DEST/share/nvim/site ;;
-  esac
-  for part in syntax ftdetect ftplugin indent compiler colors after; do
-    copy_dir "$ROOT_DIR/editors/vim/$part" "$runtime/$part"
-  done
-  copy_file "$ROOT_DIR/editors/vim/ultisnips/vitte.snippets" "$runtime/UltiSnips/vitte.snippets"
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$SCRIPT_DIR
+while [ "$ROOT_DIR" != / ]; do
+  if [ -f "$ROOT_DIR/scripts/build-bsd-installers.sh" ] &&
+     [ -f "$ROOT_DIR/scripts/common.sh" ]
+  then
+    break
+  fi
+  ROOT_DIR=$(dirname "$ROOT_DIR")
 done
 
-# Ensure filetype detection works even when repository has no ftdetect file.
-if [ ! -f "$DEST/share/vim/vimfiles/ftdetect/vitte.vim" ]; then
-  mkdir -p "$DEST/share/vim/vimfiles/ftdetect"
-  cat > "$DEST/share/vim/vimfiles/ftdetect/vitte.vim" <<'VIM'
-augroup vitte_filetype_detection
-  autocmd!
-  autocmd BufRead,BufNewFile *.vit,*.vitl,*.vitte setfiletype vitte
-augroup END
-VIM
-fi
-copy_file "$DEST/share/vim/vimfiles/ftdetect/vitte.vim" "$DEST/share/nvim/site/ftdetect/vitte.vim"
-copy_file "$ROOT_DIR/editors/nano/vitte.nanorc" "$DEST/share/nano/vitte.nanorc"
-for f in "$ROOT_DIR"/editors/emacs/*.el; do
-  [ -f "$f" ] || continue
-  copy_file "$f" "$DEST/share/emacs/site-lisp/vitte/$(basename "$f")"
-done
-if [ -f "$DEST/share/emacs/site-lisp/vitte/vitte-mode.el" ]; then
-  cat > "$DEST/share/emacs/site-lisp/vitte/vitte-autoload.el" <<'ELISP'
-;;; vitte-autoload.el --- Vitte mode registration
-(add-to-list 'load-path (file-name-directory (or load-file-name buffer-file-name)))
-(autoload 'vitte-mode "vitte-mode" "Vitte major mode." t)
-(dolist (ext '("\\.vit\\'" "\\.vitl\\'" "\\.vitte\\'"))
-  (add-to-list 'auto-mode-alist (cons ext 'vitte-mode)))
-ELISP
-fi
-# Geany definitions are packaged, not forced into a user's configuration.
-# Its extension mapping must be activated by vitte-editor-setup if supported.
-for f in "$ROOT_DIR"/editors/geany/*.conf; do
-  [ -f "$f" ] || continue
-  copy_file "$f" "$DEST/share/vitte/geany/$(basename "$f")"
-done
-copy_file "$ROOT_DIR/editors/geany/filetypes.vitte.conf" "$DEST/share/geany/filedefs/filetypes.Vitte.conf"
-
-# Completions: install only files supplied by the repository.
-copy_file "$ROOT_DIR/completions/bash/vitte" "$DEST/share/bash-completion/completions/vitte"
-copy_file "$ROOT_DIR/completions/fish/vitte.fish" "$DEST/share/fish/vendor_completions.d/vitte.fish"
-copy_file "$ROOT_DIR/completions/zsh/_vitte" "$DEST/share/zsh/site-functions/_vitte"
-
-# Validate staged executable ABI: 'file' is advisory; actual execution required.
-log 'validating staged executables'
-file "$DEST/bin/vitte" "$DEST/bin/vittec" > "$STAGE/binary-info.txt"
-if grep -Ei 'ELF.*(Linux|GNU/Linux)' "$STAGE/binary-info.txt" >/dev/null; then
-  die 'Linux ELF binary detected in GhostBSD package'
-fi
-"$DEST/bin/vitte" --version || die 'staged vitte does not run on FreeBSD'
-"$DEST/bin/vittec" --version || die 'staged vittec does not run on FreeBSD'
-[ -f "$DEST/share/vim/vimfiles/ftdetect/vitte.vim" ] || die 'Vim integration missing'
-[ -f "$DEST/share/nano/vitte.nanorc" ] || die 'Nano integration missing'
-[ -f "$DEST/share/emacs/site-lisp/vitte/vitte-mode.el" ] || die 'Emacs integration missing'
-[ -f "$DEST/share/geany/filedefs/filetypes.Vitte.conf" ] || die 'Geany integration missing'
-[ -f "$DEST/share/vitte/assets/logo.png" ] || die 'Vitte logo missing'
-[ -f "$DEST/share/vitte/editors/tree-sitter/grammar.js" ] || die 'Tree-sitter grammar missing'
-if [ -n "${VERIFY_CMD:-}" ]; then
-  log 'running project regression verification'
-  (cd "$ROOT_DIR" && VITTE_BIN="$DEST/bin/vitte" sh -c "$VERIFY_CMD") || die 'regression tests failed'
-fi
-
-# pkg(8) accepts a JSON manifest (UCL-compatible) with files indexed by
-# absolute destination path. pkg create reads contents from ROOTFS.
-log 'generating native pkg manifest'
-FREEBSD_PKG_ABI="$FREEBSD_ABI" python3 - "$DEST" "$PREFIX" "$PACKAGE_NAME" "$VERSION" "$ARCH" "$STAGE/manifest.json" "$SOURCE_DATE_EPOCH" <<'PY'
-import json, pathlib, sys, os
-root = pathlib.Path(sys.argv[1]); prefix, name, version, arch, output = sys.argv[2:7]
-epoch = int(sys.argv[7]); files = {}
-for p in sorted(root.rglob('*')):
-    if p.is_file() or p.is_symlink():
-        relative = p.relative_to(root).as_posix()
-        files[prefix.rstrip('/') + '/' + relative] = '-'
-        if not p.is_symlink():
-            os.utime(p, (epoch, epoch))
-if not files:
-    raise SystemExit('empty package payload')
-manifest = {
-    'name': name, 'version': version, 'origin': 'lang/vitte',
-    'comment': 'Vitte language compiler and complete development environment',
-    'desc': 'Vitte compiler, runtime, modules, editor integrations and completions.',
-    'maintainer': 'maintainers@vitte-lang.org',
-    'www': 'https://vitte-lang.org/', 'prefix': prefix,
-    'arch': os.environ['FREEBSD_PKG_ABI'], 'files': files,
+[ -f "$ROOT_DIR/scripts/build-bsd-installers.sh" ] || {
+  printf '[build-ghostbsd-packages][error] Vitte repository root not found from %s\n' \
+    "$SCRIPT_DIR" >&2
+  exit 1
 }
-pathlib.Path(output).write_text(json.dumps(manifest, indent=2) + '\n')
-print(f'payload files: {len(files)}')
-PY
 
-# Use native pkg create rather than tarball masquerading as a package.
-log 'building GhostBSD package'
-pkg create -M "$STAGE/manifest.json" -r "$ROOTFS" -o "$OUT_DIR" || \
-  die 'pkg create failed (check pkg version and FreeBSD ABI metadata)'
+if [ "$#" -eq 1 ] && { [ "$1" = --help ] || [ "$1" = -h ]; }; then
+  cat <<'HELP'
+usage: build-ghostbsd-packages.sh [--dry-run] [--list-targets] [--print-env]
 
-# Find exact artifact(s) generated by pkg create, verify and checksum.
-FOUND=0
-for pkgfile in "$OUT_DIR"/"$PACKAGE_NAME"-"$VERSION"*.pkg "$OUT_DIR"/"$PACKAGE_NAME"-"$VERSION"*.txz; do
-  [ -f "$pkgfile" ] || continue
-  FOUND=1
-  pkg info -F "$pkgfile" >/dev/null || die "invalid package: $pkgfile"
-  (cd "$(dirname "$pkgfile")" && sha256 -r "$(basename "$pkgfile")" > "$(basename "$pkgfile").sha256")
-  log "verified: $pkgfile"
-  log "checksum: $pkgfile.sha256"
-done
-[ "$FOUND" -eq 1 ] || die "pkg create produced no identifiable package in $OUT_DIR"
-log 'complete; install with pkg add <package-file> (as root)'
-log 'rollback requires a previously saved package: pkg add -f /path/to/previous.pkg; this build never changes live files'
+Builds the supported GhostBSD portable installer through the canonical BSD
+installer builder. The output is a tar.xz portable kit, not a native pkg(8)
+package. Run on a GhostBSD host for a native GhostBSD compiler payload.
+HELP
+  exit 0
+fi
+
+ARCH=${ARCH:-amd64}
+FAMILY=bsd
+BSD_FAMILY=ghostbsd
+export ARCH FAMILY BSD_FAMILY
+
+exec sh "$ROOT_DIR/scripts/build-bsd-installers.sh" "$@"

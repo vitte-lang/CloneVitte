@@ -1273,6 +1273,7 @@ proc hash_string(
 export proc version_build_id() -> u64 {
     let mut hash: u64 =
         VERSION_FNV_OFFSET;
+    let endianness = version_endianness();
 
     set hash =
         hash_u64(
@@ -1331,7 +1332,7 @@ export proc version_build_id() -> u64 {
     set hash =
         hash_u64(
             hash,
-            version_endianness() as u64
+            endianness as u64
         );
 
     set hash =

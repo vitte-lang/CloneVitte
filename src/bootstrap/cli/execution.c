@@ -87,6 +87,9 @@ vitte_main_driver_compile(
         case VITTE_MAIN_COMMAND_VERSION:
         case VITTE_MAIN_COMMAND_INSTALL:
             return VITTE_MAIN_EXIT_INTERNAL;
+
+        default:
+            return VITTE_MAIN_EXIT_INTERNAL;
     }
 
     config.command = command;

@@ -3327,7 +3327,7 @@ vitte_main_sema_type_context(
     const vitte_symbol_t *symbol;
     const char *name;
     size_t name_length;
-    int written;
+    int written = 0;
 
     if (context == NULL || sema_diagnostic == NULL ||
         buffer == NULL || capacity == 0u) {

@@ -1,0 +1,6 @@
+name = "json"
+version = "0.1.1"
+entry = "json.vit"
+module_root = "."
+module_path_syntax = "::"
+native_dependencies = []

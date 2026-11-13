@@ -1,0 +1,2075 @@
+/// JSON error model.
+///
+/// Central error representation shared by the Vitte JSON lexer, parser,
+/// decoder, encoder and validation layers.
+///
+/// Design goals:
+/// - one canonical JSON error type;
+/// - precise source locations;
+/// - distinguish lexical, syntactic, semantic and encoding failures;
+/// - preserve expected and actual input information;
+/// - support nested causes;
+/// - expose stable machine-readable error codes;
+/// - provide human-readable descriptions;
+/// - remain independent from diagnostics rendering.
+///
+/// Source positions are zero-based internally.
+/// Human-facing line and column helpers return one-based values.
+
+space json::error::error;
+
+pick JsonErrorKind {
+    None,
+
+    Lexical,
+
+    Syntax,
+
+    UnexpectedToken,
+
+    UnexpectedCharacter,
+
+    UnexpectedEnd,
+
+    InvalidLiteral,
+
+    InvalidNull,
+
+    InvalidBoolean,
+
+    InvalidNumber,
+
+    InvalidInteger,
+
+    InvalidFloat,
+
+    InvalidExponent,
+
+    InvalidString,
+
+    InvalidEscape,
+
+    InvalidUnicodeEscape,
+
+    InvalidUnicodeScalar,
+
+    InvalidSurrogate,
+
+    InvalidArray,
+
+    InvalidObject,
+
+    InvalidMember,
+
+    MissingColon,
+
+    MissingComma,
+
+    MissingValue,
+
+    MissingKey,
+
+    TrailingComma,
+
+    DuplicateKey,
+
+    TypeMismatch,
+
+    IndexOutOfBounds,
+
+    KeyNotFound,
+
+    Conversion,
+
+    Overflow,
+
+    Underflow,
+
+    DepthExceeded,
+
+    Encoding,
+
+    Decoding,
+
+    Validation,
+
+    Internal,
+}
+
+pick JsonErrorPhase {
+    None,
+
+    Lexer,
+
+    Parser,
+
+    Decoder,
+
+    Encoder,
+
+    Validator,
+
+    Value,
+}
+
+pick JsonErrorSeverity {
+    Error,
+
+    Fatal,
+}
+
+form JsonSourcePosition {
+    offset: usize,
+
+    line: usize,
+
+    column: usize,
+}
+
+form JsonSourceSpan {
+    start: JsonSourcePosition,
+
+    end: JsonSourcePosition,
+}
+
+form JsonError {
+    kind: JsonErrorKind,
+
+    phase: JsonErrorPhase,
+
+    severity: JsonErrorSeverity,
+
+    code: string,
+
+    message: string,
+
+    detail: string,
+
+    expected: string,
+
+    found: string,
+
+    source: string,
+
+    span: JsonSourceSpan,
+
+    has_location: bool,
+
+    has_cause: bool,
+
+    cause_kind: JsonErrorKind,
+
+    cause_code: string,
+
+    cause_message: string,
+}
+
+form JsonErrorResult {
+    ok: bool,
+
+    error: JsonError,
+}
+
+/// -------------------------------------------------------------------------
+/// Source positions
+/// -------------------------------------------------------------------------
+
+proc position(
+    offset: usize,
+    line: usize,
+    column: usize
+) -> JsonSourcePosition {
+    return JsonSourcePosition {
+        offset: offset,
+
+        line: line,
+
+        column: column,
+    };
+}
+
+proc start_position() -> JsonSourcePosition {
+    return position(
+        0,
+        0,
+        0);
+}
+
+proc span(
+    start: JsonSourcePosition,
+    end: JsonSourcePosition
+) -> JsonSourceSpan {
+    return JsonSourceSpan {
+        start: start,
+
+        end: end,
+    };
+}
+
+proc point_span(
+    value: JsonSourcePosition
+) -> JsonSourceSpan {
+    return span(
+        value,
+        value);
+}
+
+proc empty_span() -> JsonSourceSpan {
+    let value: JsonSourcePosition =
+        start_position();
+
+    return point_span(
+        value);
+}
+
+/// -------------------------------------------------------------------------
+/// Position helpers
+/// -------------------------------------------------------------------------
+
+proc human_line(
+    value: &JsonSourcePosition
+) -> usize {
+    return value.line + 1;
+}
+
+proc human_column(
+    value: &JsonSourcePosition
+) -> usize {
+    return value.column + 1;
+}
+
+proc span_length(
+    value: &JsonSourceSpan
+) -> usize {
+    if value.end.offset <
+       value.start.offset {
+        return 0;
+    }
+
+    return value.end.offset -
+         value.start.offset;
+}
+
+proc span_is_empty(
+    value: &JsonSourceSpan
+) -> bool {
+    return value.start.offset ==
+         value.end.offset;
+}
+
+proc position_before(
+    left: &JsonSourcePosition,
+    right: &JsonSourcePosition
+) -> bool {
+    return left.offset <
+         right.offset;
+}
+
+proc position_after(
+    left: &JsonSourcePosition,
+    right: &JsonSourcePosition
+) -> bool {
+    return left.offset >
+         right.offset;
+}
+
+proc position_equal(
+    left: &JsonSourcePosition,
+    right: &JsonSourcePosition
+) -> bool {
+    return left.offset ==
+         right.offset &&
+         left.line ==
+             right.line &&
+         left.column ==
+             right.column;
+}
+
+proc span_valid(
+    value: &JsonSourceSpan
+) -> bool {
+    return value.end.offset >=
+         value.start.offset;
+}
+
+/// -------------------------------------------------------------------------
+/// Empty error
+/// -------------------------------------------------------------------------
+
+proc none() -> JsonError {
+    return JsonError {
+        kind: JsonErrorKind.None,
+
+        phase: JsonErrorPhase.None,
+
+        severity: JsonErrorSeverity.Error,
+
+        code: "JSON0000",
+
+        message: "",
+
+        detail: "",
+
+        expected: "",
+
+        found: "",
+
+        source: "",
+
+        span: empty_span(),
+
+        has_location: false,
+
+        has_cause: false,
+
+        cause_kind: JsonErrorKind.None,
+
+        cause_code: "",
+
+        cause_message: "",
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Generic constructor
+/// -------------------------------------------------------------------------
+
+proc make(
+    kind: JsonErrorKind,
+    phase: JsonErrorPhase,
+    code: string,
+    message: string
+) -> JsonError {
+    return JsonError {
+        kind: kind,
+
+        phase: phase,
+
+        severity: JsonErrorSeverity.Error,
+
+        code: code,
+
+        message: message,
+
+        detail: "",
+
+        expected: "",
+
+        found: "",
+
+        source: "",
+
+        span: empty_span(),
+
+        has_location: false,
+
+        has_cause: false,
+
+        cause_kind: JsonErrorKind.None,
+
+        cause_code: "",
+
+        cause_message: "",
+    };
+}
+
+proc make_at(
+    kind: JsonErrorKind,
+    phase: JsonErrorPhase,
+    code: string,
+    message: string,
+    location: JsonSourceSpan
+) -> JsonError {
+    let mut result: JsonError =
+        make(
+            kind,
+            phase,
+            code,
+            message);
+
+    set result.span =
+        location;
+
+    set result.has_location =
+        true;
+
+    return result;
+}
+
+/// -------------------------------------------------------------------------
+/// Error transformation
+/// -------------------------------------------------------------------------
+
+proc copy_error(
+    error: &JsonError
+) -> JsonError {
+    return JsonError {
+        kind: error.kind,
+
+        phase: error.phase,
+
+        severity: error.severity,
+
+        code: error.code,
+
+        message: error.message,
+
+        detail: error.detail,
+
+        expected: error.expected,
+
+        found: error.found,
+
+        source: error.source,
+
+        span: error.span,
+
+        has_location: error.has_location,
+
+        has_cause: error.has_cause,
+
+        cause_kind: error.cause_kind,
+
+        cause_code: error.cause_code,
+
+        cause_message: error.cause_message,
+    };
+}
+
+proc with_location(
+    error: &JsonError,
+    location: JsonSourceSpan
+) -> JsonError {
+    let mut result: JsonError =
+        copy_error(error);
+
+    set result.span =
+        location;
+
+    set result.has_location =
+        true;
+
+    return result;
+}
+
+proc without_location(
+    error: &JsonError
+) -> JsonError {
+    let mut result: JsonError =
+        copy_error(error);
+
+    set result.span =
+        empty_span();
+
+    set result.has_location =
+        false;
+
+    return result;
+}
+
+proc with_source(
+    error: &JsonError,
+    source: string
+) -> JsonError {
+    let mut result: JsonError =
+        copy_error(error);
+
+    set result.source =
+        source;
+
+    return result;
+}
+
+proc with_detail(
+    error: &JsonError,
+    detail: string
+) -> JsonError {
+    let mut result: JsonError =
+        copy_error(error);
+
+    set result.detail =
+        detail;
+
+    return result;
+}
+
+proc with_expected(
+    error: &JsonError,
+    expected: string
+) -> JsonError {
+    let mut result: JsonError =
+        copy_error(error);
+
+    set result.expected =
+        expected;
+
+    return result;
+}
+
+proc with_found(
+    error: &JsonError,
+    found: string
+) -> JsonError {
+    let mut result: JsonError =
+        copy_error(error);
+
+    set result.found =
+        found;
+
+    return result;
+}
+
+proc with_expected_found(
+    error: &JsonError,
+    expected: string,
+    found: string
+) -> JsonError {
+    let mut result: JsonError =
+        copy_error(error);
+
+    set result.expected =
+        expected;
+
+    set result.found =
+        found;
+
+    return result;
+}
+
+proc with_severity(
+    error: &JsonError,
+    severity: JsonErrorSeverity
+) -> JsonError {
+    let mut result: JsonError =
+        copy_error(error);
+
+    set result.severity =
+        severity;
+
+    return result;
+}
+
+proc with_cause(
+    error: &JsonError,
+    cause: &JsonError
+) -> JsonError {
+    let mut result: JsonError =
+        copy_error(error);
+
+    set result.has_cause =
+        cause.kind !=
+            JsonErrorKind.None;
+
+    set result.cause_kind =
+        cause.kind;
+
+    set result.cause_code =
+        cause.code;
+
+    set result.cause_message =
+        cause.message;
+
+    return result;
+}
+
+/// -------------------------------------------------------------------------
+/// Stable error constructors
+/// -------------------------------------------------------------------------
+
+proc unexpected_character(
+    found: string
+) -> JsonError {
+    let base: JsonError =
+        make(
+            JsonErrorKind.UnexpectedCharacter,
+            JsonErrorPhase.Lexer,
+            "JSON1001",
+            "unexpected character");
+
+    return with_found(
+        &base,
+        found);
+}
+
+proc unexpected_token(
+    expected: string,
+    found: string
+) -> JsonError {
+    let base: JsonError =
+        make(
+            JsonErrorKind.UnexpectedToken,
+            JsonErrorPhase.Parser,
+            "JSON2001",
+            "unexpected token");
+
+    return with_expected_found(
+        &base,
+        expected,
+        found);
+}
+
+proc unexpected_end() -> JsonError {
+    return make(
+        JsonErrorKind.UnexpectedEnd,
+        JsonErrorPhase.Parser,
+        "JSON2002",
+        "unexpected end of JSON input");
+}
+
+proc invalid_literal(
+    found: string
+) -> JsonError {
+    let base: JsonError =
+        make(
+            JsonErrorKind.InvalidLiteral,
+            JsonErrorPhase.Lexer,
+            "JSON1002",
+            "invalid JSON literal");
+
+    return with_found(
+        &base,
+        found);
+}
+
+proc invalid_null() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidNull,
+        JsonErrorPhase.Lexer,
+        "JSON1101",
+        "invalid null literal");
+}
+
+proc invalid_boolean() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidBoolean,
+        JsonErrorPhase.Lexer,
+        "JSON1102",
+        "invalid boolean literal");
+}
+
+proc invalid_number() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidNumber,
+        JsonErrorPhase.Lexer,
+        "JSON1200",
+        "invalid JSON number");
+}
+
+proc invalid_integer() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidInteger,
+        JsonErrorPhase.Lexer,
+        "JSON1201",
+        "invalid JSON integer");
+}
+
+proc invalid_float() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidFloat,
+        JsonErrorPhase.Lexer,
+        "JSON1202",
+        "invalid JSON floating-point number");
+}
+
+proc invalid_exponent() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidExponent,
+        JsonErrorPhase.Lexer,
+        "JSON1203",
+        "invalid JSON exponent");
+}
+
+proc number_overflow() -> JsonError {
+    return make(
+        JsonErrorKind.Overflow,
+        JsonErrorPhase.Decoder,
+        "JSON1204",
+        "JSON number is outside the supported range");
+}
+
+proc number_underflow() -> JsonError {
+    return make(
+        JsonErrorKind.Underflow,
+        JsonErrorPhase.Decoder,
+        "JSON1205",
+        "JSON number is below the supported range");
+}
+
+proc invalid_string() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidString,
+        JsonErrorPhase.Lexer,
+        "JSON1300",
+        "invalid JSON string");
+}
+
+proc invalid_escape(
+    found: string
+) -> JsonError {
+    let base: JsonError =
+        make(
+            JsonErrorKind.InvalidEscape,
+            JsonErrorPhase.Lexer,
+            "JSON1301",
+            "invalid JSON escape sequence");
+
+    return with_found(
+        &base,
+        found);
+}
+
+proc invalid_unicode_escape() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidUnicodeEscape,
+        JsonErrorPhase.Lexer,
+        "JSON1302",
+        "invalid JSON Unicode escape");
+}
+
+proc invalid_unicode_scalar() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidUnicodeScalar,
+        JsonErrorPhase.Decoder,
+        "JSON1303",
+        "invalid Unicode scalar value");
+}
+
+proc invalid_surrogate() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidSurrogate,
+        JsonErrorPhase.Decoder,
+        "JSON1304",
+        "invalid Unicode surrogate pair");
+}
+
+proc invalid_array() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidArray,
+        JsonErrorPhase.Parser,
+        "JSON2100",
+        "invalid JSON array");
+}
+
+proc invalid_object() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidObject,
+        JsonErrorPhase.Parser,
+        "JSON2200",
+        "invalid JSON object");
+}
+
+proc invalid_member() -> JsonError {
+    return make(
+        JsonErrorKind.InvalidMember,
+        JsonErrorPhase.Parser,
+        "JSON2201",
+        "invalid JSON object member");
+}
+
+proc missing_colon() -> JsonError {
+    let base: JsonError =
+        make(
+            JsonErrorKind.MissingColon,
+            JsonErrorPhase.Parser,
+            "JSON2202",
+            "expected ':' after object key");
+
+    return with_expected(
+        &base,
+        ":");
+}
+
+proc missing_comma() -> JsonError {
+    let base: JsonError =
+        make(
+            JsonErrorKind.MissingComma,
+            JsonErrorPhase.Parser,
+            "JSON2203",
+            "expected ',' between JSON values");
+
+    return with_expected(
+        &base,
+        ",");
+}
+
+proc missing_value() -> JsonError {
+    return make(
+        JsonErrorKind.MissingValue,
+        JsonErrorPhase.Parser,
+        "JSON2204",
+        "expected JSON value");
+}
+
+proc missing_key() -> JsonError {
+    return make(
+        JsonErrorKind.MissingKey,
+        JsonErrorPhase.Parser,
+        "JSON2205",
+        "expected JSON object key");
+}
+
+proc trailing_comma() -> JsonError {
+    return make(
+        JsonErrorKind.TrailingComma,
+        JsonErrorPhase.Parser,
+        "JSON2206",
+        "trailing comma is not permitted in JSON");
+}
+
+proc duplicate_key(
+    key: string
+) -> JsonError {
+    let base: JsonError =
+        make(
+            JsonErrorKind.DuplicateKey,
+            JsonErrorPhase.Validator,
+            "JSON3001",
+            "duplicate JSON object key");
+
+    return with_found(
+        &base,
+        key);
+}
+
+proc type_mismatch(
+    expected: string,
+    found: string
+) -> JsonError {
+    let base: JsonError =
+        make(
+            JsonErrorKind.TypeMismatch,
+            JsonErrorPhase.Value,
+            "JSON3101",
+            "JSON value has an unexpected type");
+
+    return with_expected_found(
+        &base,
+        expected,
+        found);
+}
+
+proc index_out_of_bounds() -> JsonError {
+    return make(
+        JsonErrorKind.IndexOutOfBounds,
+        JsonErrorPhase.Value,
+        "JSON3102",
+        "JSON array index is out of bounds");
+}
+
+proc key_not_found(
+    key: string
+) -> JsonError {
+    let base: JsonError =
+        make(
+            JsonErrorKind.KeyNotFound,
+            JsonErrorPhase.Value,
+            "JSON3103",
+            "JSON object key was not found");
+
+    return with_found(
+        &base,
+        key);
+}
+
+proc conversion_error(
+    expected: string,
+    found: string
+) -> JsonError {
+    let base: JsonError =
+        make(
+            JsonErrorKind.Conversion,
+            JsonErrorPhase.Value,
+            "JSON3104",
+            "JSON value cannot be converted");
+
+    return with_expected_found(
+        &base,
+        expected,
+        found);
+}
+
+proc depth_exceeded() -> JsonError {
+    return make(
+        JsonErrorKind.DepthExceeded,
+        JsonErrorPhase.Parser,
+        "JSON4001",
+        "maximum JSON nesting depth exceeded");
+}
+
+proc encoding_error(
+    message: string
+) -> JsonError {
+    return make(
+        JsonErrorKind.Encoding,
+        JsonErrorPhase.Encoder,
+        "JSON5001",
+        message);
+}
+
+proc decoding_error(
+    message: string
+) -> JsonError {
+    return make(
+        JsonErrorKind.Decoding,
+        JsonErrorPhase.Decoder,
+        "JSON5002",
+        message);
+}
+
+proc validation_error(
+    message: string
+) -> JsonError {
+    return make(
+        JsonErrorKind.Validation,
+        JsonErrorPhase.Validator,
+        "JSON5003",
+        message);
+}
+
+proc internal_error(
+    message: string
+) -> JsonError {
+    let base: JsonError =
+        make(
+            JsonErrorKind.Internal,
+            JsonErrorPhase.None,
+            "JSON9000",
+            message);
+
+    return with_severity(
+        &base,
+        JsonErrorSeverity.Fatal);
+}
+
+/// -------------------------------------------------------------------------
+/// Error queries
+/// -------------------------------------------------------------------------
+
+proc is_none(
+    error: &JsonError
+) -> bool {
+    return error.kind ==
+         JsonErrorKind.None;
+}
+
+proc is_error(
+    error: &JsonError
+) -> bool {
+    return not is_none(error);
+}
+
+proc is_fatal(
+    error: &JsonError
+) -> bool {
+    return is_error(error) &&
+         error.severity ==
+             JsonErrorSeverity.Fatal;
+}
+
+proc has_location(
+    error: &JsonError
+) -> bool {
+    return error.has_location;
+}
+
+proc has_source(
+    error: &JsonError
+) -> bool {
+    return error.source.length != 0;
+}
+
+proc has_detail(
+    error: &JsonError
+) -> bool {
+    return error.detail.length != 0;
+}
+
+proc has_expected(
+    error: &JsonError
+) -> bool {
+    return error.expected.length != 0;
+}
+
+proc has_found(
+    error: &JsonError
+) -> bool {
+    return error.found.length != 0;
+}
+
+proc has_cause(
+    error: &JsonError
+) -> bool {
+    return error.has_cause;
+}
+
+/// -------------------------------------------------------------------------
+/// Category queries
+/// -------------------------------------------------------------------------
+
+proc is_lexical(
+    error: &JsonError
+) -> bool {
+    return error.phase ==
+         JsonErrorPhase.Lexer;
+}
+
+proc is_syntax(
+    error: &JsonError
+) -> bool {
+    return error.phase ==
+         JsonErrorPhase.Parser;
+}
+
+proc is_decode(
+    error: &JsonError
+) -> bool {
+    return error.phase ==
+         JsonErrorPhase.Decoder;
+}
+
+proc is_encode(
+    error: &JsonError
+) -> bool {
+    return error.phase ==
+         JsonErrorPhase.Encoder;
+}
+
+proc is_validation(
+    error: &JsonError
+) -> bool {
+    return error.phase ==
+         JsonErrorPhase.Validator;
+}
+
+proc is_value_error(
+    error: &JsonError
+) -> bool {
+    return error.phase ==
+         JsonErrorPhase.Value;
+}
+
+proc is_number_error(
+    error: &JsonError
+) -> bool {
+    return error.kind ==
+             JsonErrorKind.InvalidNumber ||
+         error.kind ==
+             JsonErrorKind.InvalidInteger ||
+         error.kind ==
+             JsonErrorKind.InvalidFloat ||
+         error.kind ==
+             JsonErrorKind.InvalidExponent ||
+         error.kind ==
+             JsonErrorKind.Overflow ||
+         error.kind ==
+             JsonErrorKind.Underflow;
+}
+
+proc is_string_error(
+    error: &JsonError
+) -> bool {
+    return error.kind ==
+             JsonErrorKind.InvalidString ||
+         error.kind ==
+             JsonErrorKind.InvalidEscape ||
+         error.kind ==
+             JsonErrorKind.InvalidUnicodeEscape ||
+         error.kind ==
+             JsonErrorKind.InvalidUnicodeScalar ||
+         error.kind ==
+             JsonErrorKind.InvalidSurrogate;
+}
+
+proc is_structure_error(
+    error: &JsonError
+) -> bool {
+    return error.kind ==
+             JsonErrorKind.InvalidArray ||
+         error.kind ==
+             JsonErrorKind.InvalidObject ||
+         error.kind ==
+             JsonErrorKind.InvalidMember ||
+         error.kind ==
+             JsonErrorKind.MissingColon ||
+         error.kind ==
+             JsonErrorKind.MissingComma ||
+         error.kind ==
+             JsonErrorKind.MissingValue ||
+         error.kind ==
+             JsonErrorKind.MissingKey ||
+         error.kind ==
+             JsonErrorKind.TrailingComma;
+}
+
+/// -------------------------------------------------------------------------
+/// Phase names
+/// -------------------------------------------------------------------------
+
+proc phase_name(
+    phase: JsonErrorPhase
+) -> string {
+    if phase ==
+       JsonErrorPhase.None {
+        return "none";
+    }
+
+    if phase ==
+       JsonErrorPhase.Lexer {
+        return "lexer";
+    }
+
+    if phase ==
+       JsonErrorPhase.Parser {
+        return "parser";
+    }
+
+    if phase ==
+       JsonErrorPhase.Decoder {
+        return "decoder";
+    }
+
+    if phase ==
+       JsonErrorPhase.Encoder {
+        return "encoder";
+    }
+
+    if phase ==
+       JsonErrorPhase.Validator {
+        return "validator";
+    }
+
+    return "value";
+}
+
+proc severity_name(
+    severity: JsonErrorSeverity
+) -> string {
+    if severity ==
+       JsonErrorSeverity.Fatal {
+        return "fatal";
+    }
+
+    return "error";
+}
+
+/// -------------------------------------------------------------------------
+/// Kind names
+/// -------------------------------------------------------------------------
+
+proc kind_name(
+    kind: JsonErrorKind
+) -> string {
+    if kind ==
+       JsonErrorKind.None {
+        return "none";
+    }
+
+    if kind ==
+       JsonErrorKind.Lexical {
+        return "lexical";
+    }
+
+    if kind ==
+       JsonErrorKind.Syntax {
+        return "syntax";
+    }
+
+    if kind ==
+       JsonErrorKind.UnexpectedToken {
+        return "unexpected-token";
+    }
+
+    if kind ==
+       JsonErrorKind.UnexpectedCharacter {
+        return "unexpected-character";
+    }
+
+    if kind ==
+       JsonErrorKind.UnexpectedEnd {
+        return "unexpected-end";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidLiteral {
+        return "invalid-literal";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidNull {
+        return "invalid-null";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidBoolean {
+        return "invalid-boolean";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidNumber {
+        return "invalid-number";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidInteger {
+        return "invalid-integer";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidFloat {
+        return "invalid-float";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidExponent {
+        return "invalid-exponent";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidString {
+        return "invalid-string";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidEscape {
+        return "invalid-escape";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidUnicodeEscape {
+        return "invalid-unicode-escape";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidUnicodeScalar {
+        return "invalid-unicode-scalar";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidSurrogate {
+        return "invalid-surrogate";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidArray {
+        return "invalid-array";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidObject {
+        return "invalid-object";
+    }
+
+    if kind ==
+       JsonErrorKind.InvalidMember {
+        return "invalid-member";
+    }
+
+    if kind ==
+       JsonErrorKind.MissingColon {
+        return "missing-colon";
+    }
+
+    if kind ==
+       JsonErrorKind.MissingComma {
+        return "missing-comma";
+    }
+
+    if kind ==
+       JsonErrorKind.MissingValue {
+        return "missing-value";
+    }
+
+    if kind ==
+       JsonErrorKind.MissingKey {
+        return "missing-key";
+    }
+
+    if kind ==
+       JsonErrorKind.TrailingComma {
+        return "trailing-comma";
+    }
+
+    if kind ==
+       JsonErrorKind.DuplicateKey {
+        return "duplicate-key";
+    }
+
+    if kind ==
+       JsonErrorKind.TypeMismatch {
+        return "type-mismatch";
+    }
+
+    if kind ==
+       JsonErrorKind.IndexOutOfBounds {
+        return "index-out-of-bounds";
+    }
+
+    if kind ==
+       JsonErrorKind.KeyNotFound {
+        return "key-not-found";
+    }
+
+    if kind ==
+       JsonErrorKind.Conversion {
+        return "conversion";
+    }
+
+    if kind ==
+       JsonErrorKind.Overflow {
+        return "overflow";
+    }
+
+    if kind ==
+       JsonErrorKind.Underflow {
+        return "underflow";
+    }
+
+    if kind ==
+       JsonErrorKind.DepthExceeded {
+        return "depth-exceeded";
+    }
+
+    if kind ==
+       JsonErrorKind.Encoding {
+        return "encoding";
+    }
+
+    if kind ==
+       JsonErrorKind.Decoding {
+        return "decoding";
+    }
+
+    if kind ==
+       JsonErrorKind.Validation {
+        return "validation";
+    }
+
+    return "internal";
+}
+
+/// -------------------------------------------------------------------------
+/// Validation
+/// -------------------------------------------------------------------------
+
+proc validate_position(
+    value: &JsonSourcePosition
+) -> bool {
+    return true;
+}
+
+proc validate_span(
+    value: &JsonSourceSpan
+) -> bool {
+    if not validate_position(
+        &value.start) {
+        return false;
+    }
+
+    if not validate_position(
+        &value.end) {
+        return false;
+    }
+
+    return span_valid(
+        value);
+}
+
+proc validate_error(
+    error: &JsonError
+) -> bool {
+    if is_none(error) {
+        return error.code.length != 0;
+    }
+
+    if error.code.length == 0 {
+        return false;
+    }
+
+    if error.message.length == 0 {
+        return false;
+    }
+
+    if error.has_location &&
+       not validate_span(
+           &error.span) {
+        return false;
+    }
+
+    if error.has_cause &&
+       error.cause_kind ==
+           JsonErrorKind.None {
+        return false;
+    }
+
+    return true;
+}
+
+/// -------------------------------------------------------------------------
+/// Equality
+/// -------------------------------------------------------------------------
+
+proc positions_equal(
+    left: &JsonSourcePosition,
+    right: &JsonSourcePosition
+) -> bool {
+    return position_equal(
+        left,
+        right);
+}
+
+proc spans_equal(
+    left: &JsonSourceSpan,
+    right: &JsonSourceSpan
+) -> bool {
+    return positions_equal(
+               &left.start,
+               &right.start) &&
+         positions_equal(
+               &left.end,
+               &right.end);
+}
+
+proc errors_equal(
+    left: &JsonError,
+    right: &JsonError
+) -> bool {
+    if left.kind !=
+       right.kind {
+        return false;
+    }
+
+    if left.phase !=
+       right.phase {
+        return false;
+    }
+
+    if left.severity !=
+       right.severity {
+        return false;
+    }
+
+    if left.code !=
+       right.code {
+        return false;
+    }
+
+    if left.message !=
+       right.message {
+        return false;
+    }
+
+    if left.detail !=
+       right.detail {
+        return false;
+    }
+
+    if left.expected !=
+       right.expected {
+        return false;
+    }
+
+    if left.found !=
+       right.found {
+        return false;
+    }
+
+    if left.source !=
+       right.source {
+        return false;
+    }
+
+    if left.has_location !=
+       right.has_location {
+        return false;
+    }
+
+    if left.has_location &&
+       not spans_equal(
+           &left.span,
+           &right.span) {
+        return false;
+    }
+
+    if left.has_cause !=
+       right.has_cause {
+        return false;
+    }
+
+    if left.has_cause {
+        if left.cause_kind !=
+           right.cause_kind {
+            return false;
+        }
+
+        if left.cause_code !=
+           right.cause_code {
+            return false;
+        }
+
+        if left.cause_message !=
+           right.cause_message {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/// -------------------------------------------------------------------------
+/// Result helpers
+/// -------------------------------------------------------------------------
+
+proc ok() -> JsonErrorResult {
+    return JsonErrorResult {
+        ok: true,
+
+        error: none(),
+    };
+}
+
+proc fail(
+    error: JsonError
+) -> JsonErrorResult {
+    return JsonErrorResult {
+        ok: false,
+
+        error: error,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — source positions
+/// -------------------------------------------------------------------------
+
+test "json error source position" {
+    let value: JsonSourcePosition =
+        position(
+            42,
+            4,
+            8);
+
+    assert value.offset == 42;
+
+    assert value.line == 4;
+
+    assert value.column == 8;
+
+    assert human_line(
+        &value) == 5;
+
+    assert human_column(
+        &value) == 9;
+}
+
+test "json error source span" {
+    let start: JsonSourcePosition =
+        position(
+            10,
+            1,
+            2);
+
+    let end: JsonSourcePosition =
+        position(
+            15,
+            1,
+            7);
+
+    let value: JsonSourceSpan =
+        span(
+            start,
+            end);
+
+    assert span_valid(
+        &value);
+
+    assert span_length(
+        &value) == 5;
+
+    assert not span_is_empty(
+        &value);
+}
+
+test "json error empty source span" {
+    let value: JsonSourceSpan =
+        empty_span();
+
+    assert span_valid(
+        &value);
+
+    assert span_is_empty(
+        &value);
+
+    assert span_length(
+        &value) == 0;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — basic errors
+/// -------------------------------------------------------------------------
+
+test "json error none" {
+    let error: JsonError =
+        none();
+
+    assert is_none(
+        &error);
+
+    assert not is_error(
+        &error);
+
+    assert validate_error(
+        &error);
+}
+
+test "json error unexpected character" {
+    let error: JsonError =
+        unexpected_character(
+            "@");
+
+    assert is_error(
+        &error);
+
+    assert is_lexical(
+        &error);
+
+    assert error.kind ==
+        JsonErrorKind.UnexpectedCharacter;
+
+    assert error.code ==
+        "JSON1001";
+
+    assert error.found ==
+        "@";
+}
+
+test "json error unexpected token" {
+    let error: JsonError =
+        unexpected_token(
+            "string",
+            "number");
+
+    assert is_syntax(
+        &error);
+
+    assert error.expected ==
+        "string";
+
+    assert error.found ==
+        "number";
+}
+
+test "json error unexpected end" {
+    let error: JsonError =
+        unexpected_end();
+
+    assert error.kind ==
+        JsonErrorKind.UnexpectedEnd;
+
+    assert error.code ==
+        "JSON2002";
+
+    assert is_syntax(
+        &error);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — number errors
+/// -------------------------------------------------------------------------
+
+test "json error invalid number" {
+    let error: JsonError =
+        invalid_number();
+
+    assert is_number_error(
+        &error);
+
+    assert is_lexical(
+        &error);
+
+    assert error.code ==
+        "JSON1200";
+}
+
+test "json error number overflow" {
+    let error: JsonError =
+        number_overflow();
+
+    assert is_number_error(
+        &error);
+
+    assert is_decode(
+        &error);
+
+    assert error.kind ==
+        JsonErrorKind.Overflow;
+}
+
+test "json error invalid exponent" {
+    let error: JsonError =
+        invalid_exponent();
+
+    assert is_number_error(
+        &error);
+
+    assert error.code ==
+        "JSON1203";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — string errors
+/// -------------------------------------------------------------------------
+
+test "json error invalid escape" {
+    let error: JsonError =
+        invalid_escape(
+            "\\x");
+
+    assert is_string_error(
+        &error);
+
+    assert is_lexical(
+        &error);
+
+    assert error.found ==
+        "\\x";
+}
+
+test "json error invalid unicode scalar" {
+    let error: JsonError =
+        invalid_unicode_scalar();
+
+    assert is_string_error(
+        &error);
+
+    assert is_decode(
+        &error);
+
+    assert error.code ==
+        "JSON1303";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — structural errors
+/// -------------------------------------------------------------------------
+
+test "json error missing colon" {
+    let error: JsonError =
+        missing_colon();
+
+    assert is_structure_error(
+        &error);
+
+    assert is_syntax(
+        &error);
+
+    assert error.expected ==
+        ":";
+}
+
+test "json error trailing comma" {
+    let error: JsonError =
+        trailing_comma();
+
+    assert is_structure_error(
+        &error);
+
+    assert error.kind ==
+        JsonErrorKind.TrailingComma;
+}
+
+test "json error duplicate key" {
+    let error: JsonError =
+        duplicate_key(
+            "answer");
+
+    assert is_validation(
+        &error);
+
+    assert error.kind ==
+        JsonErrorKind.DuplicateKey;
+
+    assert error.found ==
+        "answer";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — value errors
+/// -------------------------------------------------------------------------
+
+test "json error type mismatch" {
+    let error: JsonError =
+        type_mismatch(
+            "string",
+            "integer");
+
+    assert is_value_error(
+        &error);
+
+    assert error.expected ==
+        "string";
+
+    assert error.found ==
+        "integer";
+}
+
+test "json error key not found" {
+    let error: JsonError =
+        key_not_found(
+            "missing");
+
+    assert is_value_error(
+        &error);
+
+    assert error.kind ==
+        JsonErrorKind.KeyNotFound;
+
+    assert error.found ==
+        "missing";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — transformations
+/// -------------------------------------------------------------------------
+
+test "json error adds location" {
+    let base: JsonError =
+        invalid_number();
+
+    let location: JsonSourceSpan =
+        span(
+            position(
+                10,
+                2,
+                4),
+
+            position(
+                14,
+                2,
+                8));
+
+    let error: JsonError =
+        with_location(
+            &base,
+            location);
+
+    assert has_location(
+        &error);
+
+    assert error.span.start.offset ==
+        10;
+
+    assert error.span.end.offset ==
+        14;
+
+    assert human_line(
+        &error.span.start) == 3;
+
+    assert human_column(
+        &error.span.start) == 5;
+}
+
+test "json error adds source" {
+    let base: JsonError =
+        invalid_number();
+
+    let error: JsonError =
+        with_source(
+            &base,
+            "config.json");
+
+    assert has_source(
+        &error);
+
+    assert error.source ==
+        "config.json";
+}
+
+test "json error adds detail" {
+    let base: JsonError =
+        invalid_number();
+
+    let error: JsonError =
+        with_detail(
+            &base,
+            "leading zero is not permitted");
+
+    assert has_detail(
+        &error);
+
+    assert error.detail ==
+        "leading zero is not permitted";
+}
+
+test "json error adds cause" {
+    let cause: JsonError =
+        invalid_unicode_escape();
+
+    let base: JsonError =
+        invalid_string();
+
+    let error: JsonError =
+        with_cause(
+            &base,
+            &cause);
+
+    assert has_cause(
+        &error);
+
+    assert error.cause_kind ==
+        JsonErrorKind.InvalidUnicodeEscape;
+
+    assert error.cause_code ==
+        "JSON1302";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — fatal errors
+/// -------------------------------------------------------------------------
+
+test "json internal error is fatal" {
+    let error: JsonError =
+        internal_error(
+            "unreachable JSON state");
+
+    assert is_error(
+        &error);
+
+    assert is_fatal(
+        &error);
+
+    assert error.kind ==
+        JsonErrorKind.Internal;
+
+    assert error.code ==
+        "JSON9000";
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — equality
+/// -------------------------------------------------------------------------
+
+test "json errors equality" {
+    let left: JsonError =
+        invalid_number();
+
+    let right: JsonError =
+        invalid_number();
+
+    assert errors_equal(
+        &left,
+        &right);
+}
+
+test "json errors inequality" {
+    let left: JsonError =
+        invalid_number();
+
+    let right: JsonError =
+        invalid_string();
+
+    assert not errors_equal(
+        &left,
+        &right);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — result
+/// -------------------------------------------------------------------------
+
+test "json error successful result" {
+    let result: JsonErrorResult =
+        ok();
+
+    assert result.ok;
+
+    assert is_none(
+        &result.error);
+}
+
+test "json error failed result" {
+    let result: JsonErrorResult =
+        fail(
+            invalid_number());
+
+    assert not result.ok;
+
+    assert result.error.kind ==
+        JsonErrorKind.InvalidNumber;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — complete contextual error
+/// -------------------------------------------------------------------------
+
+test "json complete contextual error" {
+    let base: JsonError =
+        unexpected_token(
+            "JSON value",
+            "]");
+
+    let detailed: JsonError =
+        with_detail(
+            &base,
+            "an array element is required after ','");
+
+    let sourced: JsonError =
+        with_source(
+            &detailed,
+            "example.json");
+
+    let location: JsonSourceSpan =
+        span(
+            position(
+                24,
+                2,
+                8),
+
+            position(
+                25,
+                2,
+                9));
+
+    let error: JsonError =
+        with_location(
+            &sourced,
+            location);
+
+    assert validate_error(
+        &error);
+
+    assert is_syntax(
+        &error);
+
+    assert has_location(
+        &error);
+
+    assert has_source(
+        &error);
+
+    assert has_detail(
+        &error);
+
+    assert has_expected(
+        &error);
+
+    assert has_found(
+        &error);
+
+    assert error.source ==
+        "example.json";
+
+    assert error.expected ==
+        "JSON value";
+
+    assert error.found ==
+        "]";
+
+    assert error.detail ==
+        "an array element is required after ','";
+
+    assert human_line(
+        &error.span.start) == 3;
+
+    assert human_column(
+        &error.span.start) == 9;
+}

@@ -562,11 +562,25 @@ scripts_build_copy_tree() {
 
   [ -e "$source" ] || return 0
 
+  scripts_build_require mktemp
+
   mkdir -p "$destination"
 
-  COPYFILE_DISABLE=1 \
-    tar -cf - -C "$source" . |
-    tar -xf - -C "$destination"
+  scripts_build_copy_tree_archive=$(mktemp "${TMPDIR:-/tmp}/vitte-copy-tree.XXXXXX") ||
+    scripts_build_die "cannot create a temporary archive for $source"
+
+  if ! COPYFILE_DISABLE=1 tar -cf "$scripts_build_copy_tree_archive" -C "$source" .; then
+    rm -f "$scripts_build_copy_tree_archive"
+    scripts_build_die "failed to archive directory: $source"
+  fi
+
+  if ! tar -xf "$scripts_build_copy_tree_archive" -C "$destination"; then
+    rm -f "$scripts_build_copy_tree_archive"
+    scripts_build_die "failed to extract directory into: $destination"
+  fi
+
+  rm -f "$scripts_build_copy_tree_archive" ||
+    scripts_build_die "cannot remove temporary archive: $scripts_build_copy_tree_archive"
 
   find "$destination" \
     \( \

@@ -12,7 +12,11 @@ source -> lexer -> parser/AST -> semantic analysis -> HIR -> IR -> C17
 
 ## Build
 
-Prérequis : un compilateur C17, Steel et Python 3 pour les vérifications.
+Prérequis : un compilateur C17 (GCC ou Clang), Steel et Python 3 pour les
+vérifications. Make choisit `cc`, puis `clang`, puis `gcc` si `CC` n’est pas
+explicitement défini. Pour imposer un compilateur, utilisez par exemple
+`make CC=clang`. Le profil debug utilise `-O2` avec les symboles de débogage,
+afin que le seed reste réactif lors de la génération du frontend natif.
 Le fichier de build natif recommandé est [steelconf](steelconf), écrit en
 MUF4 (`!muf 4`). Le Makefile historique reste documenté pendant la migration,
 mais les nouvelles intégrations doivent cibler Steelconf.
@@ -70,6 +74,8 @@ vitte <version indiquée dans VERSION>
 
 Sous Windows avec MSYS, `make bootstrap` construit également le seed ; son
 exécutable s’appelle `build/bin/vitte-bootstrap.exe`.
+Le séparateur des racines `VITTE_MODULE_PATH` est déterminé depuis la cible du
+compilateur, pour rester cohérent avec l’environnement MSYS ou MinGW utilisé.
 
 ### Frontend natif : `vitte`
 
@@ -81,12 +87,29 @@ make
 ./build/bin/vitte --version
 ```
 
+La génération de l’API affiche les phases du compilateur seed pour distinguer
+une phase lente d’un build bloqué.
+
 La commande affiche `vitte` suivi de la version inscrite dans `VERSION`.
 
 Les deux exécutables ont des chemins distincts. Utilisez le seed pour examiner
 ou déboguer l’étape initiale ; utilisez `vitte` pour le frontend natif habituel.
 Les commandes acceptées et les constructions compilées dépendent du frontend
 et du support courant ; voir la [matrice de support](docs/reference/support.html).
+
+### Installer Vitte
+
+Sous Windows, depuis le terminal MSYS2 du dépôt, lancez `make install-windows`.
+Le compilateur est installé dans `%LOCALAPPDATA%\Programs\Vitte\bin`, le module
+JSON dans `%LOCALAPPDATA%\Vitte\modules\json`, et le dossier `bin` est ajouté au
+PATH utilisateur. Rouvrez les terminaux après l’installation pour actualiser
+leur PATH. Un binaire construit avec le toolchain MSYS2 nécessite son runtime ;
+utilisez-le depuis un terminal MSYS2. Pour retirer cette installation, lancez
+`make uninstall-windows`.
+
+Sous Linux ou macOS, utilisez `sudo make install` pour installer sous
+`/usr/local`, ou définissez `PREFIX` pour choisir un autre préfixe. La cible
+`make uninstall` retire les fichiers installés sous ce préfixe.
 
 ### Vérifier le seed
 

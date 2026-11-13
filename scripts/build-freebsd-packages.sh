@@ -38,6 +38,40 @@ PAYLOAD_SCRIPT=$ROOT_DIR/scripts/stage-installer-payload.sh
 
 scripts_build_maybe_help "usage: build-freebsd-packages.sh [--dry-run]"
 
+if [ "$LIST_TARGETS" -eq 1 ]; then
+  printf '%s\n' \
+    'freebsd amd64' \
+    'freebsd i386' \
+    'freebsd arm64' \
+    'freebsd armv7' \
+    'freebsd armv6' \
+    'freebsd riscv64' \
+    'freebsd powerpc' \
+    'freebsd powerpc64' \
+    'freebsd powerpc64le'
+  exit 0
+fi
+
+if [ "$PRINT_ENV" -eq 1 ]; then
+  printf 'VERSION=%s\n' "$VERSION"
+  printf 'OUT_DIR=%s\n' "$OUT_DIR"
+  printf 'ARCH=%s\n' "$ARCH"
+  printf 'PACKAGE_NAME=%s\n' "$PACKAGE_NAME"
+  printf 'FREEBSD_MAJOR=%s\n' "$FREEBSD_MAJOR"
+  exit 0
+fi
+
+if [ -n "$VERIFY_ONLY" ]; then
+  verify_dir=$VERIFY_ONLY
+  case "$verify_dir" in /*) ;; *) verify_dir=$ROOT_DIR/$verify_dir;; esac
+  VERSION=$VERSION OUT_DIR=$verify_dir VERIFY_METADATA=1 \
+    "$ROOT_DIR/scripts/verify-installers.sh"
+  exit 0
+fi
+
+[ "$CLEAN" -eq 0 ] ||
+  scripts_build_die 'use build-all-installers.sh --clean to remove installer staging directories'
+
 scripts_build_maybe_dry_run "would build FreeBSD pkg artifacts version=$VERSION arch=$ARCH out=$OUT_DIR"
 
 
@@ -1331,13 +1365,6 @@ case "$ARCH" in
     ;;
 
 esac
-
-
-
-printf '[build-freebsd-packages] complete version=%s arch=%s out=%s\n' \
-  "$VERSION" \
-  "$ARCH" \
-  "$OUT_DIR"
 
 
 

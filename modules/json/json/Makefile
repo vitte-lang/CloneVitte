@@ -33,11 +33,16 @@ SHELL := /bin/sh
 
 MODULE_NAME    := json
 MODULE_VERSION := 0.1.1
+PACKAGE_NAME   := vitte-json-$(MODULE_VERSION)
 
 ROOT_DIR := .
 BUILD_DIR := $(ROOT_DIR)/build
 TMP_DIR   := $(BUILD_DIR)/tmp
 LOG_DIR   := $(BUILD_DIR)/logs
+PACKAGE_STAGE_ROOT := $(BUILD_DIR)/package-stage
+PACKAGE_OUTPUT_DIR := $(BUILD_DIR)/packages
+PACKAGE_ARCHIVE := $(PACKAGE_OUTPUT_DIR)/$(PACKAGE_NAME).tar.gz
+PACKAGE_CHECKSUM := $(PACKAGE_ARCHIVE).sha256
 INSTALL_TEST_ROOT := $(abspath $(BUILD_DIR)/installed-test-root)
 INSTALL_TEST_PREFIX := /opt/vitte
 INSTALL_TEST_MODULE_ROOT := $(INSTALL_TEST_ROOT)$(INSTALL_TEST_PREFIX)/share/vitte/modules
@@ -46,7 +51,7 @@ INSTALL_TEST_MODULE_ROOT := $(INSTALL_TEST_ROOT)$(INSTALL_TEST_PREFIX)/share/vit
 # Vitte compiler
 # ----------------------------------------------------------------------------
 
-VITTE ?= $(if $(wildcard ../../build/bin/vitte),../../build/bin/vitte,$(shell command -v vitte 2>/dev/null))
+VITTE ?= $(if $(wildcard ../../../build/bin/vitte),../../../build/bin/vitte,$(if $(wildcard ../../../build/bin/vitte.exe),../../../build/bin/vitte.exe,$(shell command -v vitte 2>/dev/null)))
 
 VITTE_FLAGS ?=
 
@@ -62,6 +67,8 @@ RMRF  ?= rm -rf
 MKDIR ?= mkdir -p
 FIND  ?= find
 SORT  ?= sort
+TAR   ?= tar
+SHA256SUM ?= sha256sum
 GREP  ?= grep
 SED   ?= sed
 PRINTF ?= printf
@@ -137,6 +144,14 @@ ALL_SOURCES := \
 	$(LIBRARY_SOURCES) \
 	$(TEST_SOURCES)
 
+PACKAGE_FILES := \
+	README.md \
+	DOCUMENTATION.md \
+	LICENSE \
+	Makefile \
+	package.toml \
+	$(ALL_SOURCES)
+
 # ----------------------------------------------------------------------------
 # Generated lists
 # ----------------------------------------------------------------------------
@@ -195,6 +210,7 @@ endef
 	test-string-concat \
 	test-unicode \
 	verify \
+	package \
 	smoke \
 	list \
 	list-library \
@@ -493,6 +509,31 @@ verify: \
 	$(call success,$(MODULE_NAME) $(MODULE_VERSION))
 
 # ----------------------------------------------------------------------------
+# Source package archive
+# ----------------------------------------------------------------------------
+
+package: verify
+	$(call heading,Creating $(PACKAGE_NAME) source package)
+	@$(RMRF) "$(PACKAGE_STAGE_ROOT)"
+	@$(MKDIR) "$(PACKAGE_STAGE_ROOT)/$(PACKAGE_NAME)" "$(PACKAGE_OUTPUT_DIR)"
+	@set -e; \
+	for source in $(PACKAGE_FILES); do \
+		if [ ! -f "$$source" ]; then \
+			$(PRINTF) 'Missing package file: %s\n' "$$source"; \
+			exit 1; \
+		fi; \
+		destination="$(PACKAGE_STAGE_ROOT)/$(PACKAGE_NAME)/$$source"; \
+		$(MKDIR) "$$(dirname "$$destination")"; \
+		cp "$$source" "$$destination"; \
+	done
+	@$(TAR) -czf "$(PACKAGE_ARCHIVE)" \
+		-C "$(PACKAGE_STAGE_ROOT)" "$(PACKAGE_NAME)"
+	@cd "$(PACKAGE_OUTPUT_DIR)" && \
+		$(SHA256SUM) "$(PACKAGE_NAME).tar.gz" > "$(PACKAGE_NAME).tar.gz.sha256"
+	@$(PRINTF) '    PACKAGE %s\n' "$(PACKAGE_ARCHIVE)"
+	@$(PRINTF) '    SHA256  %s\n' "$(PACKAGE_CHECKSUM)"
+
+# ----------------------------------------------------------------------------
 # Source inventory
 # ----------------------------------------------------------------------------
 
@@ -609,6 +650,7 @@ help:
 		'  test             Alias for the installed-module import smoke test' \
 		'  test-vitte       Resolve a JSON import from a staged installation' \
 		'  verify           Run check + installed-module smoke test' \
+		'  package          Verify and create a source archive + SHA-256 file' \
 		'  smoke            Check the package entry module' \
 		'  install          Install JSON sources under PREFIX' \
 		'  uninstall        Remove JSON sources under PREFIX' \

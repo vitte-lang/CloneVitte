@@ -57,6 +57,7 @@ Les résultats des opérations fallibles suivent ces règles :
 | `num::checked` | `CheckedI64Result`, `CheckedU64Result` | `CheckedError`, valeur zéro |
 | `num::integer` LCM et puissance de deux | `bool` et sortie `&mut u64` | `false` en dépassement; sortie inchangée |
 | `ops::checked_shl_*`, `checked_shr_*` | `bool` et sortie typée | `false` si le décalage dépasse la largeur; sortie inchangée |
+| `mem::memory::mem_compare` | `bool` et sortie `&mut i8` | `false` pour un pointeur nul avec longueur non nulle; sortie inchangée |
 | `convert::format` | `FormatResult` | `FormatError`, `length == 0` |
 | `str::search` | `bool` et sortie `&mut usize` | `false` si absent; index inchangé |
 | `str::utf8` | `Utf8DecodeResult` | `Utf8Error`, point de code et largeur nuls; index absolu |
@@ -122,11 +123,12 @@ donc pas disponible.
 
 Les opérations de layout valident les alignements et les débordements; les
 tableaux utilisent une taille de pas arrondie à l'alignement de l'élément. Les
-copies d'octets acceptent les zones qui se recouvrent. Les pointeurs exposent
-des décalages en octets et en éléments avec contrôle du calcul d'adresse, ainsi
-qu'une vérification d'alignement. Les rotations, comptages de bits, inversions
-d'octets, classifications flottantes et contrôles d'ordre atomique sont écrits
-en Vitte.
+copies d'octets acceptent les zones qui se recouvrent; `mem_compare` écrit son
+résultat dans une sortie typée et la laisse inchangée en cas d'erreur. Les
+pointeurs exposent des décalages en octets et en éléments avec contrôle du
+calcul d'adresse et vérification d'alignement. Les rotations, comptages de
+bits, inversions d'octets, classifications flottantes et contrôles d'ordre
+atomique sont écrits en Vitte.
 
 `core::array::fixed` applique ses algorithmes à des tranches empruntées; les
 fonctions de copie s'arrêtent à la capacité disponible. Il ne s'agit pas de

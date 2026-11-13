@@ -384,6 +384,8 @@ vitte_c17_module_error_name(
         case VITTE_C17_MODULE_ERROR_COUNT:
             return "count";
 
+        default:
+            return "unknown";
     }
 }
 
@@ -434,6 +436,8 @@ vitte_c17_module_state_name(
         case VITTE_C17_MODULE_STATE_COUNT:
             return "count";
 
+        default:
+            return "invalid";
     }
 }
 
@@ -458,6 +462,8 @@ vitte_c17_include_kind_name(
         case VITTE_C17_INCLUDE_COUNT:
             return "count";
 
+        default:
+            return "invalid";
     }
 }
 
@@ -491,6 +497,8 @@ vitte_c17_symbol_kind_name(
         case VITTE_C17_SYMBOL_COUNT:
             return "count";
 
+        default:
+            return "invalid";
     }
 }
 
@@ -539,6 +547,8 @@ vitte_c17_runtime_requirement_name(
         case VITTE_C17_RUNTIME_COUNT:
             return "count";
 
+        default:
+            return "unknown";
     }
 }
 

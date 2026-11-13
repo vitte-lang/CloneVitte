@@ -318,7 +318,7 @@ vitte_stats_mul_div_fraction_floor(
         size_t middle;
         size_t qpart;
         size_t rpart;
-        size_t threshold;
+        size_t threshold = 0u;
         bool threshold_overflow;
 
         middle =

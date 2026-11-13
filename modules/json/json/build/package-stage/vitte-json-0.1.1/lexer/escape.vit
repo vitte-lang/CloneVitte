@@ -1,0 +1,1729 @@
+/// JSON lexer escape processing.
+///
+/// Decodes escape sequences appearing inside JSON string tokens.
+///
+/// Supported JSON escapes:
+/// - \"
+/// - \\
+/// - \/
+/// - \b
+/// - \f
+/// - \n
+/// - \r
+/// - \t
+/// - \uXXXX
+///
+/// Unicode handling includes:
+/// - hexadecimal validation;
+/// - UTF-16 high-surrogate detection;
+/// - UTF-16 low-surrogate detection;
+/// - surrogate-pair composition;
+/// - Unicode scalar validation;
+/// - conversion of decoded scalar values to UTF-8.
+///
+/// This module operates on JSON string contents. It does not consume the
+/// surrounding quotation marks and does not tokenize complete JSON input.
+
+space json::lexer::escape;
+
+use json::error::position::*;
+
+const JSON_ESCAPE_HEX_DIGITS: usize = 4;
+
+const JSON_UNICODE_MAX: u64 = 0x10FFFF;
+
+const JSON_HIGH_SURROGATE_MIN: u64 = 0xD800;
+const JSON_HIGH_SURROGATE_MAX: u64 = 0xDBFF;
+
+const JSON_LOW_SURROGATE_MIN: u64 = 0xDC00;
+const JSON_LOW_SURROGATE_MAX: u64 = 0xDFFF;
+
+const JSON_SURROGATE_BASE: u64 = 0x10000;
+const JSON_SURROGATE_MASK: u64 = 0x3FF;
+
+pick JsonEscapeKind {
+    None,
+    Quote,
+    Backslash,
+    Slash,
+    Backspace,
+    FormFeed,
+    Newline,
+    CarriageReturn,
+    Tab,
+    Unicode,
+}
+
+export pick JsonEscapeError {
+    None,
+    UnexpectedEnd,
+    InvalidEscape,
+    InvalidHexDigit,
+    IncompleteUnicodeEscape,
+    UnexpectedLowSurrogate,
+    MissingLowSurrogate,
+    InvalidLowSurrogate,
+    InvalidUnicodeScalar,
+}
+
+export form JsonEscape {
+    kind: JsonEscapeKind,
+
+    scalar: u64,
+
+    consumed: usize,
+
+    span: JsonSpan,
+}
+
+export form JsonEscapeResult {
+    ok: bool,
+
+    value: JsonEscape,
+
+    error: JsonEscapeError,
+
+    error_span: JsonSpan,
+}
+
+form JsonEscapeDecodeResult {
+    ok: bool,
+
+    text: string,
+
+    error: JsonEscapeError,
+
+    error_span: JsonSpan,
+
+    escape_count: usize,
+
+    unicode_escape_count: usize,
+}
+
+/// -------------------------------------------------------------------------
+/// Empty values
+/// -------------------------------------------------------------------------
+
+proc empty_escape() -> JsonEscape {
+    return JsonEscape {
+        kind: JsonEscapeKind.None,
+
+        scalar: 0,
+
+        consumed: 0,
+
+        span: empty_span(),
+    };
+}
+
+proc escape_success(
+    value: JsonEscape
+) -> JsonEscapeResult {
+    return JsonEscapeResult {
+        ok: true,
+
+        value: value,
+
+        error: JsonEscapeError.None,
+
+        error_span: empty_span(),
+    };
+}
+
+proc escape_failure(
+    error: JsonEscapeError,
+    location: JsonSpan
+) -> JsonEscapeResult {
+    return JsonEscapeResult {
+        ok: false,
+
+        value: empty_escape(),
+
+        error: error,
+
+        error_span: location,
+    };
+}
+
+proc decode_success(
+    text: string,
+    escape_count: usize,
+    unicode_escape_count: usize
+) -> JsonEscapeDecodeResult {
+    return JsonEscapeDecodeResult {
+        ok: true,
+
+        text: text,
+
+        error: JsonEscapeError.None,
+
+        error_span: empty_span(),
+
+        escape_count: escape_count,
+
+        unicode_escape_count: unicode_escape_count,
+    };
+}
+
+proc decode_failure(
+    error: JsonEscapeError,
+    location: JsonSpan,
+    escape_count: usize,
+    unicode_escape_count: usize
+) -> JsonEscapeDecodeResult {
+    return JsonEscapeDecodeResult {
+        ok: false,
+
+        text: "",
+
+        error: error,
+
+        error_span: location,
+
+        escape_count: escape_count,
+
+        unicode_escape_count: unicode_escape_count,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Error names
+/// -------------------------------------------------------------------------
+
+export proc escape_error_name(
+    error: JsonEscapeError
+) -> string {
+    if error ==
+       JsonEscapeError.None {
+        return "none";
+    }
+
+    if error ==
+       JsonEscapeError.UnexpectedEnd {
+        return "unexpected end of escape sequence";
+    }
+
+    if error ==
+       JsonEscapeError.InvalidEscape {
+        return "invalid JSON escape sequence";
+    }
+
+    if error ==
+       JsonEscapeError.InvalidHexDigit {
+        return "invalid hexadecimal digit in Unicode escape";
+    }
+
+    if error ==
+       JsonEscapeError.IncompleteUnicodeEscape {
+        return "incomplete JSON Unicode escape";
+    }
+
+    if error ==
+       JsonEscapeError.UnexpectedLowSurrogate {
+        return "unexpected UTF-16 low surrogate";
+    }
+
+    if error ==
+       JsonEscapeError.MissingLowSurrogate {
+        return "missing UTF-16 low surrogate";
+    }
+
+    if error ==
+       JsonEscapeError.InvalidLowSurrogate {
+        return "invalid UTF-16 low surrogate";
+    }
+
+    return "invalid Unicode scalar value";
+}
+
+/// -------------------------------------------------------------------------
+/// Escape names
+/// -------------------------------------------------------------------------
+
+proc kind_name(
+    kind: JsonEscapeKind
+) -> string {
+    if kind ==
+       JsonEscapeKind.None {
+        return "none";
+    }
+
+    if kind ==
+       JsonEscapeKind.Quote {
+        return "quote";
+    }
+
+    if kind ==
+       JsonEscapeKind.Backslash {
+        return "backslash";
+    }
+
+    if kind ==
+       JsonEscapeKind.Slash {
+        return "slash";
+    }
+
+    if kind ==
+       JsonEscapeKind.Backspace {
+        return "backspace";
+    }
+
+    if kind ==
+       JsonEscapeKind.FormFeed {
+        return "form-feed";
+    }
+
+    if kind ==
+       JsonEscapeKind.Newline {
+        return "newline";
+    }
+
+    if kind ==
+       JsonEscapeKind.CarriageReturn {
+        return "carriage-return";
+    }
+
+    if kind ==
+       JsonEscapeKind.Tab {
+        return "tab";
+    }
+
+    return "unicode";
+}
+
+/// -------------------------------------------------------------------------
+/// Hexadecimal helpers
+/// -------------------------------------------------------------------------
+
+proc is_hex_digit(
+    value: char
+) -> bool {
+    return (value >= '0' &&
+          value <= '9') ||
+         (value >= 'a' &&
+          value <= 'f') ||
+         (value >= 'A' &&
+          value <= 'F');
+}
+
+proc hex_value(
+    value: char
+) -> u64 {
+    if value >= '0' &&
+       value <= '9' {
+        return (value as u64) -
+             ('0' as u64);
+    }
+
+    if value >= 'a' &&
+       value <= 'f' {
+        return 10 +
+             (value as u64) -
+             ('a' as u64);
+    }
+
+    if value >= 'A' &&
+       value <= 'F' {
+        return 10 +
+             (value as u64) -
+             ('A' as u64);
+    }
+
+    return 0;
+}
+
+proc parse_hex4(
+    source: string,
+    index: usize
+) -> u64 {
+    let a: u64 =
+        hex_value(
+            source[index]);
+
+    let b: u64 =
+        hex_value(
+            source[index + 1]);
+
+    let c: u64 =
+        hex_value(
+            source[index + 2]);
+
+    let d: u64 =
+        hex_value(
+            source[index + 3]);
+
+    return (a << 12) |
+         (b << 8) |
+         (c << 4) |
+         d;
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode helpers
+/// -------------------------------------------------------------------------
+
+proc is_high_surrogate(
+    value: u64
+) -> bool {
+    return value >=
+             JSON_HIGH_SURROGATE_MIN &&
+         value <=
+             JSON_HIGH_SURROGATE_MAX;
+}
+
+proc is_low_surrogate(
+    value: u64
+) -> bool {
+    return value >=
+             JSON_LOW_SURROGATE_MIN &&
+         value <=
+             JSON_LOW_SURROGATE_MAX;
+}
+
+proc is_surrogate(
+    value: u64
+) -> bool {
+    return is_high_surrogate(
+               value) ||
+         is_low_surrogate(
+               value);
+}
+
+proc is_valid_unicode_scalar(
+    value: u64
+) -> bool {
+    if value >
+       JSON_UNICODE_MAX {
+        return false;
+    }
+
+    if is_surrogate(
+        value) {
+        return false;
+    }
+
+    return true;
+}
+
+proc combine_surrogates(
+    high: u64,
+    low: u64
+) -> u64 {
+    let high_part: u64 =
+        high -
+        JSON_HIGH_SURROGATE_MIN;
+
+    let low_part: u64 =
+        low -
+        JSON_LOW_SURROGATE_MIN;
+
+    return JSON_SURROGATE_BASE +
+         (high_part << 10) +
+         low_part;
+}
+
+/// -------------------------------------------------------------------------
+/// Position helpers
+/// -------------------------------------------------------------------------
+
+proc position_at_index(
+    source: string,
+    index: usize
+) -> JsonPosition {
+    let beginning: JsonPosition =
+        start();
+
+    let mut current: JsonPosition =
+        beginning;
+
+    let mut cursor: usize = 0;
+
+    while cursor <
+          index &&
+          cursor <
+          source.length {
+        if source[cursor] == '\r' {
+            if cursor + 1 <
+               index &&
+               cursor + 1 <
+               source.length &&
+               source[cursor + 1] == '\n' {
+                set current =
+                    advance_crlf(
+                        &current);
+
+                set cursor += 2;
+
+                continue;
+            }
+
+            set current =
+                advance_cr(
+                    &current);
+
+            set cursor += 1;
+
+            continue;
+        }
+
+        if source[cursor] == '\n' {
+            set current =
+                advance_lf(
+                    &current);
+
+            set cursor += 1;
+
+            continue;
+        }
+
+        set current =
+            advance_column(
+                &current);
+
+        set cursor += 1;
+    }
+
+    return current;
+}
+
+proc source_span(
+    source: string,
+    begin: usize,
+    end: usize
+) -> JsonSpan {
+    let start_position: JsonPosition =
+        position_at_index(
+            source,
+            begin);
+
+    let end_position: JsonPosition =
+        position_at_index(
+            source,
+            end);
+
+    return span(
+        start_position,
+        end_position);
+}
+
+/// -------------------------------------------------------------------------
+/// UTF-8 output
+/// -------------------------------------------------------------------------
+
+proc utf8_from_scalar(
+    scalar: u64
+) -> string {
+    if scalar <= 0x7F {
+        return "" +
+             (scalar as char);
+    }
+
+    if scalar <= 0x7FF {
+        let first: u64 =
+            0xC0 |
+            (scalar >> 6);
+
+        let second: u64 =
+            0x80 |
+            (scalar & 0x3F);
+
+        return "" +
+             (first as char) +
+             (second as char);
+    }
+
+    if scalar <= 0xFFFF {
+        let first: u64 =
+            0xE0 |
+            (scalar >> 12);
+
+        let second: u64 =
+            0x80 |
+            ((scalar >> 6) &
+             0x3F);
+
+        let third: u64 =
+            0x80 |
+            (scalar &
+             0x3F);
+
+        return "" +
+             (first as char) +
+             (second as char) +
+             (third as char);
+    }
+
+    let first: u64 =
+        0xF0 |
+        (scalar >> 18);
+
+    let second: u64 =
+        0x80 |
+        ((scalar >> 12) &
+         0x3F);
+
+    let third: u64 =
+        0x80 |
+        ((scalar >> 6) &
+         0x3F);
+
+    let fourth: u64 =
+        0x80 |
+        (scalar &
+         0x3F);
+
+    return "" +
+         (first as char) +
+         (second as char) +
+         (third as char) +
+         (fourth as char);
+}
+
+/// -------------------------------------------------------------------------
+/// Simple escape decoding
+/// -------------------------------------------------------------------------
+
+proc simple_escape_kind(
+    value: char
+) -> JsonEscapeKind {
+    if value == '"' {
+        return JsonEscapeKind.Quote;
+    }
+
+    if value == '\\' {
+        return JsonEscapeKind.Backslash;
+    }
+
+    if value == '/' {
+        return JsonEscapeKind.Slash;
+    }
+
+    if value == 'b' {
+        return JsonEscapeKind.Backspace;
+    }
+
+    if value == 'f' {
+        return JsonEscapeKind.FormFeed;
+    }
+
+    if value == 'n' {
+        return JsonEscapeKind.Newline;
+    }
+
+    if value == 'r' {
+        return JsonEscapeKind.CarriageReturn;
+    }
+
+    if value == 't' {
+        return JsonEscapeKind.Tab;
+    }
+
+    return JsonEscapeKind.None;
+}
+
+proc simple_escape_scalar(
+    kind: JsonEscapeKind
+) -> u64 {
+    if kind ==
+       JsonEscapeKind.Quote {
+        return '"' as u64;
+    }
+
+    if kind ==
+       JsonEscapeKind.Backslash {
+        return '\\' as u64;
+    }
+
+    if kind ==
+       JsonEscapeKind.Slash {
+        return '/' as u64;
+    }
+
+    if kind ==
+       JsonEscapeKind.Backspace {
+        return 8;
+    }
+
+    if kind ==
+       JsonEscapeKind.FormFeed {
+        return 12;
+    }
+
+    if kind ==
+       JsonEscapeKind.Newline {
+        return 10;
+    }
+
+    if kind ==
+       JsonEscapeKind.CarriageReturn {
+        return 13;
+    }
+
+    if kind ==
+       JsonEscapeKind.Tab {
+        return 9;
+    }
+
+    return 0;
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode escape validation
+/// -------------------------------------------------------------------------
+
+proc validate_hex4(
+    source: string,
+    index: usize
+) -> JsonEscapeError {
+    if index + JSON_ESCAPE_HEX_DIGITS >
+       source.length {
+        return JsonEscapeError.IncompleteUnicodeEscape;
+    }
+
+    let mut cursor: usize =
+        index;
+
+    let end: usize =
+        index +
+        JSON_ESCAPE_HEX_DIGITS;
+
+    while cursor <
+          end {
+        if not is_hex_digit(
+            source[cursor]) {
+            return JsonEscapeError.InvalidHexDigit;
+        }
+
+        set cursor += 1;
+    }
+
+    return JsonEscapeError.None;
+}
+
+/// -------------------------------------------------------------------------
+/// Decode one escape.
+///
+/// `index` points at the '\' character.
+/// -------------------------------------------------------------------------
+
+export proc decode_escape(
+    source: string,
+    index: usize
+) -> JsonEscapeResult {
+    if index >=
+       source.length {
+        return escape_failure(
+            JsonEscapeError.UnexpectedEnd,
+            source_span(
+                source,
+                index,
+                index));
+    }
+
+    if source[index] != '\\' {
+        return escape_failure(
+            JsonEscapeError.InvalidEscape,
+            source_span(
+                source,
+                index,
+                index + 1));
+    }
+
+    if index + 1 >=
+       source.length {
+        return escape_failure(
+            JsonEscapeError.UnexpectedEnd,
+            source_span(
+                source,
+                index,
+                source.length));
+    }
+
+    let marker: char =
+        source[index + 1];
+
+    let simple_kind: JsonEscapeKind =
+        simple_escape_kind(
+            marker);
+
+    if simple_kind !=
+       JsonEscapeKind.None {
+        return escape_success(
+            JsonEscape {
+                kind: simple_kind,
+
+                scalar:
+                    simple_escape_scalar(
+                        simple_kind),
+
+                consumed: 2,
+
+                span:
+                    source_span(
+                        source,
+                        index,
+                        index + 2),
+            });
+    }
+
+    if marker != 'u' {
+        return escape_failure(
+            JsonEscapeError.InvalidEscape,
+            source_span(
+                source,
+                index,
+                index + 2));
+    }
+
+    let first_digits: usize =
+        index + 2;
+
+    let first_validation:
+        JsonEscapeError =
+            validate_hex4(
+                source,
+                first_digits);
+
+    if first_validation !=
+       JsonEscapeError.None {
+        let mut failure_end: usize =
+            source.length;
+
+        if first_digits +
+           JSON_ESCAPE_HEX_DIGITS <
+           source.length {
+            set failure_end =
+                first_digits +
+                JSON_ESCAPE_HEX_DIGITS;
+        }
+
+        return escape_failure(
+            first_validation,
+            source_span(
+                source,
+                index,
+                failure_end));
+    }
+
+    let first: u64 =
+        parse_hex4(
+            source,
+            first_digits);
+
+    if is_low_surrogate(
+        first) {
+        return escape_failure(
+            JsonEscapeError.UnexpectedLowSurrogate,
+            source_span(
+                source,
+                index,
+                index + 6));
+    }
+
+    if not is_high_surrogate(
+        first) {
+        if not is_valid_unicode_scalar(
+            first) {
+            return escape_failure(
+                JsonEscapeError.InvalidUnicodeScalar,
+                source_span(
+                    source,
+                    index,
+                    index + 6));
+        }
+
+        return escape_success(
+            JsonEscape {
+                kind:
+                    JsonEscapeKind.Unicode,
+
+                scalar:
+                    first,
+
+                consumed:
+                    6,
+
+                span:
+                    source_span(
+                        source,
+                        index,
+                        index + 6),
+            });
+    }
+
+    let second_escape: usize =
+        index + 6;
+
+    if second_escape + 1 >=
+       source.length {
+        return escape_failure(
+            JsonEscapeError.MissingLowSurrogate,
+            source_span(
+                source,
+                index,
+                source.length));
+    }
+
+    if source[second_escape] != '\\' ||
+       source[second_escape + 1] != 'u' {
+        let mut end: usize =
+            second_escape + 2;
+
+        if end >
+           source.length {
+            set end =
+                source.length;
+        }
+
+        return escape_failure(
+            JsonEscapeError.MissingLowSurrogate,
+            source_span(
+                source,
+                index,
+                end));
+    }
+
+    let second_digits: usize =
+        second_escape + 2;
+
+    let second_validation:
+        JsonEscapeError =
+            validate_hex4(
+                source,
+                second_digits);
+
+    if second_validation !=
+       JsonEscapeError.None {
+        return escape_failure(
+            second_validation,
+            source_span(
+                source,
+                second_escape,
+                source.length));
+    }
+
+    let second: u64 =
+        parse_hex4(
+            source,
+            second_digits);
+
+    if not is_low_surrogate(
+        second) {
+        return escape_failure(
+            JsonEscapeError.InvalidLowSurrogate,
+            source_span(
+                source,
+                second_escape,
+                second_escape + 6));
+    }
+
+    let scalar: u64 =
+        combine_surrogates(
+            first,
+            second);
+
+    if not is_valid_unicode_scalar(
+        scalar) {
+        return escape_failure(
+            JsonEscapeError.InvalidUnicodeScalar,
+            source_span(
+                source,
+                index,
+                second_escape + 6));
+    }
+
+    return escape_success(
+        JsonEscape {
+            kind:
+                JsonEscapeKind.Unicode,
+
+            scalar:
+                scalar,
+
+            consumed:
+                12,
+
+            span:
+                source_span(
+                    source,
+                    index,
+                    second_escape + 6),
+        });
+}
+
+/// -------------------------------------------------------------------------
+/// Decode one escape to text
+/// -------------------------------------------------------------------------
+
+export proc escape_text(
+    value: &JsonEscape
+) -> string {
+    if value.kind ==
+       JsonEscapeKind.None {
+        return "";
+    }
+
+    return utf8_from_scalar(
+        value.scalar);
+}
+
+/// -------------------------------------------------------------------------
+/// Decode escaped JSON string contents.
+///
+/// The input excludes surrounding quotation marks.
+///
+/// Example:
+///
+///     Vitte\nJSON
+///
+/// becomes:
+///
+///     Vitte
+///     JSON
+///
+/// -------------------------------------------------------------------------
+
+proc decode(
+    source: string
+) -> JsonEscapeDecodeResult {
+    let mut output: string = "";
+
+    let mut index: usize = 0;
+
+    let mut escape_count: usize = 0;
+
+    let mut unicode_escape_count: usize = 0;
+
+    while index <
+          source.length {
+        let current: char =
+            source[index];
+
+        if current == '\\' {
+            let result:
+                JsonEscapeResult =
+                    decode_escape(
+                        source,
+                        index);
+
+            if not result.ok {
+                return decode_failure(
+                    result.error,
+                    result.error_span,
+                    escape_count,
+                    unicode_escape_count);
+            }
+
+            set output =
+                output +
+                escape_text(
+                    &result.value);
+
+            set escape_count += 1;
+
+            if result.value.kind ==
+               JsonEscapeKind.Unicode {
+                set unicode_escape_count += 1;
+            }
+
+            set index +=
+                result.value.consumed;
+
+            continue;
+        }
+
+        let scalar: u64 =
+            current as u64;
+
+        if scalar < 0x20 {
+            return decode_failure(
+                JsonEscapeError.InvalidEscape,
+                source_span(
+                    source,
+                    index,
+                    index + 1),
+                escape_count,
+                unicode_escape_count);
+        }
+
+        if not is_valid_unicode_scalar(
+            scalar) {
+            return decode_failure(
+                JsonEscapeError.InvalidUnicodeScalar,
+                source_span(
+                    source,
+                    index,
+                    index + 1),
+                escape_count,
+                unicode_escape_count);
+        }
+
+        set output =
+            output +
+            current;
+
+        set index += 1;
+    }
+
+    return decode_success(
+        output,
+        escape_count,
+        unicode_escape_count);
+}
+
+/// -------------------------------------------------------------------------
+/// Validation
+/// -------------------------------------------------------------------------
+
+proc validate_escaped_text(
+    source: string
+) -> bool {
+    return decode(source).ok;
+}
+
+proc validate_escape_at(
+    source: string,
+    index: usize
+) -> bool {
+    return decode_escape(
+        source,
+        index).ok;
+}
+
+/// -------------------------------------------------------------------------
+/// Escape counting
+/// -------------------------------------------------------------------------
+
+proc count_escapes(
+    source: string
+) -> usize {
+    let mut result: usize = 0;
+
+    let mut index: usize = 0;
+
+    while index <
+          source.length {
+        if source[index] == '\\' {
+            let decoded:
+                JsonEscapeResult =
+                    decode_escape(
+                        source,
+                        index);
+
+            if not decoded.ok {
+                return result;
+            }
+
+            set result += 1;
+
+            set index +=
+                decoded.value.consumed;
+
+            continue;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc count_unicode_escapes(
+    source: string
+) -> usize {
+    let mut result: usize = 0;
+
+    let mut index: usize = 0;
+
+    while index <
+          source.length {
+        if source[index] == '\\' {
+            let decoded:
+                JsonEscapeResult =
+                    decode_escape(
+                        source,
+                        index);
+
+            if not decoded.ok {
+                return result;
+            }
+
+            if decoded.value.kind ==
+               JsonEscapeKind.Unicode {
+                set result += 1;
+            }
+
+            set index +=
+                decoded.value.consumed;
+
+            continue;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+/// -------------------------------------------------------------------------
+/// Escape classification
+/// -------------------------------------------------------------------------
+
+proc is_simple_escape_marker(
+    value: char
+) -> bool {
+    return simple_escape_kind(
+        value) !=
+        JsonEscapeKind.None;
+}
+
+proc is_unicode_escape_at(
+    source: string,
+    index: usize
+) -> bool {
+    if index + 1 >=
+       source.length {
+        return false;
+    }
+
+    return source[index] == '\\' &&
+         source[index + 1] == 'u';
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — hexadecimal
+/// -------------------------------------------------------------------------
+
+test "json lexer escape hexadecimal digits" {
+    assert is_hex_digit('0');
+    assert is_hex_digit('9');
+
+    assert is_hex_digit('a');
+    assert is_hex_digit('f');
+
+    assert is_hex_digit('A');
+    assert is_hex_digit('F');
+
+    assert not is_hex_digit('g');
+    assert not is_hex_digit('G');
+    assert not is_hex_digit('-');
+}
+
+test "json lexer escape hexadecimal values" {
+    assert hex_value('0') == 0;
+    assert hex_value('9') == 9;
+
+    assert hex_value('a') == 10;
+    assert hex_value('f') == 15;
+
+    assert hex_value('A') == 10;
+    assert hex_value('F') == 15;
+}
+
+test "json lexer escape parse hex4" {
+    assert parse_hex4(
+        "0000",
+        0) == 0;
+
+    assert parse_hex4(
+        "0041",
+        0) == 0x41;
+
+    assert parse_hex4(
+        "00E9",
+        0) == 0xE9;
+
+    assert parse_hex4(
+        "D83D",
+        0) == 0xD83D;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — Unicode
+/// -------------------------------------------------------------------------
+
+test "json lexer escape surrogate classification" {
+    assert is_high_surrogate(
+        0xD800);
+
+    assert is_high_surrogate(
+        0xDBFF);
+
+    assert not is_high_surrogate(
+        0xDC00);
+
+    assert is_low_surrogate(
+        0xDC00);
+
+    assert is_low_surrogate(
+        0xDFFF);
+
+    assert not is_low_surrogate(
+        0xDBFF);
+}
+
+test "json lexer escape scalar validation" {
+    assert is_valid_unicode_scalar(
+        0);
+
+    assert is_valid_unicode_scalar(
+        0x7F);
+
+    assert is_valid_unicode_scalar(
+        0xFFFF);
+
+    assert is_valid_unicode_scalar(
+        0x10000);
+
+    assert is_valid_unicode_scalar(
+        0x10FFFF);
+
+    assert not is_valid_unicode_scalar(
+        0xD800);
+
+    assert not is_valid_unicode_scalar(
+        0xDFFF);
+
+    assert not is_valid_unicode_scalar(
+        0x110000);
+}
+
+test "json lexer escape surrogate composition" {
+    assert combine_surrogates(
+        0xD83D,
+        0xDE00) ==
+            0x1F600;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — simple escapes
+/// -------------------------------------------------------------------------
+
+test "json lexer escape quote" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\\"",
+                0);
+
+    assert result.ok;
+
+    assert result.value.kind ==
+        JsonEscapeKind.Quote;
+
+    assert result.value.scalar ==
+        '"' as u64;
+
+    assert result.value.consumed == 2;
+}
+
+test "json lexer escape backslash" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\\\",
+                0);
+
+    assert result.ok;
+
+    assert result.value.kind ==
+        JsonEscapeKind.Backslash;
+
+    assert result.value.scalar ==
+        '\\' as u64;
+}
+
+test "json lexer escape slash" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\/",
+                0);
+
+    assert result.ok;
+
+    assert result.value.kind ==
+        JsonEscapeKind.Slash;
+
+    assert result.value.scalar ==
+        '/' as u64;
+}
+
+test "json lexer escape backspace" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\b",
+                0);
+
+    assert result.ok;
+
+    assert result.value.scalar == 8;
+}
+
+test "json lexer escape form feed" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\f",
+                0);
+
+    assert result.ok;
+
+    assert result.value.scalar == 12;
+}
+
+test "json lexer escape newline" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\n",
+                0);
+
+    assert result.ok;
+
+    assert result.value.scalar == 10;
+}
+
+test "json lexer escape carriage return" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\r",
+                0);
+
+    assert result.ok;
+
+    assert result.value.scalar == 13;
+}
+
+test "json lexer escape tab" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\t",
+                0);
+
+    assert result.ok;
+
+    assert result.value.scalar == 9;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — Unicode escapes
+/// -------------------------------------------------------------------------
+
+test "json lexer escape bmp unicode" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\u0041",
+                0);
+
+    assert result.ok;
+
+    assert result.value.kind ==
+        JsonEscapeKind.Unicode;
+
+    assert result.value.scalar ==
+        0x41;
+
+    assert result.value.consumed == 6;
+}
+
+test "json lexer escape accented unicode" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\u00E9",
+                0);
+
+    assert result.ok;
+
+    assert result.value.scalar ==
+        0xE9;
+}
+
+test "json lexer escape surrogate pair" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\uD83D\\uDE00",
+                0);
+
+    assert result.ok;
+
+    assert result.value.kind ==
+        JsonEscapeKind.Unicode;
+
+    assert result.value.scalar ==
+        0x1F600;
+
+    assert result.value.consumed == 12;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — invalid escapes
+/// -------------------------------------------------------------------------
+
+test "json lexer escape invalid marker" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\x",
+                0);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonEscapeError.InvalidEscape;
+}
+
+test "json lexer escape incomplete unicode" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\u12",
+                0);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonEscapeError.IncompleteUnicodeEscape;
+}
+
+test "json lexer escape invalid hexadecimal" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\u12XZ",
+                0);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonEscapeError.InvalidHexDigit;
+}
+
+test "json lexer escape unexpected low surrogate" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\uDE00",
+                0);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonEscapeError.UnexpectedLowSurrogate;
+}
+
+test "json lexer escape missing low surrogate" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\uD83D",
+                0);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonEscapeError.MissingLowSurrogate;
+}
+
+test "json lexer escape invalid low surrogate" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "\\uD83D\\u0041",
+                0);
+
+    assert not result.ok;
+
+    assert result.error ==
+        JsonEscapeError.InvalidLowSurrogate;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — complete decoding
+/// -------------------------------------------------------------------------
+
+test "json lexer escape ordinary text" {
+    let result:
+        JsonEscapeDecodeResult =
+            decode(
+                "Vitte");
+
+    assert result.ok;
+
+    assert result.text ==
+        "Vitte";
+
+    assert result.escape_count == 0;
+}
+
+test "json lexer escape complete string" {
+    let result:
+        JsonEscapeDecodeResult =
+            decode(
+                "Vitte\\nJSON\\t42");
+
+    assert result.ok;
+
+    assert result.text ==
+        "Vitte\nJSON\t42";
+
+    assert result.escape_count == 2;
+
+    assert result.unicode_escape_count == 0;
+}
+
+test "json lexer escape quoted content" {
+    let result:
+        JsonEscapeDecodeResult =
+            decode(
+                "Vitte \\\"JSON\\\"");
+
+    assert result.ok;
+
+    assert result.text ==
+        "Vitte \"JSON\"";
+
+    assert result.escape_count == 2;
+}
+
+test "json lexer escape unicode content" {
+    let result:
+        JsonEscapeDecodeResult =
+            decode(
+                "caf\\u00E9");
+
+    assert result.ok;
+
+    assert result.escape_count == 1;
+
+    assert result.unicode_escape_count == 1;
+}
+
+test "json lexer escape supplementary content" {
+    let result:
+        JsonEscapeDecodeResult =
+            decode(
+                "Vitte \\uD83D\\uDE00");
+
+    assert result.ok;
+
+    assert result.escape_count == 1;
+
+    assert result.unicode_escape_count == 1;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — validation
+/// -------------------------------------------------------------------------
+
+test "json lexer escape validates correct string" {
+    assert validate_escaped_text(
+        "Vitte\\nJSON");
+
+    assert validate_escaped_text(
+        "\\u0041");
+
+    assert validate_escaped_text(
+        "\\uD83D\\uDE00");
+}
+
+test "json lexer escape rejects incorrect string" {
+    assert not validate_escaped_text(
+        "\\x");
+
+    assert not validate_escaped_text(
+        "\\u12");
+
+    assert not validate_escaped_text(
+        "\\uDE00");
+
+    assert not validate_escaped_text(
+        "\\uD83D\\u0041");
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — counting
+/// -------------------------------------------------------------------------
+
+test "json lexer escape counts escapes" {
+    assert count_escapes(
+        "Vitte") == 0;
+
+    assert count_escapes(
+        "\\n\\t") == 2;
+
+    assert count_escapes(
+        "a\\nb\\tc") == 2;
+}
+
+test "json lexer escape counts unicode escapes" {
+    assert count_unicode_escapes(
+        "Vitte") == 0;
+
+    assert count_unicode_escapes(
+        "\\u0041") == 1;
+
+    assert count_unicode_escapes(
+        "\\u0041\\u0042") == 2;
+
+    assert count_unicode_escapes(
+        "\\uD83D\\uDE00") == 1;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — source positions
+/// -------------------------------------------------------------------------
+
+test "json lexer escape tracks simple span" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "a\\nb",
+                1);
+
+    assert result.ok;
+
+    assert result.value.span.start.offset ==
+        1;
+
+    assert result.value.span.end.offset ==
+        3;
+}
+
+test "json lexer escape tracks unicode span" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "a\\u0041b",
+                1);
+
+    assert result.ok;
+
+    assert result.value.span.start.offset ==
+        1;
+
+    assert result.value.span.end.offset ==
+        7;
+}
+
+test "json lexer escape tracks surrogate span" {
+    let result:
+        JsonEscapeResult =
+            decode_escape(
+                "a\\uD83D\\uDE00b",
+                1);
+
+    assert result.ok;
+
+    assert result.value.span.start.offset ==
+        1;
+
+    assert result.value.span.end.offset ==
+        13;
+}

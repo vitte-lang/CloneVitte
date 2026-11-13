@@ -1,0 +1,2440 @@
+/// Comprehensive JSON Unicode tests.
+///
+/// This suite validates Unicode handling across:
+///
+/// - lexer
+/// - escape decoder
+/// - parser
+/// - encoder
+/// - round trips
+/// - object keys
+/// - UTF-8 input
+/// - JSON \uXXXX escapes
+/// - UTF-16 surrogate pairs
+/// - Unicode boundary values
+/// - control characters
+/// - malformed escapes
+/// - malformed surrogate sequences
+/// - mixed literal and escaped Unicode
+/// - deterministic encoding
+///
+/// JSON strings are Unicode strings. JSON \u escapes encode UTF-16 code
+/// units and supplementary Unicode scalar values require surrogate pairs.
+
+space json::tests::unicode;
+
+use json::core::value as json_core;
+use json::lexer::lexer::{
+    JsonLexerResult,
+    lex
+};
+use json::parser::parser::{
+    JsonParseResult,
+    parse
+};
+use json::encode::encoder::{
+    JsonEncodeResult,
+    encode,
+    encode_compact,
+    encode_pretty
+};
+
+/// -------------------------------------------------------------------------
+/// Helpers
+/// -------------------------------------------------------------------------
+
+proc unicode_parses(source: string) -> bool {
+    let result: JsonParseResult =
+        parse(source);
+
+    return result.ok;
+}
+
+proc unicode_rejects(source: string) -> bool {
+    let result: JsonParseResult =
+        parse(source);
+
+    return not result.ok;
+}
+
+proc unicode_lexes(source: string) -> bool {
+    let result: JsonLexerResult =
+        lex(source);
+
+    return result.ok;
+}
+
+proc unicode_lex_rejects(source: string) -> bool {
+    let result: JsonLexerResult =
+        lex(source);
+
+    return not result.ok;
+}
+
+proc unicode_roundtrip(source: string) -> bool {
+    let first: JsonParseResult =
+        parse(source);
+
+    if not first.ok {
+        return false;
+    }
+
+    let encoded: JsonEncodeResult =
+        encode(&first.value);
+
+    if not encoded.ok {
+        return false;
+    }
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    if not second.ok {
+        return false;
+    }
+
+    return json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+proc unicode_stable(source: string) -> bool {
+    let first: JsonParseResult =
+        parse(source);
+
+    if not first.ok {
+        return false;
+    }
+
+    let encoded_first: JsonEncodeResult =
+        encode(&first.value);
+
+    if not encoded_first.ok {
+        return false;
+    }
+
+    let second: JsonParseResult =
+        parse(encoded_first.text);
+
+    if not second.ok {
+        return false;
+    }
+
+    let encoded_second: JsonEncodeResult =
+        encode(&second.value);
+
+    if not encoded_second.ok {
+        return false;
+    }
+
+    return encoded_first.text ==
+        encoded_second.text;
+}
+
+/// -------------------------------------------------------------------------
+/// ASCII Unicode escapes
+/// -------------------------------------------------------------------------
+
+test "unicode escape uppercase A" {
+    let result: JsonParseResult =
+        parse("\"\\u0041\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "A";
+}
+
+test "unicode escape lowercase a" {
+    let result: JsonParseResult =
+        parse("\"\\u0061\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "a";
+}
+
+test "unicode escape digit zero" {
+    let result: JsonParseResult =
+        parse("\"\\u0030\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "0";
+}
+
+test "unicode escape space" {
+    let result: JsonParseResult =
+        parse("\"\\u0020\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == " ";
+}
+
+test "unicode escape slash" {
+    let result: JsonParseResult =
+        parse("\"\\u002F\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "/";
+}
+
+test "unicode escape quote" {
+    let result: JsonParseResult =
+        parse("\"\\u0022\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "\"";
+}
+
+test "unicode escape backslash" {
+    let result: JsonParseResult =
+        parse("\"\\u005C\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "\\";
+}
+
+/// -------------------------------------------------------------------------
+/// Hex digit case
+/// -------------------------------------------------------------------------
+
+test "unicode escape lowercase hexadecimal digits" {
+    let result: JsonParseResult =
+        parse("\"\\u00e9\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "é";
+}
+
+test "unicode escape uppercase hexadecimal digits" {
+    let result: JsonParseResult =
+        parse("\"\\u00E9\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "é";
+}
+
+test "unicode escape mixed hexadecimal digits" {
+    let lower: JsonParseResult =
+        parse("\"\\u00e9\"");
+
+    let upper: JsonParseResult =
+        parse("\"\\u00E9\"");
+
+    assert lower.ok;
+    assert upper.ok;
+
+    assert json_core::equals(
+        &lower.value,
+        &upper.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Basic multilingual plane
+/// -------------------------------------------------------------------------
+
+test "unicode latin e acute" {
+    let result: JsonParseResult =
+        parse("\"\\u00E9\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "é";
+}
+
+test "unicode latin capital e acute" {
+    let result: JsonParseResult =
+        parse("\"\\u00C9\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "É";
+}
+
+test "unicode latin copyright sign" {
+    let result: JsonParseResult =
+        parse("\"\\u00A9\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "©";
+}
+
+test "unicode euro sign" {
+    let result: JsonParseResult =
+        parse("\"\\u20AC\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "€";
+}
+
+test "unicode greek alpha" {
+    let result: JsonParseResult =
+        parse("\"\\u03B1\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "α";
+}
+
+test "unicode greek omega" {
+    let result: JsonParseResult =
+        parse("\"\\u03A9\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "Ω";
+}
+
+test "unicode cyrillic ya" {
+    let result: JsonParseResult =
+        parse("\"\\u042F\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "Я";
+}
+
+test "unicode hebrew alef" {
+    let result: JsonParseResult =
+        parse("\"\\u05D0\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "א";
+}
+
+test "unicode arabic alef" {
+    let result: JsonParseResult =
+        parse("\"\\u0627\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "ا";
+}
+
+test "unicode hiragana a" {
+    let result: JsonParseResult =
+        parse("\"\\u3042\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "あ";
+}
+
+test "unicode cjk character" {
+    let result: JsonParseResult =
+        parse("\"\\u4E2D\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "中";
+}
+
+/// -------------------------------------------------------------------------
+/// Literal UTF-8 strings
+/// -------------------------------------------------------------------------
+
+test "literal utf8 french" {
+    let result: JsonParseResult =
+        parse("\"français déjà été Noël\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "français déjà été Noël";
+}
+
+test "literal utf8 greek" {
+    let result: JsonParseResult =
+        parse("\"Ελληνικά αβγ Ω\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "Ελληνικά αβγ Ω";
+}
+
+test "literal utf8 cyrillic" {
+    let result: JsonParseResult =
+        parse("\"Привет мир\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "Привет мир";
+}
+
+test "literal utf8 arabic" {
+    let result: JsonParseResult =
+        parse("\"مرحبا بالعالم\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "مرحبا بالعالم";
+}
+
+test "literal utf8 hebrew" {
+    let result: JsonParseResult =
+        parse("\"שלום עולם\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "שלום עולם";
+}
+
+test "literal utf8 japanese" {
+    let result: JsonParseResult =
+        parse("\"こんにちは世界\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "こんにちは世界";
+}
+
+test "literal utf8 chinese" {
+    let result: JsonParseResult =
+        parse("\"你好世界\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "你好世界";
+}
+
+test "literal utf8 korean" {
+    let result: JsonParseResult =
+        parse("\"안녕하세요 세계\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "안녕하세요 세계";
+}
+
+test "literal utf8 mixed scripts" {
+    let result: JsonParseResult =
+        parse(
+            "\"Vitte français Ελληνικά Русский العربية 日本語 中文 한국어\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") ==
+        "Vitte français Ελληνικά Русский العربية 日本語 中文 한국어";
+}
+
+/// -------------------------------------------------------------------------
+/// Multiple escapes
+/// -------------------------------------------------------------------------
+
+test "multiple unicode ascii escapes" {
+    let result: JsonParseResult =
+        parse(
+            "\"\\u0041\\u0042\\u0043\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "ABC";
+}
+
+test "multiple unicode latin escapes" {
+    let result: JsonParseResult =
+        parse(
+            "\"caf\\u00E9\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "café";
+}
+
+test "multiple unicode cjk escapes" {
+    let result: JsonParseResult =
+        parse(
+            "\"\\u4F60\\u597D\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "你好";
+}
+
+test "mixed literal and unicode escapes" {
+    let result: JsonParseResult =
+        parse(
+            "\"Vitte caf\\u00E9 日本語\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "Vitte café 日本語";
+}
+
+/// -------------------------------------------------------------------------
+/// Control scalars encoded with Unicode escapes
+/// -------------------------------------------------------------------------
+
+test "unicode null control scalar" {
+    let result: JsonParseResult =
+        parse("\"\\u0000\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+test "unicode backspace control scalar" {
+    let result: JsonParseResult =
+        parse("\"\\u0008\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "\b";
+}
+
+test "unicode tab control scalar" {
+    let result: JsonParseResult =
+        parse("\"\\u0009\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "\t";
+}
+
+test "unicode newline control scalar" {
+    let result: JsonParseResult =
+        parse("\"\\u000A\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "\n";
+}
+
+test "unicode form feed control scalar" {
+    let result: JsonParseResult =
+        parse("\"\\u000C\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "\f";
+}
+
+test "unicode carriage return control scalar" {
+    let result: JsonParseResult =
+        parse("\"\\u000D\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "\r";
+}
+
+test "unicode unit separator scalar" {
+    let result: JsonParseResult =
+        parse("\"\\u001F\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// BMP boundaries
+/// -------------------------------------------------------------------------
+
+test "unicode bmp scalar before surrogate range" {
+    let result: JsonParseResult =
+        parse("\"\\uD7FF\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+test "unicode bmp scalar after surrogate range" {
+    let result: JsonParseResult =
+        parse("\"\\uE000\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+test "unicode bmp maximum scalar" {
+    let result: JsonParseResult =
+        parse("\"\\uFFFF\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// UTF-16 high surrogate boundaries
+/// -------------------------------------------------------------------------
+
+test "unicode minimum high surrogate with minimum low surrogate" {
+    let result: JsonParseResult =
+        parse("\"\\uD800\\uDC00\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+test "unicode minimum high surrogate with maximum low surrogate" {
+    let result: JsonParseResult =
+        parse("\"\\uD800\\uDFFF\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+test "unicode maximum high surrogate with minimum low surrogate" {
+    let result: JsonParseResult =
+        parse("\"\\uDBFF\\uDC00\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+test "unicode maximum high surrogate with maximum low surrogate" {
+    let result: JsonParseResult =
+        parse("\"\\uDBFF\\uDFFF\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Supplementary planes
+/// -------------------------------------------------------------------------
+
+test "unicode U+10000" {
+    let result: JsonParseResult =
+        parse("\"\\uD800\\uDC00\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+test "unicode U+1F600 grinning face" {
+    let result: JsonParseResult =
+        parse("\"\\uD83D\\uDE00\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "😀";
+}
+
+test "unicode U+1F642 slightly smiling face" {
+    let result: JsonParseResult =
+        parse("\"\\uD83D\\uDE42\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "🙂";
+}
+
+test "unicode U+1F680 rocket" {
+    let result: JsonParseResult =
+        parse("\"\\uD83D\\uDE80\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "🚀";
+}
+
+test "unicode U+1F4BB laptop" {
+    let result: JsonParseResult =
+        parse("\"\\uD83D\\uDCBB\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "💻";
+}
+
+test "unicode U+1F9E0 brain" {
+    let result: JsonParseResult =
+        parse("\"\\uD83E\\uDDE0\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "🧠";
+}
+
+test "unicode maximum U+10FFFF" {
+    let result: JsonParseResult =
+        parse("\"\\uDBFF\\uDFFF\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Literal supplementary characters
+/// -------------------------------------------------------------------------
+
+test "literal emoji grinning face" {
+    let result: JsonParseResult =
+        parse("\"😀\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "😀";
+}
+
+test "literal emoji rocket" {
+    let result: JsonParseResult =
+        parse("\"🚀\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "🚀";
+}
+
+test "literal multiple emoji" {
+    let result: JsonParseResult =
+        parse("\"😀🙂🚀💻🧠\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "😀🙂🚀💻🧠";
+}
+
+/// -------------------------------------------------------------------------
+/// Literal and escaped supplementary equivalence
+/// -------------------------------------------------------------------------
+
+test "literal and escaped grinning face equivalent" {
+    let literal: JsonParseResult =
+        parse("\"😀\"");
+
+    let escaped: JsonParseResult =
+        parse("\"\\uD83D\\uDE00\"");
+
+    assert literal.ok;
+    assert escaped.ok;
+
+    assert json_core::equals(
+        &literal.value,
+        &escaped.value);
+}
+
+test "literal and escaped rocket equivalent" {
+    let literal: JsonParseResult =
+        parse("\"🚀\"");
+
+    let escaped: JsonParseResult =
+        parse("\"\\uD83D\\uDE80\"");
+
+    assert literal.ok;
+    assert escaped.ok;
+
+    assert json_core::equals(
+        &literal.value,
+        &escaped.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Multiple surrogate pairs
+/// -------------------------------------------------------------------------
+
+test "multiple surrogate pairs" {
+    let result: JsonParseResult =
+        parse(
+            "\"\\uD83D\\uDE00\\uD83D\\uDE80\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "😀🚀";
+}
+
+test "surrogate pairs mixed with bmp" {
+    let result: JsonParseResult =
+        parse(
+            "\"A\\uD83D\\uDE00\\u00E9\\uD83D\\uDE80Z\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "A😀é🚀Z";
+}
+
+/// -------------------------------------------------------------------------
+/// Lone high surrogate rejection
+/// -------------------------------------------------------------------------
+
+test "reject minimum lone high surrogate" {
+    assert unicode_rejects(
+        "\"\\uD800\"");
+}
+
+test "reject high surrogate D801" {
+    assert unicode_rejects(
+        "\"\\uD801\"");
+}
+
+test "reject high surrogate DA00" {
+    assert unicode_rejects(
+        "\"\\uDA00\"");
+}
+
+test "reject maximum lone high surrogate" {
+    assert unicode_rejects(
+        "\"\\uDBFF\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Lone low surrogate rejection
+/// -------------------------------------------------------------------------
+
+test "reject minimum lone low surrogate" {
+    assert unicode_rejects(
+        "\"\\uDC00\"");
+}
+
+test "reject low surrogate DC01" {
+    assert unicode_rejects(
+        "\"\\uDC01\"");
+}
+
+test "reject low surrogate DE00" {
+    assert unicode_rejects(
+        "\"\\uDE00\"");
+}
+
+test "reject maximum lone low surrogate" {
+    assert unicode_rejects(
+        "\"\\uDFFF\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid surrogate ordering
+/// -------------------------------------------------------------------------
+
+test "reject low surrogate followed by high surrogate" {
+    assert unicode_rejects(
+        "\"\\uDC00\\uD800\"");
+}
+
+test "reject low surrogate followed by low surrogate" {
+    assert unicode_rejects(
+        "\"\\uDC00\\uDC00\"");
+}
+
+test "reject high surrogate followed by high surrogate" {
+    assert unicode_rejects(
+        "\"\\uD800\\uD800\"");
+}
+
+test "reject maximum high surrogate followed by high surrogate" {
+    assert unicode_rejects(
+        "\"\\uDBFF\\uDBFF\"");
+}
+
+/// -------------------------------------------------------------------------
+/// High surrogate must be followed immediately by low surrogate
+/// -------------------------------------------------------------------------
+
+test "reject high surrogate followed by ascii unicode escape" {
+    assert unicode_rejects(
+        "\"\\uD800\\u0041\"");
+}
+
+test "reject high surrogate followed by bmp unicode escape" {
+    assert unicode_rejects(
+        "\"\\uD800\\u00E9\"");
+}
+
+test "reject high surrogate followed by literal ascii" {
+    assert unicode_rejects(
+        "\"\\uD800A\"");
+}
+
+test "reject high surrogate followed by literal unicode" {
+    assert unicode_rejects(
+        "\"\\uD800é\"");
+}
+
+test "reject high surrogate followed by short escape" {
+    assert unicode_rejects(
+        "\"\\uD800\\n\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Incomplete Unicode escapes
+/// -------------------------------------------------------------------------
+
+test "reject unicode escape zero digits" {
+    assert unicode_rejects(
+        "\"\\u\"");
+}
+
+test "reject unicode escape one digit" {
+    assert unicode_rejects(
+        "\"\\u0\"");
+}
+
+test "reject unicode escape two digits" {
+    assert unicode_rejects(
+        "\"\\u00\"");
+}
+
+test "reject unicode escape three digits" {
+    assert unicode_rejects(
+        "\"\\u000\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid hexadecimal digits
+/// -------------------------------------------------------------------------
+
+test "reject unicode escape G" {
+    assert unicode_rejects(
+        "\"\\u000G\"");
+}
+
+test "reject unicode escape g" {
+    assert unicode_rejects(
+        "\"\\u000g\"");
+}
+
+test "reject unicode escape Z" {
+    assert unicode_rejects(
+        "\"\\u00ZZ\"");
+}
+
+test "reject unicode escape minus" {
+    assert unicode_rejects(
+        "\"\\u00-1\"");
+}
+
+test "reject unicode escape plus" {
+    assert unicode_rejects(
+        "\"\\u+001\"");
+}
+
+test "reject unicode escape whitespace" {
+    assert unicode_rejects(
+        "\"\\u00 1\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Incomplete surrogate pairs
+/// -------------------------------------------------------------------------
+
+test "reject high surrogate then incomplete escape" {
+    assert unicode_rejects(
+        "\"\\uD800\\u\"");
+}
+
+test "reject high surrogate then one low digit" {
+    assert unicode_rejects(
+        "\"\\uD800\\uD\"");
+}
+
+test "reject high surrogate then two low digits" {
+    assert unicode_rejects(
+        "\"\\uD800\\uDC\"");
+}
+
+test "reject high surrogate then three low digits" {
+    assert unicode_rejects(
+        "\"\\uD800\\uDC0\"");
+}
+
+test "reject high surrogate then malformed low surrogate" {
+    assert unicode_rejects(
+        "\"\\uD800\\uDC0G\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Lexer Unicode validation
+/// -------------------------------------------------------------------------
+
+test "lexer accepts bmp unicode escape" {
+    assert unicode_lexes(
+        "\"\\u00E9\"");
+}
+
+test "lexer accepts valid surrogate pair" {
+    assert unicode_lexes(
+        "\"\\uD83D\\uDE00\"");
+}
+
+test "lexer accepts literal utf8" {
+    assert unicode_lexes(
+        "\"Vitte café 日本語 😀\"");
+}
+
+test "lexer rejects incomplete unicode escape" {
+    assert unicode_lex_rejects(
+        "\"\\u000\"");
+}
+
+test "lexer rejects invalid unicode hex" {
+    assert unicode_lex_rejects(
+        "\"\\u000G\"");
+}
+
+test "lexer rejects lone high surrogate" {
+    assert unicode_lex_rejects(
+        "\"\\uD800\"");
+}
+
+test "lexer rejects lone low surrogate" {
+    assert unicode_lex_rejects(
+        "\"\\uDC00\"");
+}
+
+test "lexer rejects malformed surrogate pair" {
+    assert unicode_lex_rejects(
+        "\"\\uD800\\u0041\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode object keys
+/// -------------------------------------------------------------------------
+
+test "unicode latin object key" {
+    let result: JsonParseResult =
+        parse(
+            "{\"café\":1}");
+
+    assert result.ok;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "café"),
+        0) == 1;
+}
+
+test "unicode escaped latin object key" {
+    let result: JsonParseResult =
+        parse(
+            "{\"caf\\u00E9\":1}");
+
+    assert result.ok;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "café"),
+        0) == 1;
+}
+
+test "unicode japanese object key" {
+    let result: JsonParseResult =
+        parse(
+            "{\"日本語\":1}");
+
+    assert result.ok;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "日本語"),
+        0) == 1;
+}
+
+test "unicode arabic object key" {
+    let result: JsonParseResult =
+        parse(
+            "{\"مرحبا\":1}");
+
+    assert result.ok;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "مرحبا"),
+        0) == 1;
+}
+
+test "unicode emoji object key" {
+    let result: JsonParseResult =
+        parse(
+            "{\"🚀\":1}");
+
+    assert result.ok;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "🚀"),
+        0) == 1;
+}
+
+test "unicode escaped emoji object key" {
+    let result: JsonParseResult =
+        parse(
+            "{\"\\uD83D\\uDE80\":1}");
+
+    assert result.ok;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "🚀"),
+        0) == 1;
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode values inside arrays
+/// -------------------------------------------------------------------------
+
+test "unicode array values" {
+    let result: JsonParseResult =
+        parse(
+            "[" +
+            "\"café\"," +
+            "\"Ελληνικά\"," +
+            "\"Привет\"," +
+            "\"مرحبا\"," +
+            "\"日本語\"," +
+            "\"你好\"," +
+            "\"안녕하세요\"," +
+            "\"😀\"" +
+            "]");
+
+    assert result.ok;
+    assert json_core::is_array(&result.value);
+    assert json_core::array_len(&result.value) == 8;
+
+    assert json_core::string_or(
+        json_core::array_get_ref(
+            &result.value,
+            0),
+        "") == "café";
+
+    assert json_core::string_or(
+        json_core::array_get_ref(
+            &result.value,
+            4),
+        "") == "日本語";
+
+    assert json_core::string_or(
+        json_core::array_get_ref(
+            &result.value,
+            7),
+        "") == "😀";
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode values inside objects
+/// -------------------------------------------------------------------------
+
+test "unicode object values" {
+    let result: JsonParseResult =
+        parse(
+            "{" +
+            "\"latin\":\"café\"," +
+            "\"greek\":\"Ελληνικά\"," +
+            "\"cyrillic\":\"Привет\"," +
+            "\"arabic\":\"مرحبا\"," +
+            "\"japanese\":\"日本語\"," +
+            "\"chinese\":\"你好\"," +
+            "\"korean\":\"안녕하세요\"," +
+            "\"emoji\":\"😀\"" +
+            "}");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "latin"),
+        "") == "café";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "japanese"),
+        "") == "日本語";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "emoji"),
+        "") == "😀";
+}
+
+/// -------------------------------------------------------------------------
+/// Literal and escaped BMP equivalence
+/// -------------------------------------------------------------------------
+
+test "literal and escaped e acute equivalent" {
+    let literal: JsonParseResult =
+        parse("\"é\"");
+
+    let escaped: JsonParseResult =
+        parse("\"\\u00E9\"");
+
+    assert literal.ok;
+    assert escaped.ok;
+
+    assert json_core::equals(
+        &literal.value,
+        &escaped.value);
+}
+
+test "literal and escaped euro equivalent" {
+    let literal: JsonParseResult =
+        parse("\"€\"");
+
+    let escaped: JsonParseResult =
+        parse("\"\\u20AC\"");
+
+    assert literal.ok;
+    assert escaped.ok;
+
+    assert json_core::equals(
+        &literal.value,
+        &escaped.value);
+}
+
+test "literal and escaped greek alpha equivalent" {
+    let literal: JsonParseResult =
+        parse("\"α\"");
+
+    let escaped: JsonParseResult =
+        parse("\"\\u03B1\"");
+
+    assert literal.ok;
+    assert escaped.ok;
+
+    assert json_core::equals(
+        &literal.value,
+        &escaped.value);
+}
+
+test "literal and escaped cjk equivalent" {
+    let literal: JsonParseResult =
+        parse("\"中\"");
+
+    let escaped: JsonParseResult =
+        parse("\"\\u4E2D\"");
+
+    assert literal.ok;
+    assert escaped.ok;
+
+    assert json_core::equals(
+        &literal.value,
+        &escaped.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Short escape and Unicode escape equivalence
+/// -------------------------------------------------------------------------
+
+test "short newline and unicode newline equivalent" {
+    let short_escape: JsonParseResult =
+        parse("\"\\n\"");
+
+    let unicode_escape: JsonParseResult =
+        parse("\"\\u000A\"");
+
+    assert short_escape.ok;
+    assert unicode_escape.ok;
+
+    assert json_core::equals(
+        &short_escape.value,
+        &unicode_escape.value);
+}
+
+test "short tab and unicode tab equivalent" {
+    let short_escape: JsonParseResult =
+        parse("\"\\t\"");
+
+    let unicode_escape: JsonParseResult =
+        parse("\"\\u0009\"");
+
+    assert short_escape.ok;
+    assert unicode_escape.ok;
+
+    assert json_core::equals(
+        &short_escape.value,
+        &unicode_escape.value);
+}
+
+test "short carriage return and unicode equivalent" {
+    let short_escape: JsonParseResult =
+        parse("\"\\r\"");
+
+    let unicode_escape: JsonParseResult =
+        parse("\"\\u000D\"");
+
+    assert short_escape.ok;
+    assert unicode_escape.ok;
+
+    assert json_core::equals(
+        &short_escape.value,
+        &unicode_escape.value);
+}
+
+test "short backspace and unicode equivalent" {
+    let short_escape: JsonParseResult =
+        parse("\"\\b\"");
+
+    let unicode_escape: JsonParseResult =
+        parse("\"\\u0008\"");
+
+    assert short_escape.ok;
+    assert unicode_escape.ok;
+
+    assert json_core::equals(
+        &short_escape.value,
+        &unicode_escape.value);
+}
+
+test "short form feed and unicode equivalent" {
+    let short_escape: JsonParseResult =
+        parse("\"\\f\"");
+
+    let unicode_escape: JsonParseResult =
+        parse("\"\\u000C\"");
+
+    assert short_escape.ok;
+    assert unicode_escape.ok;
+
+    assert json_core::equals(
+        &short_escape.value,
+        &unicode_escape.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Encoder round trips
+/// -------------------------------------------------------------------------
+
+test "unicode roundtrip latin" {
+    assert unicode_roundtrip(
+        "\"café\"");
+}
+
+test "unicode roundtrip greek" {
+    assert unicode_roundtrip(
+        "\"Ελληνικά\"");
+}
+
+test "unicode roundtrip cyrillic" {
+    assert unicode_roundtrip(
+        "\"Привет\"");
+}
+
+test "unicode roundtrip arabic" {
+    assert unicode_roundtrip(
+        "\"مرحبا\"");
+}
+
+test "unicode roundtrip hebrew" {
+    assert unicode_roundtrip(
+        "\"שלום\"");
+}
+
+test "unicode roundtrip japanese" {
+    assert unicode_roundtrip(
+        "\"日本語\"");
+}
+
+test "unicode roundtrip chinese" {
+    assert unicode_roundtrip(
+        "\"你好\"");
+}
+
+test "unicode roundtrip korean" {
+    assert unicode_roundtrip(
+        "\"안녕하세요\"");
+}
+
+test "unicode roundtrip emoji" {
+    assert unicode_roundtrip(
+        "\"😀🚀🧠\"");
+}
+
+test "unicode roundtrip escaped bmp" {
+    assert unicode_roundtrip(
+        "\"caf\\u00E9\"");
+}
+
+test "unicode roundtrip surrogate pair" {
+    assert unicode_roundtrip(
+        "\"\\uD83D\\uDE00\"");
+}
+
+test "unicode roundtrip mixed" {
+    assert unicode_roundtrip(
+        "\"Vitte café α Привет مرحبا 日本語 😀\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode object round trips
+/// -------------------------------------------------------------------------
+
+test "unicode object key roundtrip" {
+    assert unicode_roundtrip(
+        "{" +
+        "\"café\":1," +
+        "\"日本語\":2," +
+        "\"مرحبا\":3," +
+        "\"😀\":4" +
+        "}");
+}
+
+test "unicode object value roundtrip" {
+    assert unicode_roundtrip(
+        "{" +
+        "\"latin\":\"café\"," +
+        "\"greek\":\"Ελληνικά\"," +
+        "\"japanese\":\"日本語\"," +
+        "\"emoji\":\"😀\"" +
+        "}");
+}
+
+test "unicode escaped object roundtrip" {
+    assert unicode_roundtrip(
+        "{" +
+        "\"caf\\u00E9\":\"\\u00E9\"," +
+        "\"\\uD83D\\uDE80\":\"\\uD83D\\uDE00\"" +
+        "}");
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode array round trips
+/// -------------------------------------------------------------------------
+
+test "unicode array roundtrip" {
+    assert unicode_roundtrip(
+        "[" +
+        "\"café\"," +
+        "\"Ελληνικά\"," +
+        "\"Привет\"," +
+        "\"مرحبا\"," +
+        "\"日本語\"," +
+        "\"你好\"," +
+        "\"안녕하세요\"," +
+        "\"😀\"" +
+        "]");
+}
+
+test "unicode escaped array roundtrip" {
+    assert unicode_roundtrip(
+        "[" +
+        "\"\\u0041\"," +
+        "\"\\u00E9\"," +
+        "\"\\u20AC\"," +
+        "\"\\u4E2D\"," +
+        "\"\\uD83D\\uDE00\"" +
+        "]");
+}
+
+/// -------------------------------------------------------------------------
+/// Encoder escaping of constructed strings
+/// -------------------------------------------------------------------------
+
+test "encoder roundtrip constructed unicode string" {
+    let value: json_core::JsonValue =
+        json_core::string(
+            "Vitte café 日本語 😀");
+
+    let encoded: JsonEncodeResult =
+        encode(&value);
+
+    assert encoded.ok;
+
+    let decoded: JsonParseResult =
+        parse(encoded.text);
+
+    assert decoded.ok;
+
+    assert json_core::equals(
+        &value,
+        &decoded.value);
+}
+
+test "encoder roundtrip constructed control string" {
+    let value: json_core::JsonValue =
+        json_core::string(
+            "a\nb\tc\rd");
+
+    let encoded: JsonEncodeResult =
+        encode(&value);
+
+    assert encoded.ok;
+
+    let decoded: JsonParseResult =
+        parse(encoded.text);
+
+    assert decoded.ok;
+
+    assert json_core::equals(
+        &value,
+        &decoded.value);
+}
+
+test "encoder roundtrip constructed quote backslash string" {
+    let value: json_core::JsonValue =
+        json_core::string(
+            "quote=\" backslash=\\");
+
+    let encoded: JsonEncodeResult =
+        encode(&value);
+
+    assert encoded.ok;
+
+    let decoded: JsonParseResult =
+        parse(encoded.text);
+
+    assert decoded.ok;
+
+    assert json_core::equals(
+        &value,
+        &decoded.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Stable Unicode encoding
+/// -------------------------------------------------------------------------
+
+test "unicode stable latin encoding" {
+    assert unicode_stable(
+        "\"café\"");
+}
+
+test "unicode stable greek encoding" {
+    assert unicode_stable(
+        "\"Ελληνικά\"");
+}
+
+test "unicode stable japanese encoding" {
+    assert unicode_stable(
+        "\"日本語\"");
+}
+
+test "unicode stable emoji encoding" {
+    assert unicode_stable(
+        "\"😀\"");
+}
+
+test "unicode stable escaped encoding" {
+    assert unicode_stable(
+        "\"caf\\u00E9\"");
+}
+
+test "unicode stable surrogate encoding" {
+    assert unicode_stable(
+        "\"\\uD83D\\uDE00\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Repeated parsing
+/// -------------------------------------------------------------------------
+
+test "unicode repeated parse deterministic" {
+    let source: string =
+        "\"Vitte café 日本語 😀\"";
+
+    let first: JsonParseResult =
+        parse(source);
+
+    let second: JsonParseResult =
+        parse(source);
+
+    let third: JsonParseResult =
+        parse(source);
+
+    assert first.ok;
+    assert second.ok;
+    assert third.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+
+    assert json_core::equals(
+        &second.value,
+        &third.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Repeated Unicode encoding
+/// -------------------------------------------------------------------------
+
+test "unicode repeated encoding deterministic" {
+    let parsed_value: JsonParseResult =
+        parse(
+            "\"Vitte café 日本語 😀\"");
+
+    assert parsed_value.ok;
+
+    let first: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    let second: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    let third: JsonEncodeResult =
+        encode(
+            &parsed_value.value);
+
+    assert first.ok;
+    assert second.ok;
+    assert third.ok;
+
+    assert first.text ==
+        second.text;
+
+    assert second.text ==
+        third.text;
+}
+
+/// -------------------------------------------------------------------------
+/// Whitespace around Unicode strings
+/// -------------------------------------------------------------------------
+
+test "unicode value surrounded by json whitespace" {
+    let result: JsonParseResult =
+        parse(
+            " \t\r\n \"café 日本語 😀\" \t\r\n ");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "café 日本語 😀";
+}
+
+test "unicode object with json whitespace" {
+    let result: JsonParseResult =
+        parse(
+            "{ \n" +
+            "  \"clé\" : \"valeur\" ,\n" +
+            "  \"日本語\" : \"こんにちは\" \n" +
+            "}");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "clé"),
+        "") == "valeur";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &result.value,
+            "日本語"),
+        "") == "こんにちは";
+}
+
+/// -------------------------------------------------------------------------
+/// Long Unicode strings
+/// -------------------------------------------------------------------------
+
+test "long unicode string parses" {
+    let result: JsonParseResult =
+        parse(
+            "\"" +
+            "Vitte français café déjà été Noël " +
+            "Ελληνικά αβγ Ω " +
+            "Привет мир " +
+            "مرحبا بالعالم " +
+            "שלום עולם " +
+            "こんにちは世界 " +
+            "你好世界 " +
+            "안녕하세요 세계 " +
+            "😀🙂🚀💻🧠" +
+            "\"");
+
+    assert result.ok;
+    assert json_core::is_string(&result.value);
+}
+
+test "long unicode string roundtrip" {
+    assert unicode_roundtrip(
+        "\"" +
+        "Vitte français café déjà été Noël " +
+        "Ελληνικά αβγ Ω " +
+        "Привет мир " +
+        "مرحبا بالعالم " +
+        "שלום עולם " +
+        "こんにちは世界 " +
+        "你好世界 " +
+        "안녕하세요 세계 " +
+        "😀🙂🚀💻🧠" +
+        "\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode nested structures
+/// -------------------------------------------------------------------------
+
+test "unicode nested document" {
+    let source: string =
+        "{" +
+        "\"français\":{" +
+            "\"bonjour\":\"Bonjour le monde\"," +
+            "\"café\":\"café\"" +
+        "}," +
+        "\"日本語\":{" +
+            "\"挨拶\":\"こんにちは世界\"" +
+        "}," +
+        "\"العربية\":{" +
+            "\"تحية\":\"مرحبا بالعالم\"" +
+        "}," +
+        "\"emoji\":[" +
+            "\"😀\"," +
+            "\"🙂\"," +
+            "\"🚀\"," +
+            "\"💻\"," +
+            "\"🧠\"" +
+        "]" +
+        "}";
+
+    let result: JsonParseResult =
+        parse(source);
+
+    assert result.ok;
+    assert json_core::validate(&result.value);
+
+    assert unicode_roundtrip(source);
+}
+
+/// -------------------------------------------------------------------------
+/// Escaped Unicode nested structures
+/// -------------------------------------------------------------------------
+
+test "escaped unicode nested document" {
+    let source: string =
+        "{" +
+        "\"latin\":\"caf\\u00E9\"," +
+        "\"euro\":\"\\u20AC\"," +
+        "\"cjk\":\"\\u4E2D\"," +
+        "\"emoji\":\"\\uD83D\\uDE00\"," +
+        "\"array\":[" +
+            "\"\\u0041\"," +
+            "\"\\u00E9\"," +
+            "\"\\uD83D\\uDE80\"" +
+        "]" +
+        "}";
+
+    let result: JsonParseResult =
+        parse(source);
+
+    assert result.ok;
+    assert json_core::validate(&result.value);
+
+    assert unicode_roundtrip(source);
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid Unicode inside arrays
+/// -------------------------------------------------------------------------
+
+test "reject lone high surrogate in array" {
+    assert unicode_rejects(
+        "[\"\\uD800\"]");
+}
+
+test "reject lone low surrogate in array" {
+    assert unicode_rejects(
+        "[\"\\uDC00\"]");
+}
+
+test "reject invalid unicode hex in array" {
+    assert unicode_rejects(
+        "[\"\\u000G\"]");
+}
+
+test "reject incomplete unicode escape in array" {
+    assert unicode_rejects(
+        "[\"\\u000\"]");
+}
+
+test "reject malformed surrogate pair in array" {
+    assert unicode_rejects(
+        "[\"\\uD800\\u0041\"]");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid Unicode inside object values
+/// -------------------------------------------------------------------------
+
+test "reject lone high surrogate in object value" {
+    assert unicode_rejects(
+        "{\"x\":\"\\uD800\"}");
+}
+
+test "reject lone low surrogate in object value" {
+    assert unicode_rejects(
+        "{\"x\":\"\\uDC00\"}");
+}
+
+test "reject invalid unicode hex in object value" {
+    assert unicode_rejects(
+        "{\"x\":\"\\u000G\"}");
+}
+
+test "reject malformed surrogate pair in object value" {
+    assert unicode_rejects(
+        "{\"x\":\"\\uD800\\u0041\"}");
+}
+
+/// -------------------------------------------------------------------------
+/// Invalid Unicode inside object keys
+/// -------------------------------------------------------------------------
+
+test "reject lone high surrogate in object key" {
+    assert unicode_rejects(
+        "{\"\\uD800\":1}");
+}
+
+test "reject lone low surrogate in object key" {
+    assert unicode_rejects(
+        "{\"\\uDC00\":1}");
+}
+
+test "reject invalid unicode hex in object key" {
+    assert unicode_rejects(
+        "{\"\\u000G\":1}");
+}
+
+test "reject malformed surrogate pair in object key" {
+    assert unicode_rejects(
+        "{\"\\uD800\\u0041\":1}");
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode control character round trips
+/// -------------------------------------------------------------------------
+
+test "unicode escaped null roundtrip" {
+    assert unicode_roundtrip(
+        "\"\\u0000\"");
+}
+
+test "unicode escaped backspace roundtrip" {
+    assert unicode_roundtrip(
+        "\"\\u0008\"");
+}
+
+test "unicode escaped tab roundtrip" {
+    assert unicode_roundtrip(
+        "\"\\u0009\"");
+}
+
+test "unicode escaped newline roundtrip" {
+    assert unicode_roundtrip(
+        "\"\\u000A\"");
+}
+
+test "unicode escaped form feed roundtrip" {
+    assert unicode_roundtrip(
+        "\"\\u000C\"");
+}
+
+test "unicode escaped carriage return roundtrip" {
+    assert unicode_roundtrip(
+        "\"\\u000D\"");
+}
+
+test "unicode escaped control 001f roundtrip" {
+    assert unicode_roundtrip(
+        "\"\\u001F\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Escaped delimiter round trips
+/// -------------------------------------------------------------------------
+
+test "unicode quote escape roundtrip" {
+    assert unicode_roundtrip(
+        "\"\\u0022\"");
+}
+
+test "unicode backslash escape roundtrip" {
+    assert unicode_roundtrip(
+        "\"\\u005C\"");
+}
+
+test "unicode slash escape roundtrip" {
+    assert unicode_roundtrip(
+        "\"\\u002F\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Mixed short and Unicode escapes
+/// -------------------------------------------------------------------------
+
+test "mixed short and unicode escape parsing" {
+    let result: JsonParseResult =
+        parse(
+            "\"" +
+            "\\t" +
+            "\\u0041" +
+            "\\n" +
+            "\\u00E9" +
+            "\\r" +
+            "\\uD83D\\uDE00" +
+            "\"");
+
+    assert result.ok;
+
+    assert json_core::string_or(
+        &result.value,
+        "") == "\tA\né\r😀";
+}
+
+test "mixed short and unicode escape roundtrip" {
+    assert unicode_roundtrip(
+        "\"" +
+        "\\t" +
+        "\\u0041" +
+        "\\n" +
+        "\\u00E9" +
+        "\\r" +
+        "\\uD83D\\uDE00" +
+        "\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode equality
+/// -------------------------------------------------------------------------
+
+test "unicode equal literal strings" {
+    let first: JsonParseResult =
+        parse("\"café\"");
+
+    let second: JsonParseResult =
+        parse("\"café\"");
+
+    assert first.ok;
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+test "unicode equivalent escape strings" {
+    let literal: JsonParseResult =
+        parse("\"café\"");
+
+    let escaped: JsonParseResult =
+        parse("\"caf\\u00E9\"");
+
+    assert literal.ok;
+    assert escaped.ok;
+
+    assert json_core::equals(
+        &literal.value,
+        &escaped.value);
+}
+
+test "unicode different strings are not equal" {
+    let first: JsonParseResult =
+        parse("\"café\"");
+
+    let second: JsonParseResult =
+        parse("\"cafe\"");
+
+    assert first.ok;
+    assert second.ok;
+
+    assert not json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode keys remain distinguishable
+/// -------------------------------------------------------------------------
+
+test "unicode distinct object keys" {
+    let result: JsonParseResult =
+        parse(
+            "{" +
+            "\"e\":1," +
+            "\"é\":2," +
+            "\"è\":3," +
+            "\"ê\":4" +
+            "}");
+
+    assert result.ok;
+    assert json_core::object_len(&result.value) == 4;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "e"),
+        0) == 1;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "é"),
+        0) == 2;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "è"),
+        0) == 3;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            &result.value,
+            "ê"),
+        0) == 4;
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode normalization policy
+/// -------------------------------------------------------------------------
+
+test "unicode parser preserves scalar sequence without normalization" {
+    let precomposed: JsonParseResult =
+        parse("\"é\"");
+
+    let escaped_precomposed: JsonParseResult =
+        parse("\"\\u00E9\"");
+
+    assert precomposed.ok;
+    assert escaped_precomposed.ok;
+
+    assert json_core::equals(
+        &precomposed.value,
+        &escaped_precomposed.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Pretty encoder Unicode roundtrip
+/// -------------------------------------------------------------------------
+
+test "pretty unicode object roundtrip" {
+    let first: JsonParseResult =
+        parse(
+            "{" +
+            "\"français\":\"café\"," +
+            "\"日本語\":\"こんにちは\"," +
+            "\"emoji\":\"😀\"" +
+            "}");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode_pretty(
+            &first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+test "pretty unicode array roundtrip" {
+    let first: JsonParseResult =
+        parse(
+            "[" +
+            "\"café\"," +
+            "\"Ελληνικά\"," +
+            "\"日本語\"," +
+            "\"😀\"" +
+            "]");
+
+    assert first.ok;
+
+    let encoded: JsonEncodeResult =
+        encode_pretty(
+            &first.value);
+
+    assert encoded.ok;
+
+    let second: JsonParseResult =
+        parse(encoded.text);
+
+    assert second.ok;
+
+    assert json_core::equals(
+        &first.value,
+        &second.value);
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode parser recovery isolation
+/// -------------------------------------------------------------------------
+
+test "invalid unicode parse does not poison later valid parse" {
+    let invalid_result: JsonParseResult =
+        parse(
+            "\"\\uD800\"");
+
+    assert not invalid_result.ok;
+
+    let valid_result: JsonParseResult =
+        parse(
+            "\"café 😀\"");
+
+    assert valid_result.ok;
+
+    assert json_core::string_or(
+        &valid_result.value,
+        "") == "café 😀";
+}
+
+test "valid unicode parse does not hide later invalid parse" {
+    let valid_result: JsonParseResult =
+        parse(
+            "\"café 😀\"");
+
+    assert valid_result.ok;
+
+    let invalid_result: JsonParseResult =
+        parse(
+            "\"\\uD800\"");
+
+    assert not invalid_result.ok;
+}
+
+/// -------------------------------------------------------------------------
+/// Unicode matrix
+/// -------------------------------------------------------------------------
+
+test "unicode valid matrix" {
+    assert unicode_parses("\"\\u0000\"");
+    assert unicode_parses("\"\\u0020\"");
+    assert unicode_parses("\"\\u0041\"");
+    assert unicode_parses("\"\\u007F\"");
+    assert unicode_parses("\"\\u0080\"");
+    assert unicode_parses("\"\\u00E9\"");
+    assert unicode_parses("\"\\u03B1\"");
+    assert unicode_parses("\"\\u20AC\"");
+    assert unicode_parses("\"\\u4E2D\"");
+    assert unicode_parses("\"\\uD7FF\"");
+    assert unicode_parses("\"\\uE000\"");
+    assert unicode_parses("\"\\uFFFF\"");
+
+    assert unicode_parses(
+        "\"\\uD800\\uDC00\"");
+
+    assert unicode_parses(
+        "\"\\uD83D\\uDE00\"");
+
+    assert unicode_parses(
+        "\"\\uDBFF\\uDFFF\"");
+}
+
+test "unicode invalid matrix" {
+    assert unicode_rejects("\"\\u\"");
+    assert unicode_rejects("\"\\u0\"");
+    assert unicode_rejects("\"\\u00\"");
+    assert unicode_rejects("\"\\u000\"");
+    assert unicode_rejects("\"\\u000G\"");
+
+    assert unicode_rejects(
+        "\"\\uD800\"");
+
+    assert unicode_rejects(
+        "\"\\uDBFF\"");
+
+    assert unicode_rejects(
+        "\"\\uDC00\"");
+
+    assert unicode_rejects(
+        "\"\\uDFFF\"");
+
+    assert unicode_rejects(
+        "\"\\uD800\\u0041\"");
+
+    assert unicode_rejects(
+        "\"\\uD800\\uD800\"");
+
+    assert unicode_rejects(
+        "\"\\uDC00\\uD800\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Round-trip matrix
+/// -------------------------------------------------------------------------
+
+test "unicode roundtrip matrix" {
+    assert unicode_roundtrip(
+        "\"A\"");
+
+    assert unicode_roundtrip(
+        "\"\\u0041\"");
+
+    assert unicode_roundtrip(
+        "\"é\"");
+
+    assert unicode_roundtrip(
+        "\"\\u00E9\"");
+
+    assert unicode_roundtrip(
+        "\"€\"");
+
+    assert unicode_roundtrip(
+        "\"\\u20AC\"");
+
+    assert unicode_roundtrip(
+        "\"中\"");
+
+    assert unicode_roundtrip(
+        "\"\\u4E2D\"");
+
+    assert unicode_roundtrip(
+        "\"😀\"");
+
+    assert unicode_roundtrip(
+        "\"\\uD83D\\uDE00\"");
+}
+
+/// -------------------------------------------------------------------------
+/// Full Unicode integration
+/// -------------------------------------------------------------------------
+
+test "json unicode full integration" {
+    let source: string =
+        "{" +
+        "\"ascii\":\"Vitte\"," +
+        "\"latin\":\"café déjà été Noël\"," +
+        "\"greek\":\"Ελληνικά αβγ Ω\"," +
+        "\"cyrillic\":\"Привет мир\"," +
+        "\"arabic\":\"مرحبا بالعالم\"," +
+        "\"hebrew\":\"שלום עולם\"," +
+        "\"japanese\":\"こんにちは世界\"," +
+        "\"chinese\":\"你好世界\"," +
+        "\"korean\":\"안녕하세요 세계\"," +
+        "\"emoji\":\"😀🙂🚀💻🧠\"," +
+        "\"escaped\":{" +
+            "\"ascii\":\"\\u0041\\u0042\\u0043\"," +
+            "\"latin\":\"caf\\u00E9\"," +
+            "\"euro\":\"\\u20AC\"," +
+            "\"cjk\":\"\\u4E2D\"," +
+            "\"emoji\":\"\\uD83D\\uDE00\"," +
+            "\"rocket\":\"\\uD83D\\uDE80\"" +
+        "}," +
+        "\"controls\":{" +
+            "\"tab\":\"\\u0009\"," +
+            "\"newline\":\"\\u000A\"," +
+            "\"carriage\":\"\\u000D\"" +
+        "}," +
+        "\"keys\":{" +
+            "\"clé\":1," +
+            "\"日本語\":2," +
+            "\"مرحبا\":3," +
+            "\"😀\":4" +
+        "}" +
+        "}";
+
+    let parsed_value: JsonParseResult =
+        parse(source);
+
+    assert parsed_value.ok;
+    assert json_core::validate(&parsed_value.value);
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &parsed_value.value,
+            "latin"),
+        "") == "café déjà été Noël";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &parsed_value.value,
+            "japanese"),
+        "") == "こんにちは世界";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            &parsed_value.value,
+            "emoji"),
+        "") == "😀🙂🚀💻🧠";
+
+    let escaped: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &parsed_value.value,
+            "escaped");
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            escaped,
+            "ascii"),
+        "") == "ABC";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            escaped,
+            "latin"),
+        "") == "café";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            escaped,
+            "emoji"),
+        "") == "😀";
+
+    assert json_core::string_or(
+        json_core::object_get_ref(
+            escaped,
+            "rocket"),
+        "") == "🚀";
+
+    let keys: &json_core::JsonValue =
+        json_core::object_get_ref(
+            &parsed_value.value,
+            "keys");
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            keys,
+            "clé"),
+        0) == 1;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            keys,
+            "日本語"),
+        0) == 2;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            keys,
+            "مرحبا"),
+        0) == 3;
+
+    assert json_core::integer_or(
+        json_core::object_get_ref(
+            keys,
+            "😀"),
+        0) == 4;
+
+    let compact: JsonEncodeResult =
+        encode_compact(
+            &parsed_value.value);
+
+    assert compact.ok;
+
+    let compact_parsed: JsonParseResult =
+        parse(compact.text);
+
+    assert compact_parsed.ok;
+
+    assert json_core::equals(
+        &parsed_value.value,
+        &compact_parsed.value);
+
+    let pretty: JsonEncodeResult =
+        encode_pretty(
+            &parsed_value.value);
+
+    assert pretty.ok;
+
+    let pretty_parsed: JsonParseResult =
+        parse(pretty.text);
+
+    assert pretty_parsed.ok;
+
+    assert json_core::equals(
+        &parsed_value.value,
+        &pretty_parsed.value);
+
+    assert unicode_roundtrip(source);
+    assert unicode_stable(source);
+}

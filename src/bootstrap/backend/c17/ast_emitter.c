@@ -149,6 +149,7 @@ typedef struct vitte_c17_ast_emitter {
     bool debug_info;
     bool debug_runtime;
     bool emit_line_directives;
+    bool static_initializer;
     struct {
         const char *lexeme;
         size_t length;
@@ -8102,23 +8103,15 @@ vitte_c17_ast_emit_expression(
                  operand_type->kind == VITTE_AST_NODE_REFERENCE_TYPE) ||
                 (operand_type == NULL &&
                  vitte_c17_ast_expression_is_pointer(emitter, operand))) {
-                vitte_c17_ast_write(emitter, "((__typeof__(");
+                vitte_c17_ast_write(emitter, "vitte_optional_require(");
                 vitte_c17_ast_emit_expression(emitter, operand);
-                vitte_c17_ast_write(
-                    emitter,
-                    "))vitte_optional_require((const void *)(");
-                vitte_c17_ast_emit_expression(emitter, operand);
-                vitte_c17_ast_write(emitter, ")))");
+                vitte_c17_ast_write(emitter, ")");
                 return;
             }
 
-            vitte_c17_ast_write(emitter, "(*((__typeof__(* (");
+            vitte_c17_ast_write(emitter, "(*vitte_optional_require(");
             vitte_c17_ast_emit_expression(emitter, operand);
-            vitte_c17_ast_write(
-                emitter,
-                ")) *)vitte_optional_require((const void *)(");
-            vitte_c17_ast_emit_expression(emitter, operand);
-            vitte_c17_ast_write(emitter, "))))");
+            vitte_c17_ast_write(emitter, "))");
             return;
         }
 
@@ -8242,37 +8235,41 @@ vitte_c17_ast_emit_expression(
                     form_name = NULL;
                 }
 
-            vitte_c17_ast_write(emitter, "(");
-            left = vitte_c17_ast_child(emitter, node, 0u);
-            if (left != NULL &&
-                left->kind == VITTE_AST_NODE_TYPE_EXPR) {
-                vitte_c17_ast_emit_type(emitter, left);
-            } else if (left != NULL &&
-                       left->kind == VITTE_AST_NODE_PATH &&
-                       left->child_count != 0u) {
-                const vitte_ast_node_t *form =
-                    vitte_c17_ast_find_path_declaration(
-                        emitter,
-                        left,
-                        VITTE_AST_NODE_FORM_DECL,
-                        VITTE_AST_NODE_FORM_DECL);
-                if (form != NULL) {
-                    vitte_c17_ast_emit_declaration_name(
-                        emitter,
-                        form,
-                        vitte_c17_ast_child(emitter, form, 0u));
-                } else {
-                    vitte_c17_ast_write_token(
-                        emitter,
-                        vitte_c17_ast_child(
+            if (emitter->static_initializer) {
+                vitte_c17_ast_write(emitter, "{ ");
+            } else {
+                vitte_c17_ast_write(emitter, "(");
+                left = vitte_c17_ast_child(emitter, node, 0u);
+                if (left != NULL &&
+                    left->kind == VITTE_AST_NODE_TYPE_EXPR) {
+                    vitte_c17_ast_emit_type(emitter, left);
+                } else if (left != NULL &&
+                           left->kind == VITTE_AST_NODE_PATH &&
+                           left->child_count != 0u) {
+                    const vitte_ast_node_t *form =
+                        vitte_c17_ast_find_path_declaration(
                             emitter,
                             left,
-                            left->child_count - 1u));
+                            VITTE_AST_NODE_FORM_DECL,
+                            VITTE_AST_NODE_FORM_DECL);
+                    if (form != NULL) {
+                        vitte_c17_ast_emit_declaration_name(
+                            emitter,
+                            form,
+                            vitte_c17_ast_child(emitter, form, 0u));
+                    } else {
+                        vitte_c17_ast_write_token(
+                            emitter,
+                            vitte_c17_ast_child(
+                                emitter,
+                                left,
+                                left->child_count - 1u));
+                    }
+                } else {
+                    emitter->failed = true;
                 }
-            } else {
-                emitter->failed = true;
+                vitte_c17_ast_write(emitter, "){ ");
             }
-            vitte_c17_ast_write(emitter, "){ ");
             if (node->child_count == 1u) {
                 vitte_c17_ast_write(emitter, "0 }");
                 return;
@@ -14311,6 +14308,7 @@ vitte_c17_ast_emit_constant(
         initializer->kind == VITTE_AST_NODE_ARRAY_EXPR) {
         const vitte_ast_node_t *element_type;
         size_t index;
+        bool previous_static_initializer;
 
         element_type = vitte_c17_ast_child(emitter, type, 0u);
         if (element_type == NULL) {
@@ -14324,6 +14322,8 @@ vitte_c17_ast_emit_constant(
             vitte_c17_ast_write(
                 emitter,
                 "_data[] VITTE_C17_AST_UNUSED = {");
+            previous_static_initializer = emitter->static_initializer;
+            emitter->static_initializer = true;
             for (index = 0u; index < initializer->child_count; ++index) {
                 if (index != 0u) {
                     vitte_c17_ast_write(emitter, ", ");
@@ -14332,6 +14332,7 @@ vitte_c17_ast_emit_constant(
                     emitter,
                     vitte_c17_ast_child(emitter, initializer, index));
             }
+            emitter->static_initializer = previous_static_initializer;
             vitte_c17_ast_write(emitter, "};\n");
         }
         vitte_c17_ast_write(emitter, "static const VitteArray ");
@@ -14395,7 +14396,12 @@ vitte_c17_ast_emit_constant(
             " VITTE_C17_AST_UNUSED");
     }
     vitte_c17_ast_write(emitter, " = ");
-    vitte_c17_ast_emit_expression(emitter, initializer);
+    {
+        bool previous_static_initializer = emitter->static_initializer;
+        emitter->static_initializer = true;
+        vitte_c17_ast_emit_expression(emitter, initializer);
+        emitter->static_initializer = previous_static_initializer;
+    }
     vitte_c17_ast_write(emitter, ";\n");
     return !emitter->failed;
 }
@@ -15489,7 +15495,11 @@ vitte_c17_emit_ast_with_options(
         "#define vitte_core_pointer_is_null(value) ((value) == NULL)\n"
         "#define vitte_core_pointer_read(source) (*(source))\n"
         "#define vitte_core_pointer_write(destination, ...) ((void)(*(destination) = (__VA_ARGS__)))\n"
-        "static inline void *vitte_optional_require(const void *value) { if (value == NULL) abort(); return (void *)value; }\n"
+        "#define VITTE_OPTIONAL_REQUIRE_IMPL(value, id) \\\n"
+        "    __extension__ ({ __typeof__(value) vitte_optional_value_##id = (value); \\\n"
+        "        if (vitte_optional_value_##id == NULL) { abort(); } vitte_optional_value_##id; })\n"
+        "#define VITTE_OPTIONAL_REQUIRE_EXPAND(value, id) VITTE_OPTIONAL_REQUIRE_IMPL(value, id)\n"
+        "#define vitte_optional_require(value) VITTE_OPTIONAL_REQUIRE_EXPAND(value, __COUNTER__)\n"
         "\n"
         "#if defined(__GNUC__) || defined(__clang__)\n"
         "#define VITTE_C17_AST_UNUSED __attribute__((__unused__))\n"

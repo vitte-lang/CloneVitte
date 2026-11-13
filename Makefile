@@ -51,9 +51,19 @@ TARGET  := vitte
 
 BUILD_HOST_OS := $(shell uname -s 2>/dev/null || echo unknown)
 EXE_SUFFIX ?= $(if $(filter MINGW% MSYS% CYGWIN%,$(BUILD_HOST_OS)),.exe,)
-PATH_LIST_SEPARATOR := $(if $(filter MINGW% MSYS% CYGWIN%,$(BUILD_HOST_OS)),;,:)
 
-CC ?= cc
+ifeq ($(origin CC),default)
+CC := $(shell for compiler in cc clang gcc; do \
+	if command -v "$$compiler" >/dev/null 2>&1; then \
+		printf '%s\n' "$$compiler"; \
+		break; \
+	fi; \
+done)
+endif
+ifeq ($(strip $(CC)),)
+CC := cc
+endif
+PATH_LIST_SEPARATOR := $(shell printf '' | $(CC) -dM -E -x c - 2>/dev/null | grep -q '^#define _WIN32 ' && printf ';' || printf ':')
 AR ?= ar
 RANLIB ?= ranlib
 NM ?= nm
@@ -159,7 +169,7 @@ CFLAGS_COMMON := \
 # -----------------------------------------------------------------------------
 
 CFLAGS_DEBUG := \
-	-O0 \
+	-O2 \
 	-g3 \
 	-fno-omit-frame-pointer
 
@@ -264,10 +274,18 @@ all: $(TARGET_BIN)
 bootstrap: $(BOOTSTRAP_TARGET_BIN)
 	@printf '\nBootstrap compiler ready: %s\n' "$(BOOTSTRAP_TARGET_BIN)"
 
-$(BUILD_CONFIG_STAMP):
+$(BUILD_CONFIG_STAMP): | check-toolchain
 	@mkdir -p $(BUILD)
 	@touch "$@"
 	@printf '%s\n' '$(BUILD_CONFIG_KEY)' > "$(ACTIVE_BUILD_CONFIG)"
+
+.PHONY: check-toolchain
+check-toolchain:
+	@if ! command -v "$(firstword $(CC))" >/dev/null 2>&1; then \
+		printf 'error: C compiler "%s" was not found. Install GCC or Clang, or set CC to an installed C17 compiler.\n' \
+			"$(firstword $(CC))" >&2; \
+		exit 127; \
+	fi
 
 # The bootstrap binary emits the Vitte API translation unit. The standard
 # executable links that Vitte frontend with native OS/ABI bridges and the
@@ -328,7 +346,7 @@ native-frontend: $(NATIVE_FRONTEND_LIBRARY)
 $(NATIVE_FRONTEND_C): $(NATIVE_FRONTEND_COMPILER) $(NATIVE_FRONTEND_SOURCES) $(NATIVE_MODULE_SOURCES)
 	@mkdir -p $(NATIVE_FRONTEND_DIR)
 	@printf '[VITTE-C] %s\n' "$(NATIVE_FRONTEND_ENTRY)"
-	VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)$(PATH_LIST_SEPARATOR)$(VITTE_ROOT)" $(NATIVE_FRONTEND_COMPILER) compile "$(NATIVE_FRONTEND_ENTRY)" --emit-c --quiet --no-color -o "$@"
+	VITTE_MODULE_PATH="$(VITTE_MODULE_PATH)$(PATH_LIST_SEPARATOR)$(VITTE_ROOT)" $(NATIVE_FRONTEND_COMPILER) compile "$(NATIVE_FRONTEND_ENTRY)" --emit-c --verbose --no-color -o "$@"
 
 $(NATIVE_FRONTEND_OBJECT): $(NATIVE_FRONTEND_C) $(BUILD_CONFIG_STAMP)
 	@printf '[CC] %s\n' "$<"
@@ -536,7 +554,7 @@ endif
 # -----------------------------------------------------------------------------
 
 .PHONY: check
-check:
+check: check-toolchain
 	@printf 'Checking Vitte C sources...\n\n'
 	@set -e; \
 	for file in $(SOURCES); do \
@@ -556,7 +574,7 @@ check:
 SOURCE_TEST_BIN := $(BIN_DIR)/source_manager_test
 
 .PHONY: test-source
-test-source:
+test-source: check-toolchain
 	@mkdir -p $(BIN_DIR)
 	@printf '[TEST-CC] source_manager_test\n'
 	$(CC) \
@@ -1052,6 +1070,7 @@ test-sema: $(TARGET_BIN) $(BOOTSTRAP_TARGET_BIN)
 IMPORT_GRAPH_TEST_BIN := $(BIN_DIR)/import_graph_test
 
 $(IMPORT_GRAPH_TEST_BIN): \
+	check-toolchain \
 	$(TEST_DIR)/import_graph_test.c \
 	$(SRC_ROOT)/import/import.c \
 	$(SRC_ROOT)/import/import.h
@@ -1073,6 +1092,7 @@ test-imports: $(IMPORT_GRAPH_TEST_BIN)
 IMPORT_FUZZ_TEST_BIN := $(BIN_DIR)/import_fuzz_test
 
 $(IMPORT_FUZZ_TEST_BIN): \
+	check-toolchain \
 	$(TEST_DIR)/import_fuzz_test.c \
 	$(SRC_ROOT)/import/import.c \
 	$(SRC_ROOT)/import/import.h
@@ -1657,17 +1677,35 @@ install: $(TARGET_BIN)
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 \
 		$(TARGET_BIN) \
-		$(DESTDIR)$(BINDIR)/$(TARGET)
+		$(DESTDIR)$(BINDIR)/$(TARGET)$(EXE_SUFFIX)
 	$(MAKE) -C modules/json install \
 		PREFIX="$(PREFIX)" \
 		DESTDIR="$(DESTDIR)"
 
 .PHONY: uninstall
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/$(TARGET)
+	rm -f $(DESTDIR)$(BINDIR)/$(TARGET)$(EXE_SUFFIX)
 	$(MAKE) -C modules/json uninstall \
 		PREFIX="$(PREFIX)" \
 		DESTDIR="$(DESTDIR)"
+
+WINDOWS_POWERSHELL ?= powershell.exe
+
+ifeq ($(filter MSYS% CYGWIN%,$(BUILD_HOST_OS)),)
+.PHONY: install-windows uninstall-windows
+install-windows uninstall-windows:
+	@printf '%s\n' 'error: Windows user installation requires MSYS2 or Cygwin.' >&2
+	@exit 2
+else
+.PHONY: install-windows uninstall-windows
+install-windows: $(TARGET_BIN)
+	$(WINDOWS_POWERSHELL) -NoLogo -NoProfile -ExecutionPolicy Bypass \
+		-File "scripts/install-windows.ps1"
+
+uninstall-windows:
+	$(WINDOWS_POWERSHELL) -NoLogo -NoProfile -ExecutionPolicy Bypass \
+		-File "scripts/install-windows.ps1" -Uninstall
+endif
 
 # -----------------------------------------------------------------------------
 # Cleaning
@@ -1836,6 +1874,12 @@ help:
 		'                               (successful earlier stages are reused)' \
 		'  make MODE=release bootstrap-selfhost' \
 		'                               Verify the complete stages 0 through 3' \
+		'' \
+		'Installation:' \
+		'  make install                 Install under PREFIX (default /usr/local)' \
+		'  make uninstall               Remove the PREFIX installation' \
+		'  make install-windows         Install for the current Windows user' \
+		'  make uninstall-windows       Remove the current-user installation' \
 		'' \
 		'Verification:' \
 		'  make docs-site               Regenerate static site audits and metadata' \

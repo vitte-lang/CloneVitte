@@ -1215,17 +1215,25 @@ vitte_main_module_try_candidate(
     size_t resolved_capacity)
 {
     char candidate[VITTE_MAIN_MODULE_PATH_MAX];
+    const char *separator;
+    size_t base_length;
     int written;
 
     if (base == NULL || module_path == NULL) {
         return false;
     }
 
+    base_length = strlen(base);
+    separator = base_length != 0u && base[base_length - 1u] == '/'
+        ? ""
+        : "/";
+
     written = snprintf(
         candidate,
         sizeof(candidate),
-        "%s/%s.vit",
+        "%s%s%s.vit",
         base,
+        separator,
         module_path);
     if (written < 0 || (size_t)written >= sizeof(candidate)) {
         return false;
@@ -1240,8 +1248,9 @@ vitte_main_module_try_candidate(
     written = snprintf(
         candidate,
         sizeof(candidate),
-        "%s/%s.vitte",
+        "%s%s%s.vitte",
         base,
+        separator,
         module_path);
     if (written < 0 || (size_t)written >= sizeof(candidate)) {
         return false;
@@ -1256,8 +1265,9 @@ vitte_main_module_try_candidate(
     written = snprintf(
         candidate,
         sizeof(candidate),
-        "%s/%s/mod.vit",
+        "%s%s%s/mod.vit",
         base,
+        separator,
         module_path);
     if (written < 0 || (size_t)written >= sizeof(candidate)) {
         return false;
@@ -1266,8 +1276,9 @@ vitte_main_module_try_candidate(
         written = snprintf(
             candidate,
             sizeof(candidate),
-            "%s/%s/mod.vitte",
+            "%s%s%s/mod.vitte",
             base,
+            separator,
             module_path);
         if (written < 0 || (size_t)written >= sizeof(candidate)) {
             return false;
@@ -1591,8 +1602,10 @@ vitte_main_module_resolve_path(
     const char *cursor;
     char *slash;
     size_t path_length;
+    size_t ancestor_length;
     size_t depth;
     size_t end;
+    const char *path_separator;
     int written;
 
     if (importer_path == NULL || requested == NULL ||
@@ -1679,11 +1692,18 @@ vitte_main_module_resolve_path(
                 resolved_capacity)) {
             return true;
         }
+        ancestor_length = strlen(ancestor);
+        path_separator =
+            ancestor_length != 0u &&
+            ancestor[ancestor_length - 1u] == '/'
+                ? ""
+                : "/";
         written = snprintf(
             project_modules,
             sizeof(project_modules),
-            "%s/.vitte/modules",
-            ancestor);
+            "%s%s.vitte/modules",
+            ancestor,
+            path_separator);
         if (written >= 0 &&
             (size_t)written < sizeof(project_modules) &&
             vitte_main_module_try_candidate(

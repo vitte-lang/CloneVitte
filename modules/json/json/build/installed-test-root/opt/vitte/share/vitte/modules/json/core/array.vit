@@ -1,0 +1,3345 @@
+/// JSON array core.
+///
+/// Complete JSON array representation and manipulation layer.
+///
+/// Goals:
+/// - represent ordered JSON values;
+/// - preserve insertion order;
+/// - provide safe indexed access;
+/// - support append, insert, replace and removal;
+/// - support slicing and concatenation;
+/// - support searching and counting;
+/// - support structural equality;
+/// - support nested arrays;
+/// - expose validation helpers;
+/// - use only Vitte language syntax.
+///
+/// This module intentionally keeps the JSON value representation local.
+/// A higher-level json.core.value module can later unify Array, Object,
+/// Number, String, Boolean and Null into the canonical JSON value tree.
+
+space json::core::array;
+
+const DEFAULT_CAPACITY: usize = 8;
+const MINIMUM_CAPACITY: usize = 1;
+
+pick JsonArrayValueKind {
+    Null,
+    Bool,
+    Integer,
+    Float,
+    String,
+    Array,
+}
+
+pick JsonArrayError {
+    None,
+    IndexOutOfBounds,
+    Empty,
+    InvalidRange,
+    CapacityOverflow,
+}
+
+form JsonArrayValue {
+    kind: JsonArrayValueKind,
+
+    bool_value: bool,
+
+    integer_value: i64,
+
+    float_value: f64,
+
+    string_value: string,
+
+    array_value: [JsonArrayValue],
+}
+
+form JsonArray {
+    values: [JsonArrayValue],
+
+    length: usize,
+
+    capacity: usize,
+}
+
+form JsonArrayValueResult {
+    ok: bool,
+
+    value: JsonArrayValue,
+
+    error: JsonArrayError,
+
+    index: usize,
+}
+
+form JsonArrayResult {
+    ok: bool,
+
+    value: JsonArray,
+
+    error: JsonArrayError,
+
+    index: usize,
+}
+
+form JsonArrayIndexResult {
+    found: bool,
+
+    index: usize,
+}
+
+form JsonArrayRange {
+    start: usize,
+
+    end: usize,
+}
+
+proc null_value() -> JsonArrayValue {
+    return JsonArrayValue {
+        kind: JsonArrayValueKind.Null,
+
+        bool_value: false,
+
+        integer_value: 0,
+
+        float_value: 0.0,
+
+        string_value: "",
+
+        array_value: [],
+    };
+}
+
+proc bool_value(
+    value: bool
+) -> JsonArrayValue {
+    return JsonArrayValue {
+        kind: JsonArrayValueKind.Bool,
+
+        bool_value: value,
+
+        integer_value: 0,
+
+        float_value: 0.0,
+
+        string_value: "",
+
+        array_value: [],
+    };
+}
+
+proc integer_value(
+    value: i64
+) -> JsonArrayValue {
+    return JsonArrayValue {
+        kind: JsonArrayValueKind.Integer,
+
+        bool_value: false,
+
+        integer_value: value,
+
+        float_value: 0.0,
+
+        string_value: "",
+
+        array_value: [],
+    };
+}
+
+proc float_value(
+    value: f64
+) -> JsonArrayValue {
+    return JsonArrayValue {
+        kind: JsonArrayValueKind.Float,
+
+        bool_value: false,
+
+        integer_value: 0,
+
+        float_value: value,
+
+        string_value: "",
+
+        array_value: [],
+    };
+}
+
+proc string_value(
+    value: string
+) -> JsonArrayValue {
+    return JsonArrayValue {
+        kind: JsonArrayValueKind.String,
+
+        bool_value: false,
+
+        integer_value: 0,
+
+        float_value: 0.0,
+
+        string_value: value,
+
+        array_value: [],
+    };
+}
+
+proc array_value(
+    value: &JsonArray
+) -> JsonArrayValue {
+    return JsonArrayValue {
+        kind: JsonArrayValueKind.Array,
+
+        bool_value: false,
+
+        integer_value: 0,
+
+        float_value: 0.0,
+
+        string_value: "",
+
+        array_value: value.values,
+    };
+}
+
+proc empty() -> JsonArray {
+    return JsonArray {
+        values: [],
+
+        length: 0,
+
+        capacity: DEFAULT_CAPACITY,
+    };
+}
+
+proc with_capacity(
+    requested: usize
+) -> JsonArray {
+    let mut actual: usize =
+        requested;
+
+    if actual < MINIMUM_CAPACITY {
+        set actual =
+            MINIMUM_CAPACITY;
+    }
+
+    return JsonArray {
+        values: [],
+
+        length: 0,
+
+        capacity: actual,
+    };
+}
+
+proc singleton(
+    value: JsonArrayValue
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(1);
+
+    set result.values.push(value);
+
+    set result.length = 1;
+
+    return result;
+}
+
+proc len(
+    array: &JsonArray
+) -> usize {
+    return array.length;
+}
+
+proc capacity(
+    array: &JsonArray
+) -> usize {
+    return array.capacity;
+}
+
+proc is_empty(
+    array: &JsonArray
+) -> bool {
+    return array.length == 0;
+}
+
+proc is_not_empty(
+    array: &JsonArray
+) -> bool {
+    return array.length != 0;
+}
+
+proc is_valid_index(
+    array: &JsonArray,
+    index: usize
+) -> bool {
+    return index < array.length;
+}
+
+proc is_valid_insert_index(
+    array: &JsonArray,
+    index: usize
+) -> bool {
+    return index <= array.length;
+}
+
+proc next_capacity(
+    current: usize
+) -> usize {
+    if current < MINIMUM_CAPACITY {
+        return DEFAULT_CAPACITY;
+    }
+
+    return current * 2;
+}
+
+proc capacity_for(
+    current: usize,
+    required: usize
+) -> usize {
+    let mut result: usize =
+        current;
+
+    if result < MINIMUM_CAPACITY {
+        set result =
+            DEFAULT_CAPACITY;
+    }
+
+    while result < required {
+        set result =
+            next_capacity(result);
+    }
+
+    return result;
+}
+
+proc reserve(
+    array: &JsonArray,
+    required: usize
+) -> JsonArray {
+    let mut result: JsonArray =
+        clone(array);
+
+    if required <= result.capacity {
+        return result;
+    }
+
+    set result.capacity =
+        capacity_for(
+            result.capacity,
+            required);
+
+    return result;
+}
+
+proc reserve_additional(
+    array: &JsonArray,
+    additional: usize
+) -> JsonArray {
+    return reserve(
+        array,
+        array.length + additional);
+}
+
+proc value_is_null(
+    value: &JsonArrayValue
+) -> bool {
+    return value.kind ==
+         JsonArrayValueKind.Null;
+}
+
+proc value_is_bool(
+    value: &JsonArrayValue
+) -> bool {
+    return value.kind ==
+         JsonArrayValueKind.Bool;
+}
+
+proc value_is_integer(
+    value: &JsonArrayValue
+) -> bool {
+    return value.kind ==
+         JsonArrayValueKind.Integer;
+}
+
+proc value_is_float(
+    value: &JsonArrayValue
+) -> bool {
+    return value.kind ==
+         JsonArrayValueKind.Float;
+}
+
+proc value_is_number(
+    value: &JsonArrayValue
+) -> bool {
+    return value_is_integer(value) ||
+         value_is_float(value);
+}
+
+proc value_is_string(
+    value: &JsonArrayValue
+) -> bool {
+    return value.kind ==
+         JsonArrayValueKind.String;
+}
+
+proc value_is_array(
+    value: &JsonArrayValue
+) -> bool {
+    return value.kind ==
+         JsonArrayValueKind.Array;
+}
+
+proc value_as_bool(
+    value: &JsonArrayValue
+) -> bool {
+    return value.bool_value;
+}
+
+proc value_as_integer(
+    value: &JsonArrayValue
+) -> i64 {
+    if value_is_integer(value) {
+        return value.integer_value;
+    }
+
+    if value_is_float(value) {
+        return value.float_value as i64;
+    }
+
+    return 0;
+}
+
+proc value_as_float(
+    value: &JsonArrayValue
+) -> f64 {
+    if value_is_float(value) {
+        return value.float_value;
+    }
+
+    if value_is_integer(value) {
+        return value.integer_value as f64;
+    }
+
+    return 0.0;
+}
+
+proc value_as_string(
+    value: &JsonArrayValue
+) -> string {
+    return value.string_value;
+}
+
+proc value_copy(
+    value: &JsonArrayValue
+) -> JsonArrayValue {
+    return JsonArrayValue {
+        kind: value.kind,
+
+        bool_value:
+            value.bool_value,
+
+        integer_value:
+            value.integer_value,
+
+        float_value:
+            value.float_value,
+
+        string_value:
+            value.string_value,
+
+        array_value:
+            value.array_value,
+    };
+}
+
+proc value_equals(
+    left: &JsonArrayValue,
+    right: &JsonArrayValue
+) -> bool {
+    if left.kind != right.kind {
+        if value_is_number(left) &&
+           value_is_number(right) {
+            return value_as_float(left) ==
+                 value_as_float(right);
+        }
+
+        return false;
+    }
+
+    if value_is_null(left) {
+        return true;
+    }
+
+    if value_is_bool(left) {
+        return left.bool_value ==
+             right.bool_value;
+    }
+
+    if value_is_integer(left) {
+        return left.integer_value ==
+             right.integer_value;
+    }
+
+    if value_is_float(left) {
+        return left.float_value ==
+             right.float_value;
+    }
+
+    if value_is_string(left) {
+        return left.string_value ==
+             right.string_value;
+    }
+
+    if value_is_array(left) {
+        if left.array_value.length !=
+           right.array_value.length {
+            return false;
+        }
+
+        let mut index: usize = 0;
+
+        while index <
+              left.array_value.length {
+            let left_item: JsonArrayValue =
+                left.array_value[index];
+
+            let right_item: JsonArrayValue =
+                right.array_value[index];
+
+            if not value_equals(
+                &left_item,
+                &right_item) {
+                return false;
+            }
+
+            set index += 1;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+proc value_not_equals(
+    left: &JsonArrayValue,
+    right: &JsonArrayValue
+) -> bool {
+    return not value_equals(
+        left,
+        right);
+}
+
+proc push(
+    array: &JsonArray,
+    value: JsonArrayValue
+) -> JsonArray {
+    let mut result: JsonArray =
+        reserve(
+            array,
+            array.length + 1);
+
+    set result.values.push(value);
+
+    set result.length += 1;
+
+    return result;
+}
+
+proc push_null(
+    array: &JsonArray
+) -> JsonArray {
+    return push(
+        array,
+        null_value());
+}
+
+proc push_bool(
+    array: &JsonArray,
+    value: bool
+) -> JsonArray {
+    return push(
+        array,
+        bool_value(value));
+}
+
+proc push_integer(
+    array: &JsonArray,
+    value: i64
+) -> JsonArray {
+    return push(
+        array,
+        integer_value(value));
+}
+
+proc push_float(
+    array: &JsonArray,
+    value: f64
+) -> JsonArray {
+    return push(
+        array,
+        float_value(value));
+}
+
+proc push_string(
+    array: &JsonArray,
+    value: string
+) -> JsonArray {
+    return push(
+        array,
+        string_value(value));
+}
+
+proc push_array(
+    array: &JsonArray,
+    value: &JsonArray
+) -> JsonArray {
+    return push(
+        array,
+        array_value(value));
+}
+
+proc prepend(
+    array: &JsonArray,
+    value: JsonArrayValue
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            capacity_for(
+                array.capacity,
+                array.length + 1));
+
+    set result =
+        push(
+            &result,
+            value);
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        set result =
+            push(
+                &result,
+                array.values[index]);
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc prepend_null(
+    array: &JsonArray
+) -> JsonArray {
+    return prepend(
+        array,
+        null_value());
+}
+
+proc prepend_bool(
+    array: &JsonArray,
+    value: bool
+) -> JsonArray {
+    return prepend(
+        array,
+        bool_value(value));
+}
+
+proc prepend_integer(
+    array: &JsonArray,
+    value: i64
+) -> JsonArray {
+    return prepend(
+        array,
+        integer_value(value));
+}
+
+proc prepend_float(
+    array: &JsonArray,
+    value: f64
+) -> JsonArray {
+    return prepend(
+        array,
+        float_value(value));
+}
+
+proc prepend_string(
+    array: &JsonArray,
+    value: string
+) -> JsonArray {
+    return prepend(
+        array,
+        string_value(value));
+}
+
+proc get(
+    array: &JsonArray,
+    index: usize
+) -> JsonArrayValue {
+    if not is_valid_index(
+        array,
+        index) {
+        return null_value();
+    }
+
+    return array.values[index];
+}
+
+proc get_result(
+    array: &JsonArray,
+    index: usize
+) -> JsonArrayValueResult {
+    if not is_valid_index(
+        array,
+        index) {
+        return JsonArrayValueResult {
+            ok: false,
+
+            value:
+                null_value(),
+
+            error:
+                JsonArrayError.IndexOutOfBounds,
+
+            index: index,
+        };
+    }
+
+    return JsonArrayValueResult {
+        ok: true,
+
+        value:
+            array.values[index],
+
+        error:
+            JsonArrayError.None,
+
+        index: index,
+    };
+}
+
+proc first(
+    array: &JsonArray
+) -> JsonArrayValue {
+    if is_empty(array) {
+        return null_value();
+    }
+
+    return array.values[0];
+}
+
+proc first_result(
+    array: &JsonArray
+) -> JsonArrayValueResult {
+    if is_empty(array) {
+        return JsonArrayValueResult {
+            ok: false,
+
+            value:
+                null_value(),
+
+            error:
+                JsonArrayError.Empty,
+
+            index: 0,
+        };
+    }
+
+    return JsonArrayValueResult {
+        ok: true,
+
+        value:
+            array.values[0],
+
+        error:
+            JsonArrayError.None,
+
+        index: 0,
+    };
+}
+
+proc last(
+    array: &JsonArray
+) -> JsonArrayValue {
+    if is_empty(array) {
+        return null_value();
+    }
+
+    return array.values[
+        array.length - 1
+    ];
+}
+
+proc last_result(
+    array: &JsonArray
+) -> JsonArrayValueResult {
+    if is_empty(array) {
+        return JsonArrayValueResult {
+            ok: false,
+
+            value:
+                null_value(),
+
+            error:
+                JsonArrayError.Empty,
+
+            index: 0,
+        };
+    }
+
+    let index: usize =
+        array.length - 1;
+
+    return JsonArrayValueResult {
+        ok: true,
+
+        value:
+            array.values[index],
+
+        error:
+            JsonArrayError.None,
+
+        index: index,
+    };
+}
+
+proc set_value(
+    array: &JsonArray,
+    index: usize,
+    value: JsonArrayValue
+) -> JsonArray {
+    let mut result: JsonArray =
+        clone(array);
+
+    if not is_valid_index(
+        &result,
+        index) {
+        return result;
+    }
+
+    set result.values[index] =
+        value;
+
+    return result;
+}
+
+proc replace(
+    array: &JsonArray,
+    index: usize,
+    value: JsonArrayValue
+) -> JsonArrayResult {
+    if not is_valid_index(
+        array,
+        index) {
+        return JsonArrayResult {
+            ok: false,
+
+            value: clone(array),
+
+            error:
+                JsonArrayError.IndexOutOfBounds,
+
+            index: index,
+        };
+    }
+
+    let result: JsonArray =
+        set_value(
+            array,
+            index,
+            value);
+
+    return JsonArrayResult {
+        ok: true,
+
+        value: result,
+
+        error:
+            JsonArrayError.None,
+
+        index: index,
+    };
+}
+
+proc insert(
+    array: &JsonArray,
+    index: usize,
+    value: JsonArrayValue
+) -> JsonArrayResult {
+    if not is_valid_insert_index(
+        array,
+        index) {
+        return JsonArrayResult {
+            ok: false,
+
+            value: clone(array),
+
+            error:
+                JsonArrayError.IndexOutOfBounds,
+
+            index: index,
+        };
+    }
+
+    let mut result: JsonArray =
+        with_capacity(
+            capacity_for(
+                array.capacity,
+                array.length + 1));
+
+    let mut current: usize = 0;
+
+    while current < index {
+        set result =
+            push(
+                &result,
+                array.values[current]);
+
+        set current += 1;
+    }
+
+    set result =
+        push(
+            &result,
+            value);
+
+    while current < array.length {
+        set result =
+            push(
+                &result,
+                array.values[current]);
+
+        set current += 1;
+    }
+
+    return JsonArrayResult {
+        ok: true,
+
+        value: result,
+
+        error:
+            JsonArrayError.None,
+
+        index: index,
+    };
+}
+
+proc insert_null(
+    array: &JsonArray,
+    index: usize
+) -> JsonArrayResult {
+    return insert(
+        array,
+        index,
+        null_value());
+}
+
+proc insert_bool(
+    array: &JsonArray,
+    index: usize,
+    value: bool
+) -> JsonArrayResult {
+    return insert(
+        array,
+        index,
+        bool_value(value));
+}
+
+proc insert_integer(
+    array: &JsonArray,
+    index: usize,
+    value: i64
+) -> JsonArrayResult {
+    return insert(
+        array,
+        index,
+        integer_value(value));
+}
+
+proc insert_float(
+    array: &JsonArray,
+    index: usize,
+    value: f64
+) -> JsonArrayResult {
+    return insert(
+        array,
+        index,
+        float_value(value));
+}
+
+proc insert_string(
+    array: &JsonArray,
+    index: usize,
+    value: string
+) -> JsonArrayResult {
+    return insert(
+        array,
+        index,
+        string_value(value));
+}
+
+proc remove_at(
+    array: &JsonArray,
+    index: usize
+) -> JsonArrayResult {
+    if not is_valid_index(
+        array,
+        index) {
+        return JsonArrayResult {
+            ok: false,
+
+            value: clone(array),
+
+            error:
+                JsonArrayError.IndexOutOfBounds,
+
+            index: index,
+        };
+    }
+
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut current: usize = 0;
+
+    while current < array.length {
+        if current != index {
+            set result =
+                push(
+                    &result,
+                    array.values[current]);
+        }
+
+        set current += 1;
+    }
+
+    return JsonArrayResult {
+        ok: true,
+
+        value: result,
+
+        error:
+            JsonArrayError.None,
+
+        index: index,
+    };
+}
+
+proc pop(
+    array: &JsonArray
+) -> JsonArrayResult {
+    if is_empty(array) {
+        return JsonArrayResult {
+            ok: false,
+
+            value: clone(array),
+
+            error:
+                JsonArrayError.Empty,
+
+            index: 0,
+        };
+    }
+
+    return remove_at(
+        array,
+        array.length - 1);
+}
+
+proc remove_first(
+    array: &JsonArray
+) -> JsonArrayResult {
+    if is_empty(array) {
+        return JsonArrayResult {
+            ok: false,
+
+            value: clone(array),
+
+            error:
+                JsonArrayError.Empty,
+
+            index: 0,
+        };
+    }
+
+    return remove_at(
+        array,
+        0);
+}
+
+proc clear(
+    array: &JsonArray
+) -> JsonArray {
+    return JsonArray {
+        values: [],
+
+        length: 0,
+
+        capacity: array.capacity,
+    };
+}
+
+proc reset() -> JsonArray {
+    return empty();
+}
+
+proc clone(
+    array: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        set result =
+            push(
+                &result,
+                value_copy(
+                    &array.values[index]));
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc append(
+    destination: &JsonArray,
+    source: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        reserve(
+            destination,
+            destination.length +
+            source.length);
+
+    let mut index: usize = 0;
+
+    while index < source.length {
+        set result =
+            push(
+                &result,
+                source.values[index]);
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc concat(
+    left: &JsonArray,
+    right: &JsonArray
+) -> JsonArray {
+    return append(
+        left,
+        right);
+}
+
+proc repeat(
+    value: JsonArrayValue,
+    count: usize
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(count);
+
+    let mut index: usize = 0;
+
+    while index < count {
+        set result =
+            push(
+                &result,
+                value_copy(&value));
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc reverse(
+    array: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize =
+        array.length;
+
+    while index > 0 {
+        set index -= 1;
+
+        set result =
+            push(
+                &result,
+                array.values[index]);
+    }
+
+    return result;
+}
+
+proc range_valid(
+    array: &JsonArray,
+    start: usize,
+    end: usize
+) -> bool {
+    return start <= end &&
+         end <= array.length;
+}
+
+proc slice(
+    array: &JsonArray,
+    start: usize,
+    end: usize
+) -> JsonArrayResult {
+    if not range_valid(
+        array,
+        start,
+        end) {
+        return JsonArrayResult {
+            ok: false,
+
+            value:
+                empty(),
+
+            error:
+                JsonArrayError.InvalidRange,
+
+            index: start,
+        };
+    }
+
+    let count: usize =
+        end - start;
+
+    let mut result: JsonArray =
+        with_capacity(
+            count);
+
+    let mut index: usize =
+        start;
+
+    while index < end {
+        set result =
+            push(
+                &result,
+                array.values[index]);
+
+        set index += 1;
+    }
+
+    return JsonArrayResult {
+        ok: true,
+
+        value: result,
+
+        error:
+            JsonArrayError.None,
+
+        index: start,
+    };
+}
+
+proc take(
+    array: &JsonArray,
+    count: usize
+) -> JsonArray {
+    let mut actual: usize =
+        count;
+
+    if actual > array.length {
+        set actual =
+            array.length;
+    }
+
+    let result: JsonArrayResult =
+        slice(
+            array,
+            0,
+            actual);
+
+    return result.value;
+}
+
+proc drop(
+    array: &JsonArray,
+    count: usize
+) -> JsonArray {
+    if count >= array.length {
+        return with_capacity(
+            array.capacity);
+    }
+
+    let result: JsonArrayResult =
+        slice(
+            array,
+            count,
+            array.length);
+
+    return result.value;
+}
+
+proc take_last(
+    array: &JsonArray,
+    count: usize
+) -> JsonArray {
+    if count >= array.length {
+        return clone(array);
+    }
+
+    let start: usize =
+        array.length - count;
+
+    let result: JsonArrayResult =
+        slice(
+            array,
+            start,
+            array.length);
+
+    return result.value;
+}
+
+proc drop_last(
+    array: &JsonArray,
+    count: usize
+) -> JsonArray {
+    if count >= array.length {
+        return with_capacity(
+            array.capacity);
+    }
+
+    let end: usize =
+        array.length - count;
+
+    let result: JsonArrayResult =
+        slice(
+            array,
+            0,
+            end);
+
+    return result.value;
+}
+
+proc contains(
+    array: &JsonArray,
+    value: &JsonArrayValue
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_equals(
+            &array.values[index],
+            value) {
+            return true;
+        }
+
+        set index += 1;
+    }
+
+    return false;
+}
+
+proc index_of(
+    array: &JsonArray,
+    value: &JsonArrayValue
+) -> JsonArrayIndexResult {
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_equals(
+            &array.values[index],
+            value) {
+            return JsonArrayIndexResult {
+                found: true,
+                index: index,
+            };
+        }
+
+        set index += 1;
+    }
+
+    return JsonArrayIndexResult {
+        found: false,
+        index: 0,
+    };
+}
+
+proc last_index_of(
+    array: &JsonArray,
+    value: &JsonArrayValue
+) -> JsonArrayIndexResult {
+    let mut index: usize =
+        array.length;
+
+    while index > 0 {
+        set index -= 1;
+
+        if value_equals(
+            &array.values[index],
+            value) {
+            return JsonArrayIndexResult {
+                found: true,
+                index: index,
+            };
+        }
+    }
+
+    return JsonArrayIndexResult {
+        found: false,
+        index: 0,
+    };
+}
+
+proc count(
+    array: &JsonArray,
+    value: &JsonArrayValue
+) -> usize {
+    let mut result: usize = 0;
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_equals(
+            &array.values[index],
+            value) {
+            set result += 1;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc count_kind(
+    array: &JsonArray,
+    kind: JsonArrayValueKind
+) -> usize {
+    let mut result: usize = 0;
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if array.values[index].kind ==
+           kind {
+            set result += 1;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc contains_null(
+    array: &JsonArray
+) -> bool {
+    let value: JsonArrayValue =
+        null_value();
+
+    return contains(
+        array,
+        &value);
+}
+
+proc contains_bool(
+    array: &JsonArray,
+    value: bool
+) -> bool {
+    let expected: JsonArrayValue =
+        bool_value(value);
+
+    return contains(
+        array,
+        &expected);
+}
+
+proc contains_integer(
+    array: &JsonArray,
+    value: i64
+) -> bool {
+    let expected: JsonArrayValue =
+        integer_value(value);
+
+    return contains(
+        array,
+        &expected);
+}
+
+proc contains_float(
+    array: &JsonArray,
+    value: f64
+) -> bool {
+    let expected: JsonArrayValue =
+        float_value(value);
+
+    return contains(
+        array,
+        &expected);
+}
+
+proc contains_string(
+    array: &JsonArray,
+    value: string
+) -> bool {
+    let expected: JsonArrayValue =
+        string_value(value);
+
+    return contains(
+        array,
+        &expected);
+}
+
+proc count_null(
+    array: &JsonArray
+) -> usize {
+    return count_kind(
+        array,
+        JsonArrayValueKind.Null);
+}
+
+proc count_bool(
+    array: &JsonArray
+) -> usize {
+    return count_kind(
+        array,
+        JsonArrayValueKind.Bool);
+}
+
+proc count_integer(
+    array: &JsonArray
+) -> usize {
+    return count_kind(
+        array,
+        JsonArrayValueKind.Integer);
+}
+
+proc count_float(
+    array: &JsonArray
+) -> usize {
+    return count_kind(
+        array,
+        JsonArrayValueKind.Float);
+}
+
+proc count_number(
+    array: &JsonArray
+) -> usize {
+    return count_integer(array) +
+         count_float(array);
+}
+
+proc count_string(
+    array: &JsonArray
+) -> usize {
+    return count_kind(
+        array,
+        JsonArrayValueKind.String);
+}
+
+proc count_array(
+    array: &JsonArray
+) -> usize {
+    return count_kind(
+        array,
+        JsonArrayValueKind.Array);
+}
+
+proc equals(
+    left: &JsonArray,
+    right: &JsonArray
+) -> bool {
+    if left.length !=
+       right.length {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < left.length {
+        if not value_equals(
+            &left.values[index],
+            &right.values[index]) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc not_equals(
+    left: &JsonArray,
+    right: &JsonArray
+) -> bool {
+    return not equals(
+        left,
+        right);
+}
+
+proc starts_with(
+    array: &JsonArray,
+    prefix: &JsonArray
+) -> bool {
+    if prefix.length >
+       array.length {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < prefix.length {
+        if not value_equals(
+            &array.values[index],
+            &prefix.values[index]) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc ends_with(
+    array: &JsonArray,
+    suffix: &JsonArray
+) -> bool {
+    if suffix.length >
+       array.length {
+        return false;
+    }
+
+    let offset: usize =
+        array.length -
+        suffix.length;
+
+    let mut index: usize = 0;
+
+    while index < suffix.length {
+        if not value_equals(
+            &array.values[
+                offset + index
+            ],
+            &suffix.values[index]) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc all_null(
+    array: &JsonArray
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if not value_is_null(
+            &array.values[index]) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc all_bool(
+    array: &JsonArray
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if not value_is_bool(
+            &array.values[index]) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc all_integer(
+    array: &JsonArray
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if not value_is_integer(
+            &array.values[index]) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc all_number(
+    array: &JsonArray
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if not value_is_number(
+            &array.values[index]) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc all_string(
+    array: &JsonArray
+) -> bool {
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if not value_is_string(
+            &array.values[index]) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc any_null(
+    array: &JsonArray
+) -> bool {
+    return count_null(array) > 0;
+}
+
+proc any_bool(
+    array: &JsonArray
+) -> bool {
+    return count_bool(array) > 0;
+}
+
+proc any_integer(
+    array: &JsonArray
+) -> bool {
+    return count_integer(array) > 0;
+}
+
+proc any_number(
+    array: &JsonArray
+) -> bool {
+    return count_number(array) > 0;
+}
+
+proc any_string(
+    array: &JsonArray
+) -> bool {
+    return count_string(array) > 0;
+}
+
+proc any_array(
+    array: &JsonArray
+) -> bool {
+    return count_array(array) > 0;
+}
+
+proc compact_nulls(
+    array: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if not value_is_null(
+            &array.values[index]) {
+            set result =
+                push(
+                    &result,
+                    array.values[index]);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_nulls(
+    array: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_is_null(
+            &array.values[index]) {
+            set result =
+                push(
+                    &result,
+                    array.values[index]);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_bools(
+    array: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_is_bool(
+            &array.values[index]) {
+            set result =
+                push(
+                    &result,
+                    array.values[index]);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_integers(
+    array: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_is_integer(
+            &array.values[index]) {
+            set result =
+                push(
+                    &result,
+                    array.values[index]);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_numbers(
+    array: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_is_number(
+            &array.values[index]) {
+            set result =
+                push(
+                    &result,
+                    array.values[index]);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_strings(
+    array: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_is_string(
+            &array.values[index]) {
+            set result =
+                push(
+                    &result,
+                    array.values[index]);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_arrays(
+    array: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_is_array(
+            &array.values[index]) {
+            set result =
+                push(
+                    &result,
+                    array.values[index]);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc integer_sum(
+    array: &JsonArray
+) -> i64 {
+    let mut result: i64 = 0;
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_is_integer(
+            &array.values[index]) {
+            set result +=
+                array.values[index].
+                    integer_value;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc number_sum(
+    array: &JsonArray
+) -> f64 {
+    let mut result: f64 = 0.0;
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_is_integer(
+            &array.values[index]) {
+            set result +=
+                array.values[index].
+                    integer_value as f64;
+        }
+
+        if value_is_float(
+            &array.values[index]) {
+            set result +=
+                array.values[index].
+                    float_value;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc integer_minimum(
+    array: &JsonArray
+) -> JsonArrayValueResult {
+    let mut found: bool = false;
+    let mut minimum: i64 = 0;
+    let mut minimum_index: usize = 0;
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_is_integer(
+            &array.values[index]) {
+            let value: i64 =
+                array.values[index].
+                    integer_value;
+
+            if not found ||
+               value < minimum {
+                set found = true;
+                set minimum = value;
+                set minimum_index = index;
+            }
+        }
+
+        set index += 1;
+    }
+
+    if not found {
+        return JsonArrayValueResult {
+            ok: false,
+
+            value:
+                null_value(),
+
+            error:
+                JsonArrayError.Empty,
+
+            index: 0,
+        };
+    }
+
+    return JsonArrayValueResult {
+        ok: true,
+
+        value:
+            integer_value(minimum),
+
+        error:
+            JsonArrayError.None,
+
+        index:
+            minimum_index,
+    };
+}
+
+proc integer_maximum(
+    array: &JsonArray
+) -> JsonArrayValueResult {
+    let mut found: bool = false;
+    let mut maximum: i64 = 0;
+    let mut maximum_index: usize = 0;
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if value_is_integer(
+            &array.values[index]) {
+            let value: i64 =
+                array.values[index].
+                    integer_value;
+
+            if not found ||
+               value > maximum {
+                set found = true;
+                set maximum = value;
+                set maximum_index = index;
+            }
+        }
+
+        set index += 1;
+    }
+
+    if not found {
+        return JsonArrayValueResult {
+            ok: false,
+
+            value:
+                null_value(),
+
+            error:
+                JsonArrayError.Empty,
+
+            index: 0,
+        };
+    }
+
+    return JsonArrayValueResult {
+        ok: true,
+
+        value:
+            integer_value(maximum),
+
+        error:
+            JsonArrayError.None,
+
+        index:
+            maximum_index,
+    };
+}
+
+proc swap(
+    array: &JsonArray,
+    left: usize,
+    right: usize
+) -> JsonArrayResult {
+    if not is_valid_index(
+           array,
+           left) ||
+       not is_valid_index(
+           array,
+           right) {
+        return JsonArrayResult {
+            ok: false,
+
+            value: clone(array),
+
+            error:
+                JsonArrayError.IndexOutOfBounds,
+
+            index: left,
+        };
+    }
+
+    let mut result: JsonArray =
+        clone(array);
+
+    let temporary: JsonArrayValue =
+        result.values[left];
+
+    set result.values[left] =
+        result.values[right];
+
+    set result.values[right] =
+        temporary;
+
+    return JsonArrayResult {
+        ok: true,
+
+        value: result,
+
+        error:
+            JsonArrayError.None,
+
+        index: left,
+    };
+}
+
+proc rotate_left(
+    array: &JsonArray
+) -> JsonArray {
+    if array.length <= 1 {
+        return clone(array);
+    }
+
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize = 1;
+
+    while index < array.length {
+        set result =
+            push(
+                &result,
+                array.values[index]);
+
+        set index += 1;
+    }
+
+    set result =
+        push(
+            &result,
+            array.values[0]);
+
+    return result;
+}
+
+proc rotate_right(
+    array: &JsonArray
+) -> JsonArray {
+    if array.length <= 1 {
+        return clone(array);
+    }
+
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    set result =
+        push(
+            &result,
+            array.values[
+                array.length - 1
+            ]);
+
+    let mut index: usize = 0;
+
+    while index <
+          array.length - 1 {
+        set result =
+            push(
+                &result,
+                array.values[index]);
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc unique(
+    array: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        let value: JsonArrayValue =
+            array.values[index];
+
+        if not contains(
+            &result,
+            &value) {
+            set result =
+                push(
+                    &result,
+                    value);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc remove_value(
+    array: &JsonArray,
+    value: &JsonArrayValue
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut removed: bool = false;
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if not removed &&
+           value_equals(
+               &array.values[index],
+               value) {
+            set removed = true;
+        } else {
+            set result =
+                push(
+                    &result,
+                    array.values[index]);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc remove_all(
+    array: &JsonArray,
+    value: &JsonArrayValue
+) -> JsonArray {
+    let mut result: JsonArray =
+        with_capacity(
+            array.capacity);
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if not value_equals(
+            &array.values[index],
+            value) {
+            set result =
+                push(
+                    &result,
+                    array.values[index]);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc replace_all(
+    array: &JsonArray,
+    old_value: &JsonArrayValue,
+    new_value: JsonArrayValue
+) -> JsonArray {
+    let mut result: JsonArray =
+        clone(array);
+
+    let mut index: usize = 0;
+
+    while index < result.length {
+        if value_equals(
+            &result.values[index],
+            old_value) {
+            set result.values[index] =
+                value_copy(
+                    &new_value);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc nested_array(
+    value: &JsonArrayValue
+) -> JsonArray {
+    if not value_is_array(value) {
+        return empty();
+    }
+
+    return JsonArray {
+        values:
+            value.array_value,
+
+        length:
+            value.array_value.length,
+
+        capacity:
+            capacity_for(
+                MINIMUM_CAPACITY,
+                value.array_value.length),
+    };
+}
+
+proc flatten_one(
+    array: &JsonArray
+) -> JsonArray {
+    let mut result: JsonArray =
+        empty();
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        let value: JsonArrayValue =
+            array.values[index];
+
+        if value_is_array(&value) {
+            let nested: JsonArray =
+                nested_array(&value);
+
+            set result =
+                append(
+                    &result,
+                    &nested);
+        } else {
+            set result =
+                push(
+                    &result,
+                    value);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc value_depth(
+    value: &JsonArrayValue
+) -> usize {
+    if not value_is_array(value) {
+        return 0;
+    }
+
+    let mut maximum: usize = 0;
+    let mut index: usize = 0;
+
+    while index <
+          value.array_value.length {
+        let depth: usize =
+            value_depth(
+                &value.array_value[index]);
+
+        if depth > maximum {
+            set maximum = depth;
+        }
+
+        set index += 1;
+    }
+
+    return maximum + 1;
+}
+
+proc depth(
+    array: &JsonArray
+) -> usize {
+    let mut maximum: usize = 1;
+    let mut index: usize = 0;
+
+    while index < array.length {
+        let value_depth_value: usize =
+            value_depth(
+                &array.values[index]);
+
+        let candidate: usize =
+            value_depth_value + 1;
+
+        if candidate > maximum {
+            set maximum =
+                candidate;
+        }
+
+        set index += 1;
+    }
+
+    return maximum;
+}
+
+proc scalar_count(
+    array: &JsonArray
+) -> usize {
+    let mut result: usize = 0;
+    let mut index: usize = 0;
+
+    while index < array.length {
+        let value: JsonArrayValue =
+            array.values[index];
+
+        if value_is_array(&value) {
+            let nested: JsonArray =
+                nested_array(&value);
+
+            set result +=
+                scalar_count(
+                    &nested);
+        } else {
+            set result += 1;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc total_value_count(
+    array: &JsonArray
+) -> usize {
+    let mut result: usize =
+        array.length;
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        let value: JsonArrayValue =
+            array.values[index];
+
+        if value_is_array(&value) {
+            let nested: JsonArray =
+                nested_array(&value);
+
+            set result +=
+                total_value_count(
+                    &nested);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc validate_value(
+    value: &JsonArrayValue
+) -> bool {
+    if value.kind ==
+       JsonArrayValueKind.Null {
+        return true;
+    }
+
+    if value.kind ==
+       JsonArrayValueKind.Bool {
+        return true;
+    }
+
+    if value.kind ==
+       JsonArrayValueKind.Integer {
+        return true;
+    }
+
+    if value.kind ==
+       JsonArrayValueKind.Float {
+        return true;
+    }
+
+    if value.kind ==
+       JsonArrayValueKind.String {
+        return true;
+    }
+
+    if value.kind ==
+       JsonArrayValueKind.Array {
+        let mut index: usize = 0;
+
+        while index <
+              value.array_value.length {
+            if not validate_value(
+                &value.array_value[index]) {
+                return false;
+            }
+
+            set index += 1;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+proc validate(
+    array: &JsonArray
+) -> bool {
+    if array.capacity <
+       MINIMUM_CAPACITY {
+        return false;
+    }
+
+    if array.length >
+       array.capacity {
+        return false;
+    }
+
+    if array.values.length !=
+       array.length {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < array.length {
+        if not validate_value(
+            &array.values[index]) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc error_name(
+    error: JsonArrayError
+) -> string {
+    if error ==
+       JsonArrayError.None {
+        return "none";
+    }
+
+    if error ==
+       JsonArrayError.IndexOutOfBounds {
+        return "index out of bounds";
+    }
+
+    if error ==
+       JsonArrayError.Empty {
+        return "empty array";
+    }
+
+    if error ==
+       JsonArrayError.InvalidRange {
+        return "invalid range";
+    }
+
+    return "capacity overflow";
+}
+
+proc test_empty() -> bool {
+    let array: JsonArray =
+        empty();
+
+    return is_empty(&array) &&
+         len(&array) == 0 &&
+         capacity(&array) >=
+             MINIMUM_CAPACITY &&
+         validate(&array);
+}
+
+proc test_push() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    return array.length == 2 &&
+         value_as_integer(
+             &array.values[0]) == 20 &&
+         value_as_integer(
+             &array.values[1]) == 22;
+}
+
+proc test_all_types() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_null(&array);
+
+    set array =
+        push_bool(
+            &array,
+            true);
+
+    set array =
+        push_integer(
+            &array,
+            42);
+
+    set array =
+        push_float(
+            &array,
+            42.5);
+
+    set array =
+        push_string(
+            &array,
+            "Vitte");
+
+    return array.length == 5 &&
+         value_is_null(
+             &array.values[0]) &&
+         value_is_bool(
+             &array.values[1]) &&
+         value_is_integer(
+             &array.values[2]) &&
+         value_is_float(
+             &array.values[3]) &&
+         value_is_string(
+             &array.values[4]);
+}
+
+proc test_first_last() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    let first_value: JsonArrayValue =
+        first(&array);
+
+    let last_value: JsonArrayValue =
+        last(&array);
+
+    return value_as_integer(
+               &first_value) == 20 &&
+         value_as_integer(
+               &last_value) == 22;
+}
+
+proc test_replace() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            21);
+
+    let result: JsonArrayResult =
+        replace(
+            &array,
+            1,
+            integer_value(22));
+
+    return result.ok &&
+         value_as_integer(
+             &result.value.values[1]) ==
+             22;
+}
+
+proc test_insert() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    let result: JsonArrayResult =
+        insert_integer(
+            &array,
+            1,
+            21);
+
+    return result.ok &&
+         result.value.length == 3 &&
+         value_as_integer(
+             &result.value.values[0]) == 20 &&
+         value_as_integer(
+             &result.value.values[1]) == 21 &&
+         value_as_integer(
+             &result.value.values[2]) == 22;
+}
+
+proc test_remove() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            21);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    let result: JsonArrayResult =
+        remove_at(
+            &array,
+            1);
+
+    return result.ok &&
+         result.value.length == 2 &&
+         value_as_integer(
+             &result.value.values[0]) == 20 &&
+         value_as_integer(
+             &result.value.values[1]) == 22;
+}
+
+proc test_concat() -> bool {
+    let mut left: JsonArray =
+        empty();
+
+    let mut right: JsonArray =
+        empty();
+
+    set left =
+        push_integer(
+            &left,
+            20);
+
+    set right =
+        push_integer(
+            &right,
+            22);
+
+    let result: JsonArray =
+        concat(
+            &left,
+            &right);
+
+    return result.length == 2 &&
+         integer_sum(&result) == 42;
+}
+
+proc test_reverse() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            21);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    let result: JsonArray =
+        reverse(&array);
+
+    return value_as_integer(
+               &result.values[0]) == 22 &&
+         value_as_integer(
+               &result.values[1]) == 21 &&
+         value_as_integer(
+               &result.values[2]) == 20;
+}
+
+proc test_slice() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            10);
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    set array =
+        push_integer(
+            &array,
+            30);
+
+    let result: JsonArrayResult =
+        slice(
+            &array,
+            1,
+            3);
+
+    return result.ok &&
+         result.value.length == 2 &&
+         integer_sum(
+             &result.value) == 42;
+}
+
+proc test_contains() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            42);
+
+    set array =
+        push_string(
+            &array,
+            "Vitte");
+
+    return contains_integer(
+               &array,
+               42) &&
+         contains_string(
+               &array,
+               "Vitte") &&
+         not contains_integer(
+               &array,
+               43);
+}
+
+proc test_unique() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    let result: JsonArray =
+        unique(&array);
+
+    return result.length == 2 &&
+         integer_sum(&result) == 42;
+}
+
+proc test_equality() -> bool {
+    let mut left: JsonArray =
+        empty();
+
+    let mut right: JsonArray =
+        empty();
+
+    set left =
+        push_integer(
+            &left,
+            20);
+
+    set left =
+        push_integer(
+            &left,
+            22);
+
+    set right =
+        push_integer(
+            &right,
+            20);
+
+    set right =
+        push_integer(
+            &right,
+            22);
+
+    return equals(
+        &left,
+        &right);
+}
+
+proc test_nested_array() -> bool {
+    let mut inner: JsonArray =
+        empty();
+
+    set inner =
+        push_integer(
+            &inner,
+            20);
+
+    set inner =
+        push_integer(
+            &inner,
+            22);
+
+    let mut outer: JsonArray =
+        empty();
+
+    set outer =
+        push_array(
+            &outer,
+            &inner);
+
+    if outer.length != 1 {
+        return false;
+    }
+
+    if not value_is_array(
+        &outer.values[0]) {
+        return false;
+    }
+
+    let restored: JsonArray =
+        nested_array(
+            &outer.values[0]);
+
+    return restored.length == 2 &&
+         integer_sum(
+             &restored) == 42;
+}
+
+proc test_flatten_one() -> bool {
+    let mut nested: JsonArray =
+        empty();
+
+    set nested =
+        push_integer(
+            &nested,
+            20);
+
+    set nested =
+        push_integer(
+            &nested,
+            22);
+
+    let mut outer: JsonArray =
+        empty();
+
+    set outer =
+        push_integer(
+            &outer,
+            10);
+
+    set outer =
+        push_array(
+            &outer,
+            &nested);
+
+    set outer =
+        push_integer(
+            &outer,
+            30);
+
+    let flat: JsonArray =
+        flatten_one(
+            &outer);
+
+    return flat.length == 4 &&
+         integer_sum(&flat) == 82;
+}
+
+proc test_numeric_filters() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_string(
+            &array,
+            "ignored");
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    set array =
+        push_bool(
+            &array,
+            true);
+
+    let integers: JsonArray =
+        only_integers(
+            &array);
+
+    return integers.length == 2 &&
+         integer_sum(
+             &integers) == 42;
+}
+
+proc test_minimum_maximum() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            42);
+
+    set array =
+        push_integer(
+            &array,
+            -10);
+
+    set array =
+        push_integer(
+            &array,
+            100);
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    let minimum: JsonArrayValueResult =
+        integer_minimum(
+            &array);
+
+    let maximum: JsonArrayValueResult =
+        integer_maximum(
+            &array);
+
+    return minimum.ok &&
+         maximum.ok &&
+         minimum.value.integer_value ==
+             -10 &&
+         maximum.value.integer_value ==
+             100;
+}
+
+proc test_rotation() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            21);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    let left: JsonArray =
+        rotate_left(
+            &array);
+
+    let right: JsonArray =
+        rotate_right(
+            &array);
+
+    return left.values[0].integer_value == 21 &&
+         left.values[1].integer_value == 22 &&
+         left.values[2].integer_value == 20 &&
+         right.values[0].integer_value == 22 &&
+         right.values[1].integer_value == 20 &&
+         right.values[2].integer_value == 21;
+}
+
+proc test_remove_all() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            42);
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    let target: JsonArrayValue =
+        integer_value(20);
+
+    let result: JsonArray =
+        remove_all(
+            &array,
+            &target);
+
+    return result.length == 2 &&
+         result.values[0].integer_value ==
+             42 &&
+         result.values[1].integer_value ==
+             22;
+}
+
+proc test_replace_all() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    let old_value: JsonArrayValue =
+        integer_value(20);
+
+    let new_value: JsonArrayValue =
+        integer_value(42);
+
+    let result: JsonArray =
+        replace_all(
+            &array,
+            &old_value,
+            new_value);
+
+    return result.length == 3 &&
+         result.values[0].integer_value == 42 &&
+         result.values[1].integer_value == 42 &&
+         result.values[2].integer_value == 42;
+}
+
+proc test_take_drop() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            10);
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    set array =
+        push_integer(
+            &array,
+            30);
+
+    let first_two: JsonArray =
+        take(
+            &array,
+            2);
+
+    let last_two: JsonArray =
+        drop(
+            &array,
+            2);
+
+    return first_two.length == 2 &&
+         last_two.length == 2 &&
+         integer_sum(
+             &first_two) == 30 &&
+         integer_sum(
+             &last_two) == 52;
+}
+
+proc test_starts_ends_with() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_integer(
+            &array,
+            20);
+
+    set array =
+        push_integer(
+            &array,
+            21);
+
+    set array =
+        push_integer(
+            &array,
+            22);
+
+    let mut prefix: JsonArray =
+        empty();
+
+    set prefix =
+        push_integer(
+            &prefix,
+            20);
+
+    set prefix =
+        push_integer(
+            &prefix,
+            21);
+
+    let mut suffix: JsonArray =
+        empty();
+
+    set suffix =
+        push_integer(
+            &suffix,
+            21);
+
+    set suffix =
+        push_integer(
+            &suffix,
+            22);
+
+    return starts_with(
+               &array,
+               &prefix) &&
+         ends_with(
+               &array,
+               &suffix);
+}
+
+proc test_validation() -> bool {
+    let mut array: JsonArray =
+        empty();
+
+    set array =
+        push_null(&array);
+
+    set array =
+        push_bool(
+            &array,
+            true);
+
+    set array =
+        push_integer(
+            &array,
+            42);
+
+    set array =
+        push_float(
+            &array,
+            42.5);
+
+    set array =
+        push_string(
+            &array,
+            "Vitte");
+
+    return validate(&array);
+}
+
+proc self_test() -> bool {
+    return test_empty() &&
+         test_push() &&
+         test_all_types() &&
+         test_first_last() &&
+         test_replace() &&
+         test_insert() &&
+         test_remove() &&
+         test_concat() &&
+         test_reverse() &&
+         test_slice() &&
+         test_contains() &&
+         test_unique() &&
+         test_equality() &&
+         test_nested_array() &&
+         test_flatten_one() &&
+         test_numeric_filters() &&
+         test_minimum_maximum() &&
+         test_rotation() &&
+         test_remove_all() &&
+         test_replace_all() &&
+         test_take_drop() &&
+         test_starts_ends_with() &&
+         test_validation();
+}

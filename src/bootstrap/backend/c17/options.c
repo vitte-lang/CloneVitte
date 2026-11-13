@@ -230,6 +230,9 @@ vitte_c17_options_error_name(
 
         case VITTE_C17_OPTIONS_ERROR_COUNT:
             return "count";
+
+        default:
+            return "unknown";
     }
 }
 
@@ -262,6 +265,9 @@ vitte_c17_profile_name(
 
         case VITTE_C17_PROFILE_COUNT:
             return "count";
+
+        default:
+            return "invalid";
     }
 }
 
@@ -285,6 +291,9 @@ vitte_c17_dialect_name(
 
         case VITTE_C17_DIALECT_COUNT:
             return "count";
+
+        default:
+            return "invalid";
     }
 }
 
@@ -320,6 +329,9 @@ vitte_c17_optimization_name(
 
         case VITTE_C17_OPTIMIZATION_COUNT:
             return "count";
+
+        default:
+            return "invalid";
     }
 }
 
@@ -349,6 +361,9 @@ vitte_c17_runtime_mode_name(
 
         case VITTE_C17_RUNTIME_MODE_COUNT:
             return "count";
+
+        default:
+            return "invalid";
     }
 }
 
@@ -1468,6 +1483,9 @@ vitte_c17_options_native_optimization_flag(
         case VITTE_C17_OPTIMIZATION_INVALID:
         case VITTE_C17_OPTIMIZATION_COUNT:
             return NULL;
+
+        default:
+            return NULL;
     }
 }
 
@@ -1493,6 +1511,9 @@ vitte_c17_options_native_dialect_flag(
 
         case VITTE_C17_DIALECT_INVALID:
         case VITTE_C17_DIALECT_COUNT:
+            return NULL;
+
+        default:
             return NULL;
     }
 }

@@ -1,0 +1,1311 @@
+/// JSON source positions.
+///
+/// Precise source-location model shared by the JSON lexer, parser,
+/// decoder and diagnostics.
+///
+/// Internal coordinates:
+/// - byte/character offset is zero-based;
+/// - line is zero-based;
+/// - column is zero-based.
+///
+/// Human-facing helpers expose one-based line and column values.
+///
+/// A position also tracks the absolute offset so consumers can compare,
+/// order and construct spans without rescanning the source.
+
+space json::error::position;
+
+export form JsonPosition {
+    offset: usize,
+
+    line: usize,
+
+    column: usize,
+}
+
+export form JsonSpan {
+    start: JsonPosition,
+
+    end: JsonPosition,
+}
+
+export form JsonLocatedRange {
+    source: string,
+
+    span: JsonSpan,
+}
+
+/// -------------------------------------------------------------------------
+/// Position construction
+/// -------------------------------------------------------------------------
+
+export proc position(
+    offset: usize,
+    line: usize,
+    column: usize
+) -> JsonPosition {
+    return JsonPosition {
+        offset: offset,
+
+        line: line,
+
+        column: column,
+    };
+}
+
+export proc start() -> JsonPosition {
+    return position(
+        0,
+        0,
+        0);
+}
+
+export proc origin() -> JsonPosition {
+    return start();
+}
+
+export proc at_offset(
+    offset: usize
+) -> JsonPosition {
+    return position(
+        offset,
+        0,
+        offset);
+}
+
+/// -------------------------------------------------------------------------
+/// Human coordinates
+/// -------------------------------------------------------------------------
+
+export proc human_line(
+    value: &JsonPosition
+) -> usize {
+    return value.line + 1;
+}
+
+export proc human_column(
+    value: &JsonPosition
+) -> usize {
+    return value.column + 1;
+}
+
+/// -------------------------------------------------------------------------
+/// Position movement
+/// -------------------------------------------------------------------------
+
+export proc advance_column(
+    value: &JsonPosition
+) -> JsonPosition {
+    return position(
+        value.offset + 1,
+        value.line,
+        value.column + 1);
+}
+
+export proc advance_columns(
+    value: &JsonPosition,
+    count: usize
+) -> JsonPosition {
+    return position(
+        value.offset + count,
+        value.line,
+        value.column + count);
+}
+
+export proc advance_line(
+    value: &JsonPosition
+) -> JsonPosition {
+    return position(
+        value.offset + 1,
+        value.line + 1,
+        0);
+}
+
+export proc advance_newline_width(
+    value: &JsonPosition,
+    width: usize
+) -> JsonPosition {
+    return position(
+        value.offset + width,
+        value.line + 1,
+        0);
+}
+
+export proc advance_lf(
+    value: &JsonPosition
+) -> JsonPosition {
+    return advance_newline_width(
+        value,
+        1);
+}
+
+export proc advance_cr(
+    value: &JsonPosition
+) -> JsonPosition {
+    return advance_newline_width(
+        value,
+        1);
+}
+
+export proc advance_crlf(
+    value: &JsonPosition
+) -> JsonPosition {
+    return advance_newline_width(
+        value,
+        2);
+}
+
+export proc with_offset(
+    value: &JsonPosition,
+    offset: usize
+) -> JsonPosition {
+    return position(
+        offset,
+        value.line,
+        value.column);
+}
+
+export proc with_line(
+    value: &JsonPosition,
+    line: usize
+) -> JsonPosition {
+    return position(
+        value.offset,
+        line,
+        value.column);
+}
+
+export proc with_column(
+    value: &JsonPosition,
+    column: usize
+) -> JsonPosition {
+    return position(
+        value.offset,
+        value.line,
+        column);
+}
+
+/// -------------------------------------------------------------------------
+/// Character-aware movement
+/// -------------------------------------------------------------------------
+
+export proc advance_character(
+    value: &JsonPosition,
+    character: char
+) -> JsonPosition {
+    if character == '\n' {
+        return advance_lf(
+            value);
+    }
+
+    if character == '\r' {
+        return advance_cr(
+            value);
+    }
+
+    return advance_column(
+        value);
+}
+
+/// -------------------------------------------------------------------------
+/// Source scanning
+///
+/// CRLF is treated as one logical newline occupying two source units.
+/// -------------------------------------------------------------------------
+
+export proc advance_text(
+    value: &JsonPosition,
+    text: string
+) -> JsonPosition {
+    let mut result: JsonPosition =
+        JsonPosition {
+            offset: value.offset,
+            line: value.line,
+            column: value.column,
+        };
+
+    let mut index: usize = 0;
+
+    while index <
+          text.length {
+        let current: char =
+            text[index];
+
+        if current == '\r' {
+            if index + 1 <
+               text.length &&
+               text[index + 1] == '\n' {
+                set result =
+                    advance_crlf(
+                        &result);
+
+                set index += 2;
+
+                continue;
+            }
+
+            set result =
+                advance_cr(
+                    &result);
+
+            set index += 1;
+
+            continue;
+        }
+
+        if current == '\n' {
+            set result =
+                advance_lf(
+                    &result);
+
+            set index += 1;
+
+            continue;
+        }
+
+        set result =
+            advance_column(
+                &result);
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+export proc position_after(
+    text: string
+) -> JsonPosition {
+    let beginning: JsonPosition =
+        start();
+
+    return advance_text(
+        &beginning,
+        text);
+}
+
+/// -------------------------------------------------------------------------
+/// Position comparison
+/// -------------------------------------------------------------------------
+
+export proc equal(
+    left: &JsonPosition,
+    right: &JsonPosition
+) -> bool {
+    return left.offset ==
+             right.offset &&
+         left.line ==
+             right.line &&
+         left.column ==
+             right.column;
+}
+
+export proc same_offset(
+    left: &JsonPosition,
+    right: &JsonPosition
+) -> bool {
+    return left.offset ==
+         right.offset;
+}
+
+export proc before(
+    left: &JsonPosition,
+    right: &JsonPosition
+) -> bool {
+    return left.offset <
+         right.offset;
+}
+
+export proc before_or_equal(
+    left: &JsonPosition,
+    right: &JsonPosition
+) -> bool {
+    return left.offset <=
+         right.offset;
+}
+
+export proc after(
+    left: &JsonPosition,
+    right: &JsonPosition
+) -> bool {
+    return left.offset >
+         right.offset;
+}
+
+export proc after_or_equal(
+    left: &JsonPosition,
+    right: &JsonPosition
+) -> bool {
+    return left.offset >=
+         right.offset;
+}
+
+export proc compare(
+    left: &JsonPosition,
+    right: &JsonPosition
+) -> i64 {
+    if left.offset <
+       right.offset {
+        return -1;
+    }
+
+    if left.offset >
+       right.offset {
+        return 1;
+    }
+
+    return 0;
+}
+
+export proc minimum(
+    left: &JsonPosition,
+    right: &JsonPosition
+) -> JsonPosition {
+    if left.offset <=
+       right.offset {
+        return left;
+    }
+
+    return right;
+}
+
+export proc maximum(
+    left: &JsonPosition,
+    right: &JsonPosition
+) -> JsonPosition {
+    if left.offset >=
+       right.offset {
+        return left;
+    }
+
+    return right;
+}
+
+/// -------------------------------------------------------------------------
+/// Position distance
+/// -------------------------------------------------------------------------
+
+export proc distance(
+    start_position: &JsonPosition,
+    end_position: &JsonPosition
+) -> usize {
+    if end_position.offset <
+       start_position.offset {
+        return 0;
+    }
+
+    return end_position.offset -
+         start_position.offset;
+}
+
+export proc same_line(
+    left: &JsonPosition,
+    right: &JsonPosition
+) -> bool {
+    return left.line ==
+         right.line;
+}
+
+export proc line_distance(
+    left: &JsonPosition,
+    right: &JsonPosition
+) -> usize {
+    if left.line <=
+       right.line {
+        return right.line -
+             left.line;
+    }
+
+    return left.line -
+         right.line;
+}
+
+/// -------------------------------------------------------------------------
+/// Position validation
+/// -------------------------------------------------------------------------
+
+export proc position_valid(
+    value: &JsonPosition
+) -> bool {
+    return true;
+}
+
+export proc consistent_with(
+    value: &JsonPosition,
+    source: string
+) -> bool {
+    return value.offset <=
+         source.length;
+}
+
+/// -------------------------------------------------------------------------
+/// Span construction
+/// -------------------------------------------------------------------------
+
+export proc span(
+    start_position: JsonPosition,
+    end_position: JsonPosition
+) -> JsonSpan {
+    return JsonSpan {
+        start: start_position,
+
+        end: end_position,
+    };
+}
+
+export proc point(
+    value: JsonPosition
+) -> JsonSpan {
+    return span(
+        value,
+        value);
+}
+
+export proc empty_span() -> JsonSpan {
+    let value: JsonPosition =
+        start();
+
+    return point(
+        value);
+}
+
+export proc span_from_start(
+    end_position: JsonPosition
+) -> JsonSpan {
+    return span(
+        start(),
+        end_position);
+}
+
+export proc span_from_text(
+    text: string
+) -> JsonSpan {
+    let first: JsonPosition =
+        start();
+
+    let last: JsonPosition =
+        advance_text(
+            &first,
+            text);
+
+    return span(
+        first,
+        last);
+}
+
+export proc span_for_text(
+    start_position: JsonPosition,
+    text: string
+) -> JsonSpan {
+    let end_position: JsonPosition =
+        advance_text(
+            &start_position,
+            text);
+
+    return span(
+        start_position,
+        end_position);
+}
+
+/// -------------------------------------------------------------------------
+/// Span properties
+/// -------------------------------------------------------------------------
+
+export proc span_valid(
+    value: &JsonSpan
+) -> bool {
+    return value.end.offset >=
+         value.start.offset;
+}
+
+export proc span_empty(
+    value: &JsonSpan
+) -> bool {
+    return value.start.offset ==
+         value.end.offset;
+}
+
+export proc span_length(
+    value: &JsonSpan
+) -> usize {
+    return distance(
+        &value.start,
+        &value.end);
+}
+
+export proc span_single_line(
+    value: &JsonSpan
+) -> bool {
+    return value.start.line ==
+         value.end.line;
+}
+
+export proc span_multiline(
+    value: &JsonSpan
+) -> bool {
+    return value.start.line !=
+         value.end.line;
+}
+
+export proc span_line_count(
+    value: &JsonSpan
+) -> usize {
+    if not span_valid(value) {
+        return 0;
+    }
+
+    return value.end.line -
+         value.start.line +
+         1;
+}
+
+/// -------------------------------------------------------------------------
+/// Span comparison
+/// -------------------------------------------------------------------------
+
+export proc spans_equal(
+    left: &JsonSpan,
+    right: &JsonSpan
+) -> bool {
+    return equal(
+               &left.start,
+               &right.start) &&
+         equal(
+               &left.end,
+               &right.end);
+}
+
+export proc span_before(
+    left: &JsonSpan,
+    right: &JsonSpan
+) -> bool {
+    return left.end.offset <=
+         right.start.offset;
+}
+
+export proc span_after(
+    left: &JsonSpan,
+    right: &JsonSpan
+) -> bool {
+    return left.start.offset >=
+         right.end.offset;
+}
+
+export proc span_contains_position(
+    value: &JsonSpan,
+    position_value: &JsonPosition
+) -> bool {
+    return position_value.offset >=
+             value.start.offset &&
+         position_value.offset <
+             value.end.offset;
+}
+
+export proc span_contains_position_inclusive(
+    value: &JsonSpan,
+    position_value: &JsonPosition
+) -> bool {
+    return position_value.offset >=
+             value.start.offset &&
+         position_value.offset <=
+             value.end.offset;
+}
+
+export proc span_contains_span(
+    outer: &JsonSpan,
+    inner: &JsonSpan
+) -> bool {
+    return inner.start.offset >=
+             outer.start.offset &&
+         inner.end.offset <=
+             outer.end.offset;
+}
+
+export proc spans_overlap(
+    left: &JsonSpan,
+    right: &JsonSpan
+) -> bool {
+    return left.start.offset <
+             right.end.offset &&
+         right.start.offset <
+             left.end.offset;
+}
+
+export proc spans_touch(
+    left: &JsonSpan,
+    right: &JsonSpan
+) -> bool {
+    return left.end.offset ==
+             right.start.offset ||
+         right.end.offset ==
+             left.start.offset;
+}
+
+export proc spans_overlap_or_touch(
+    left: &JsonSpan,
+    right: &JsonSpan
+) -> bool {
+    return spans_overlap(
+               left,
+               right) ||
+         spans_touch(
+               left,
+               right);
+}
+
+/// -------------------------------------------------------------------------
+/// Span composition
+/// -------------------------------------------------------------------------
+
+export proc merge_spans(
+    left: &JsonSpan,
+    right: &JsonSpan
+) -> JsonSpan {
+    let first: JsonPosition =
+        minimum(
+            &left.start,
+            &right.start);
+
+    let last: JsonPosition =
+        maximum(
+            &left.end,
+            &right.end);
+
+    return span(
+        first,
+        last);
+}
+
+export proc span_between(
+    left: &JsonSpan,
+    right: &JsonSpan
+) -> JsonSpan {
+    if left.end.offset <=
+       right.start.offset {
+        return span(
+            left.end,
+            right.start);
+    }
+
+    if right.end.offset <=
+       left.start.offset {
+        return span(
+            right.end,
+            left.start);
+    }
+
+    let overlap_start: JsonPosition =
+        maximum(
+            &left.start,
+            &right.start);
+
+    return point(
+        overlap_start);
+}
+
+/// -------------------------------------------------------------------------
+/// Span source bounds
+/// -------------------------------------------------------------------------
+
+export proc span_consistent_with(
+    value: &JsonSpan,
+    source: string
+) -> bool {
+    if not span_valid(value) {
+        return false;
+    }
+
+    if value.start.offset >
+       source.length {
+        return false;
+    }
+
+    if value.end.offset >
+       source.length {
+        return false;
+    }
+
+    return true;
+}
+
+/// -------------------------------------------------------------------------
+/// Located ranges
+/// -------------------------------------------------------------------------
+
+export proc located(
+    source: string,
+    value: JsonSpan
+) -> JsonLocatedRange {
+    return JsonLocatedRange {
+        source: source,
+
+        span: value,
+    };
+}
+
+export proc located_point(
+    source: string,
+    value: JsonPosition
+) -> JsonLocatedRange {
+    return located(
+        source,
+        point(value));
+}
+
+export proc located_equal(
+    left: &JsonLocatedRange,
+    right: &JsonLocatedRange
+) -> bool {
+    return left.source ==
+             right.source &&
+         spans_equal(
+             &left.span,
+             &right.span);
+}
+
+export proc located_valid(
+    value: &JsonLocatedRange
+) -> bool {
+    return span_valid(
+        &value.span);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — construction
+/// -------------------------------------------------------------------------
+
+test "json position origin" {
+    let value: JsonPosition =
+        start();
+
+    assert value.offset == 0;
+    assert value.line == 0;
+    assert value.column == 0;
+
+    assert human_line(
+        &value) == 1;
+
+    assert human_column(
+        &value) == 1;
+}
+
+test "json position construction" {
+    let value: JsonPosition =
+        position(
+            42,
+            4,
+            8);
+
+    assert value.offset == 42;
+    assert value.line == 4;
+    assert value.column == 8;
+
+    assert human_line(
+        &value) == 5;
+
+    assert human_column(
+        &value) == 9;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — movement
+/// -------------------------------------------------------------------------
+
+test "json position advances column" {
+    let first: JsonPosition =
+        position(
+            10,
+            2,
+            4);
+
+    let next: JsonPosition =
+        advance_column(
+            &first);
+
+    assert next.offset == 11;
+    assert next.line == 2;
+    assert next.column == 5;
+}
+
+test "json position advances columns" {
+    let first: JsonPosition =
+        position(
+            10,
+            2,
+            4);
+
+    let next: JsonPosition =
+        advance_columns(
+            &first,
+            8);
+
+    assert next.offset == 18;
+    assert next.line == 2;
+    assert next.column == 12;
+}
+
+test "json position advances lf" {
+    let first: JsonPosition =
+        position(
+            10,
+            2,
+            4);
+
+    let next: JsonPosition =
+        advance_lf(
+            &first);
+
+    assert next.offset == 11;
+    assert next.line == 3;
+    assert next.column == 0;
+}
+
+test "json position advances crlf" {
+    let first: JsonPosition =
+        position(
+            10,
+            2,
+            4);
+
+    let next: JsonPosition =
+        advance_crlf(
+            &first);
+
+    assert next.offset == 12;
+    assert next.line == 3;
+    assert next.column == 0;
+}
+
+test "json position advances text" {
+    let first: JsonPosition =
+        start();
+
+    let last: JsonPosition =
+        advance_text(
+            &first,
+            "abc\ndef");
+
+    assert last.offset == 7;
+    assert last.line == 1;
+    assert last.column == 3;
+}
+
+test "json position advances crlf text" {
+    let first: JsonPosition =
+        start();
+
+    let last: JsonPosition =
+        advance_text(
+            &first,
+            "abc\r\ndef");
+
+    assert last.offset == 8;
+    assert last.line == 1;
+    assert last.column == 3;
+}
+
+test "json position advances multiple lines" {
+    let last: JsonPosition =
+        position_after(
+            "a\nb\nc");
+
+    assert last.offset == 5;
+    assert last.line == 2;
+    assert last.column == 1;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — comparison
+/// -------------------------------------------------------------------------
+
+test "json position equality" {
+    let left: JsonPosition =
+        position(
+            42,
+            4,
+            8);
+
+    let right: JsonPosition =
+        position(
+            42,
+            4,
+            8);
+
+    assert equal(
+        &left,
+        &right);
+
+    assert same_offset(
+        &left,
+        &right);
+}
+
+test "json position ordering" {
+    let first: JsonPosition =
+        position(
+            10,
+            1,
+            2);
+
+    let second: JsonPosition =
+        position(
+            20,
+            2,
+            4);
+
+    assert before(
+        &first,
+        &second);
+
+    assert before_or_equal(
+        &first,
+        &second);
+
+    assert after(
+        &second,
+        &first);
+
+    assert after_or_equal(
+        &second,
+        &first);
+
+    assert compare(
+        &first,
+        &second) == -1;
+
+    assert compare(
+        &second,
+        &first) == 1;
+
+    assert distance(
+        &first,
+        &second) == 10;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — spans
+/// -------------------------------------------------------------------------
+
+test "json position empty span" {
+    let value: JsonSpan =
+        empty_span();
+
+    assert span_valid(
+        &value);
+
+    assert span_empty(
+        &value);
+
+    assert span_length(
+        &value) == 0;
+}
+
+test "json position text span" {
+    let value: JsonSpan =
+        span_from_text(
+            "Vitte");
+
+    assert span_valid(
+        &value);
+
+    assert not span_empty(
+        &value);
+
+    assert span_length(
+        &value) == 5;
+
+    assert span_single_line(
+        &value);
+}
+
+test "json position multiline span" {
+    let value: JsonSpan =
+        span_from_text(
+            "Vitte\nJSON");
+
+    assert span_valid(
+        &value);
+
+    assert span_multiline(
+        &value);
+
+    assert value.start.line == 0;
+    assert value.end.line == 1;
+    assert value.end.column == 4;
+
+    assert span_line_count(
+        &value) == 2;
+}
+
+test "json position span contains position" {
+    let value: JsonSpan =
+        span(
+            position(
+                10,
+                1,
+                0),
+
+            position(
+                20,
+                1,
+                10));
+
+    let inside: JsonPosition =
+        position(
+            15,
+            1,
+            5);
+
+    let outside: JsonPosition =
+        position(
+            25,
+            2,
+            0);
+
+    assert span_contains_position(
+        &value,
+        &inside);
+
+    assert not span_contains_position(
+        &value,
+        &outside);
+}
+
+test "json position span containment" {
+    let outer: JsonSpan =
+        span(
+            position(
+                10,
+                1,
+                0),
+
+            position(
+                30,
+                2,
+                5));
+
+    let inner: JsonSpan =
+        span(
+            position(
+                15,
+                1,
+                5),
+
+            position(
+                20,
+                1,
+                10));
+
+    assert span_contains_span(
+        &outer,
+        &inner);
+}
+
+test "json position overlapping spans" {
+    let left: JsonSpan =
+        span(
+            position(
+                10,
+                0,
+                10),
+
+            position(
+                20,
+                0,
+                20));
+
+    let right: JsonSpan =
+        span(
+            position(
+                15,
+                0,
+                15),
+
+            position(
+                25,
+                0,
+                25));
+
+    assert spans_overlap(
+        &left,
+        &right);
+}
+
+test "json position touching spans" {
+    let left: JsonSpan =
+        span(
+            position(
+                10,
+                0,
+                10),
+
+            position(
+                20,
+                0,
+                20));
+
+    let right: JsonSpan =
+        span(
+            position(
+                20,
+                0,
+                20),
+
+            position(
+                30,
+                0,
+                30));
+
+    assert not spans_overlap(
+        &left,
+        &right);
+
+    assert spans_touch(
+        &left,
+        &right);
+
+    assert spans_overlap_or_touch(
+        &left,
+        &right);
+}
+
+test "json position merges spans" {
+    let left: JsonSpan =
+        span(
+            position(
+                10,
+                1,
+                0),
+
+            position(
+                20,
+                1,
+                10));
+
+    let right: JsonSpan =
+        span(
+            position(
+                15,
+                1,
+                5),
+
+            position(
+                30,
+                2,
+                5));
+
+    let merged: JsonSpan =
+        merge_spans(
+            &left,
+            &right);
+
+    assert merged.start.offset == 10;
+    assert merged.end.offset == 30;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — source bounds
+/// -------------------------------------------------------------------------
+
+test "json position consistent source bounds" {
+    let source: string =
+        "{\"value\":42}";
+
+    let value: JsonSpan =
+        span(
+            position(
+                0,
+                0,
+                0),
+
+            position(
+                source.length,
+                0,
+                source.length));
+
+    assert span_consistent_with(
+        &value,
+        source);
+}
+
+test "json position rejects source overflow" {
+    let source: string =
+        "{}";
+
+    let value: JsonSpan =
+        span(
+            position(
+                0,
+                0,
+                0),
+
+            position(
+                100,
+                0,
+                100));
+
+    assert not span_consistent_with(
+        &value,
+        source);
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — located ranges
+/// -------------------------------------------------------------------------
+
+test "json position located range" {
+    let value: JsonLocatedRange =
+        located(
+            "config.json",
+
+            span(
+                position(
+                    10,
+                    1,
+                    2),
+
+                position(
+                    20,
+                    1,
+                    12)));
+
+    assert value.source ==
+        "config.json";
+
+    assert located_valid(
+        &value);
+
+    assert value.span.start.offset ==
+        10;
+
+    assert value.span.end.offset ==
+        20;
+}
+
+test "json position located equality" {
+    let range: JsonSpan =
+        span(
+            position(
+                10,
+                1,
+                2),
+
+            position(
+                20,
+                1,
+                12));
+
+    let left: JsonLocatedRange =
+        located(
+            "config.json",
+            range);
+
+    let right: JsonLocatedRange =
+        located(
+            "config.json",
+            range);
+
+    assert located_equal(
+        &left,
+        &right);
+}
