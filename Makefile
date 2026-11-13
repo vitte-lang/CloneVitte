@@ -63,7 +63,7 @@ endif
 ifeq ($(strip $(CC)),)
 CC := cc
 endif
-PATH_LIST_SEPARATOR := $(shell printf '' | $(CC) -dM -E -x c - 2>/dev/null | grep -q '^#define _WIN32 ' && printf ';' || printf ':')
+PATH_LIST_SEPARATOR := $(shell printf '' | $(CC) -dM -E -x c - 2>/dev/null | grep -q 'define _WIN32' && printf ';' || printf ':')
 AR ?= ar
 RANLIB ?= ranlib
 NM ?= nm
