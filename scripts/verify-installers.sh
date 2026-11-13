@@ -324,6 +324,20 @@ verify_bsd_kits() {
         die "BSD installer missing payload component $component: $bsd_kit"
     done
 
+    install_text=$(tar -xOf "$bsd_kit" install.sh)
+    uninstall_text=$(tar -xOf "$bsd_kit" uninstall.sh)
+    for text in "$install_text" "$uninstall_text"; do
+      printf '%s\n' "$text" |
+        grep -F 'PREFIX must not be /' >/dev/null ||
+        die "BSD installer does not reject a root prefix: $bsd_kit"
+      printf '%s\n' "$text" |
+        grep -F 'DESTDIR must not be /' >/dev/null ||
+        die "BSD installer does not reject a root staging directory: $bsd_kit"
+      if printf '%s\n' "$text" | grep -F 'tar -cf -' >/dev/null; then
+        die "BSD installer uses an unchecked tar pipeline: $bsd_kit"
+      fi
+    done
+
     for command in \
       vitte \
       vittec
@@ -489,6 +503,19 @@ verify_solaris() {
         die "Solaris kit missing $required: $solaris_kit"
     done
 
+    for script in install.sh uninstall.sh; do
+      script_text=$(tar -xOzf "$solaris_kit" "$script")
+      printf '%s\n' "$script_text" |
+        grep -F 'PREFIX must not be /' >/dev/null ||
+        die "Solaris kit does not reject a root prefix: $solaris_kit"
+      printf '%s\n' "$script_text" |
+        grep -F 'DESTDIR must not be /' >/dev/null ||
+        die "Solaris kit does not reject a root staging directory: $solaris_kit"
+      if printf '%s\n' "$script_text" | grep -F 'tar -cf -' >/dev/null; then
+        die "Solaris kit uses an unchecked tar pipeline: $solaris_kit"
+      fi
+    done
+
     tar -xOzf \
       "$solaris_kit" \
       prototype |
@@ -573,10 +600,43 @@ verify_windows() {
       die "Windows NSIS script missing PATH uninstall function: $windows_kit"
 
     printf '%s\n' "$nsi" |
+      grep -F 'PreviousVitAssociation' >/dev/null ||
+      die "Windows NSIS installer does not preserve the previous .vit association: $windows_kit"
+    printf '%s\n' "$nsi" |
+      grep -F 'DeleteRegValue HKCR ".vit" ""' >/dev/null ||
+      die "Windows NSIS uninstaller does not remove only its .vit value: $windows_kit"
+
+    printf '%s\n' "$nsi" |
       grep -F \
         'DeleteRegValue HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "VITTE_ROOT"' \
         >/dev/null ||
       die "Windows NSIS script does not remove VITTE_ROOT: $windows_kit"
+
+    if printf '%s\n' "$nsi" | grep -F 'RMDir /r "$INSTDIR"' >/dev/null; then
+      die "Windows NSIS uninstaller recursively removes the whole prefix: $windows_kit"
+    fi
+
+    install_ps=$(
+      tar -xOzf "$windows_kit" install.ps1
+    )
+    printf '%s\n' "$install_ps" |
+      grep -F 'Refusing to install into a drive root' >/dev/null ||
+      die "Windows PowerShell installer does not guard the installation path: $windows_kit"
+    printf '%s\n' "$install_ps" |
+      grep -F 'Rollback was incomplete' >/dev/null ||
+      die "Windows PowerShell installer is missing rollback reporting: $windows_kit"
+
+    uninstall_ps=$(
+      tar -xOzf "$windows_kit" uninstall.ps1
+    )
+    printf '%s\n' "$uninstall_ps" |
+      grep -F 'installation manifest does not identify a Vitte installation' >/dev/null ||
+      die "Windows PowerShell uninstaller does not verify its installation marker: $windows_kit"
+    if printf '%s\n' "$uninstall_ps" |
+       grep -F 'Remove-Item -LiteralPath $Prefix -Recurse -Force' >/dev/null
+    then
+      die "Windows PowerShell uninstaller recursively removes the whole prefix: $windows_kit"
+    fi
 
     for command in \
       vitte \

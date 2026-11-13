@@ -180,6 +180,8 @@ vitte_c17_backend_error_name(
         case VITTE_C17_BACKEND_ERROR_COUNT:
             return "count";
 
+        default:
+            return "unknown";
     }
 }
 
@@ -216,6 +218,8 @@ vitte_c17_backend_state_name(
         case VITTE_C17_BACKEND_STATE_COUNT:
             return "count";
 
+        default:
+            return "invalid";
     }
 }
 
@@ -273,6 +277,8 @@ vitte_c17_section_name(
         case VITTE_C17_SECTION_COUNT:
             return "count";
 
+        default:
+            return "invalid";
     }
 }
 

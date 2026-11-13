@@ -49,6 +49,11 @@ INSTALL_TEST_MODULE_ROOT := $(INSTALL_TEST_ROOT)$(INSTALL_TEST_PREFIX)/share/vit
 # ----------------------------------------------------------------------------
 
 VITTE ?= ../../build/bin/vitte
+VITTE_EXECUTABLE := $(if $(wildcard $(VITTE)),$(VITTE),$(if $(wildcard $(VITTE).exe),$(VITTE).exe,$(VITTE)))
+
+BUILD_HOST_OS := $(shell uname -s 2>/dev/null || echo unknown)
+EXE_SUFFIX ?= $(if $(filter MINGW% MSYS% CYGWIN%,$(BUILD_HOST_OS)),.exe,)
+PATH_LIST_SEPARATOR ?= $(shell printf '' | $(CC) -dM -E -x c - 2>/dev/null | grep -q '^#define _WIN32 ' && printf ';' || printf ':')
 
 VITTE_FLAGS ?=
 
@@ -234,14 +239,14 @@ $(LOG_DIR): | $(BUILD_DIR)
 
 check-compiler:
 	$(call heading,Checking Vitte compiler)
-	@if [ ! -x "$(VITTE)" ]; then \
+	@if [ ! -x "$(VITTE_EXECUTABLE)" ]; then \
 		$(PRINTF) 'Vitte compiler not found or not executable:\n'; \
-		$(PRINTF) '  %s\n\n' "$(VITTE)"; \
+		$(PRINTF) '  %s\n\n' "$(VITTE_EXECUTABLE)"; \
 		$(PRINTF) 'Override it with:\n'; \
 		$(PRINTF) '  make VITTE=/path/to/vitte\n'; \
 		exit 1; \
 	fi
-	$(call success,$(VITTE))
+	$(call success,$(VITTE_EXECUTABLE))
 
 # ----------------------------------------------------------------------------
 # Layout validation
@@ -289,7 +294,7 @@ define run_check
 	@set -e; \
 	for source in $(1); do \
 		$(PRINTF) '    CHECK %s\n' "$$source"; \
-		"$(VITTE)" check $(VITTE_FLAGS) $(VITTE_CHECK_FLAGS) "$$source"; \
+		VITTE_MODULE_PATH=".." "$(VITTE_EXECUTABLE)" check $(VITTE_FLAGS) $(VITTE_CHECK_FLAGS) "$$source"; \
 	done
 endef
 
@@ -349,7 +354,7 @@ check: \
 	check-sources \
 	check-compiler
 	$(call heading,Checking package entry module)
-	@"$(VITTE)" check $(VITTE_FLAGS) json.vit
+	@"$(VITTE_EXECUTABLE)" check $(VITTE_FLAGS) json.vit
 	$(call heading,JSON module check complete)
 	$(call success,$(MODULE_NAME) package layout)
 
@@ -360,10 +365,10 @@ check: \
 define run_test
 	@$(PRINTF) '    COMPILE TEST %s\n' "$(1)"
 	@$(MKDIR) "$(BUILD_DIR)/tests"
-	@"$(VITTE)" compile $(VITTE_FLAGS) $(VITTE_TEST_FLAGS) \
+	@VITTE_MODULE_PATH=".." "$(VITTE_EXECUTABLE)" compile $(VITTE_FLAGS) $(VITTE_TEST_FLAGS) \
 		"$(1)" \
-		-o "$(BUILD_DIR)/tests/$(notdir $(basename $(1)))"
-	@"$(BUILD_DIR)/tests/$(notdir $(basename $(1)))"
+		-o "$(BUILD_DIR)/tests/$(notdir $(basename $(1)))$(EXE_SUFFIX)"
+	@"$(BUILD_DIR)/tests/$(notdir $(basename $(1)))$(EXE_SUFFIX)"
 endef
 
 # ----------------------------------------------------------------------------
@@ -385,13 +390,14 @@ test-vitte: check-compiler check-sources
 		PREFIX="$(INSTALL_TEST_PREFIX)" \
 		DESTDIR="$(INSTALL_TEST_ROOT)"
 	@$(MKDIR) "$(INSTALL_TEST_ROOT)$(INSTALL_TEST_PREFIX)/bin"
-	@install -m 755 "$(VITTE)" \
-		"$(INSTALL_TEST_ROOT)$(INSTALL_TEST_PREFIX)/bin/vitte"
+	@install -m 755 "$(VITTE_EXECUTABLE)" \
+		"$(INSTALL_TEST_ROOT)$(INSTALL_TEST_PREFIX)/bin/vitte$(EXE_SUFFIX)"
 	@cp tests/import_smoke.vit "$(INSTALL_TEST_MODULE_ROOT)/consumer.vit"
-	@"$(INSTALL_TEST_ROOT)$(INSTALL_TEST_PREFIX)/bin/vitte" \
+	@VITTE_MODULE_PATH="$(INSTALL_TEST_MODULE_ROOT)" \
+		"$(INSTALL_TEST_ROOT)$(INSTALL_TEST_PREFIX)/bin/vitte$(EXE_SUFFIX)" \
 		compile "$(INSTALL_TEST_MODULE_ROOT)/consumer.vit" \
-		-o "$(INSTALL_TEST_MODULE_ROOT)/consumer"
-	@"$(INSTALL_TEST_MODULE_ROOT)/consumer"
+		-o "$(INSTALL_TEST_MODULE_ROOT)/consumer$(EXE_SUFFIX)"
+	@"$(INSTALL_TEST_MODULE_ROOT)/consumer$(EXE_SUFFIX)"
 	$(call success,installed JSON parser and encoder consumer compiled and ran)
 
 # ----------------------------------------------------------------------------
@@ -462,7 +468,7 @@ test: test-vitte test-string-concat
 
 smoke: check-compiler check-sources
 	$(call heading,Running smoke tests)
-	@"$(VITTE)" check $(VITTE_FLAGS) json.vit
+	@"$(VITTE_EXECUTABLE)" check $(VITTE_FLAGS) json.vit
 	$(call success,smoke tests)
 
 # ----------------------------------------------------------------------------
@@ -555,7 +561,7 @@ info:
 	$(call heading,Vitte JSON module)
 	@$(PRINTF) 'Name:       %s\n' "$(MODULE_NAME)"
 	@$(PRINTF) 'Version:    %s\n' "$(MODULE_VERSION)"
-	@$(PRINTF) 'Compiler:   %s\n' "$(VITTE)"
+	@$(PRINTF) 'Compiler:   %s\n' "$(VITTE_EXECUTABLE)"
 	@$(PRINTF) 'Build dir:  %s\n' "$(BUILD_DIR)"
 	@$(PRINTF) '\n'
 	@$(PRINTF) 'Core sources:\n'

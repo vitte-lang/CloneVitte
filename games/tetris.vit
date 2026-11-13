@@ -154,20 +154,20 @@ proc board_index(
     x: i64,
     y: i64
 ) -> i64 {
-    give y * BOARD_WIDTH + x;
+    return y * BOARD_WIDTH + x;
 }
 
 proc inside_x(
     x: i64
 ) -> bool {
-    give x >= 0 &&
+    return x >= 0 &&
          x < BOARD_WIDTH;
 }
 
 proc inside_y(
     y: i64
 ) -> bool {
-    give y >= 0 &&
+    return y >= 0 &&
          y < BOARD_HEIGHT;
 }
 
@@ -175,12 +175,12 @@ proc inside_board(
     x: i64,
     y: i64
 ) -> bool {
-    give inside_x(x) &&
+    return inside_x(x) &&
          inside_y(y);
 }
 
 proc make_empty_board() -> Board {
-    give Board {
+    return Board {
         cells: [
             0,0,0,0,0,0,0,0,0,0,
             0,0,0,0,0,0,0,0,0,0,
@@ -211,11 +211,11 @@ proc board_get(
     x: i64,
     y: i64
 ) -> i64 {
-    if !inside_board(x, y) {
-        give EMPTY;
+    if not inside_board(x, y) {
+        return EMPTY;
     }
 
-    give board.cells[
+    return board.cells[
         board_index(x, y)
     ];
 }
@@ -235,11 +235,11 @@ proc board_set(
         ] = value;
     }
 
-    give result;
+    return result;
 }
 
 proc clear_board() -> Board {
-    give make_empty_board();
+    return make_empty_board();
 }
 
 proc normalize_rotation(
@@ -256,43 +256,43 @@ proc normalize_rotation(
         set result -= 4;
     }
 
-    give result;
+    return result;
 }
 
 proc piece_cell_value(
     kind: i64
 ) -> i64 {
     if kind == PIECE_I {
-        give CELL_I;
+        return CELL_I;
     }
 
     if kind == PIECE_O {
-        give CELL_O;
+        return CELL_O;
     }
 
     if kind == PIECE_T {
-        give CELL_T;
+        return CELL_T;
     }
 
     if kind == PIECE_S {
-        give CELL_S;
+        return CELL_S;
     }
 
     if kind == PIECE_Z {
-        give CELL_Z;
+        return CELL_Z;
     }
 
     if kind == PIECE_J {
-        give CELL_J;
+        return CELL_J;
     }
 
-    give CELL_L;
+    return CELL_L;
 }
 
 proc make_piece(
     kind: i64
 ) -> Piece {
-    give Piece {
+    return Piece {
         kind: kind,
         rotation: 0,
         x: 3,
@@ -307,51 +307,51 @@ proc block_i(
     if rotation == 0 ||
        rotation == 2 {
         if index == 0 {
-            give Point { x: 0, y: 1 };
+            return Point { x: 0, y: 1 };
         }
 
         if index == 1 {
-            give Point { x: 1, y: 1 };
+            return Point { x: 1, y: 1 };
         }
 
         if index == 2 {
-            give Point { x: 2, y: 1 };
+            return Point { x: 2, y: 1 };
         }
 
-        give Point { x: 3, y: 1 };
+        return Point { x: 3, y: 1 };
     }
 
     if index == 0 {
-        give Point { x: 2, y: 0 };
+        return Point { x: 2, y: 0 };
     }
 
     if index == 1 {
-        give Point { x: 2, y: 1 };
+        return Point { x: 2, y: 1 };
     }
 
     if index == 2 {
-        give Point { x: 2, y: 2 };
+        return Point { x: 2, y: 2 };
     }
 
-    give Point { x: 2, y: 3 };
+    return Point { x: 2, y: 3 };
 }
 
 proc block_o(
     index: i64
 ) -> Point {
     if index == 0 {
-        give Point { x: 1, y: 0 };
+        return Point { x: 1, y: 0 };
     }
 
     if index == 1 {
-        give Point { x: 2, y: 0 };
+        return Point { x: 2, y: 0 };
     }
 
     if index == 2 {
-        give Point { x: 1, y: 1 };
+        return Point { x: 1, y: 1 };
     }
 
-    give Point { x: 2, y: 1 };
+    return Point { x: 2, y: 1 };
 }
 
 proc block_t(
@@ -360,65 +360,65 @@ proc block_t(
 ) -> Point {
     if rotation == 0 {
         if index == 0 {
-            give Point { x: 1, y: 0 };
+            return Point { x: 1, y: 0 };
         }
 
         if index == 1 {
-            give Point { x: 0, y: 1 };
+            return Point { x: 0, y: 1 };
         }
 
         if index == 2 {
-            give Point { x: 1, y: 1 };
+            return Point { x: 1, y: 1 };
         }
 
-        give Point { x: 2, y: 1 };
+        return Point { x: 2, y: 1 };
     }
 
     if rotation == 1 {
         if index == 0 {
-            give Point { x: 1, y: 0 };
+            return Point { x: 1, y: 0 };
         }
 
         if index == 1 {
-            give Point { x: 1, y: 1 };
+            return Point { x: 1, y: 1 };
         }
 
         if index == 2 {
-            give Point { x: 2, y: 1 };
+            return Point { x: 2, y: 1 };
         }
 
-        give Point { x: 1, y: 2 };
+        return Point { x: 1, y: 2 };
     }
 
     if rotation == 2 {
         if index == 0 {
-            give Point { x: 0, y: 1 };
+            return Point { x: 0, y: 1 };
         }
 
         if index == 1 {
-            give Point { x: 1, y: 1 };
+            return Point { x: 1, y: 1 };
         }
 
         if index == 2 {
-            give Point { x: 2, y: 1 };
+            return Point { x: 2, y: 1 };
         }
 
-        give Point { x: 1, y: 2 };
+        return Point { x: 1, y: 2 };
     }
 
     if index == 0 {
-        give Point { x: 1, y: 0 };
+        return Point { x: 1, y: 0 };
     }
 
     if index == 1 {
-        give Point { x: 0, y: 1 };
+        return Point { x: 0, y: 1 };
     }
 
     if index == 2 {
-        give Point { x: 1, y: 1 };
+        return Point { x: 1, y: 1 };
     }
 
-    give Point { x: 1, y: 2 };
+    return Point { x: 1, y: 2 };
 }
 
 proc block_s(
@@ -428,33 +428,33 @@ proc block_s(
     if rotation == 0 ||
        rotation == 2 {
         if index == 0 {
-            give Point { x: 1, y: 0 };
+            return Point { x: 1, y: 0 };
         }
 
         if index == 1 {
-            give Point { x: 2, y: 0 };
+            return Point { x: 2, y: 0 };
         }
 
         if index == 2 {
-            give Point { x: 0, y: 1 };
+            return Point { x: 0, y: 1 };
         }
 
-        give Point { x: 1, y: 1 };
+        return Point { x: 1, y: 1 };
     }
 
     if index == 0 {
-        give Point { x: 1, y: 0 };
+        return Point { x: 1, y: 0 };
     }
 
     if index == 1 {
-        give Point { x: 1, y: 1 };
+        return Point { x: 1, y: 1 };
     }
 
     if index == 2 {
-        give Point { x: 2, y: 1 };
+        return Point { x: 2, y: 1 };
     }
 
-    give Point { x: 2, y: 2 };
+    return Point { x: 2, y: 2 };
 }
 
 proc block_z(
@@ -464,33 +464,33 @@ proc block_z(
     if rotation == 0 ||
        rotation == 2 {
         if index == 0 {
-            give Point { x: 0, y: 0 };
+            return Point { x: 0, y: 0 };
         }
 
         if index == 1 {
-            give Point { x: 1, y: 0 };
+            return Point { x: 1, y: 0 };
         }
 
         if index == 2 {
-            give Point { x: 1, y: 1 };
+            return Point { x: 1, y: 1 };
         }
 
-        give Point { x: 2, y: 1 };
+        return Point { x: 2, y: 1 };
     }
 
     if index == 0 {
-        give Point { x: 2, y: 0 };
+        return Point { x: 2, y: 0 };
     }
 
     if index == 1 {
-        give Point { x: 1, y: 1 };
+        return Point { x: 1, y: 1 };
     }
 
     if index == 2 {
-        give Point { x: 2, y: 1 };
+        return Point { x: 2, y: 1 };
     }
 
-    give Point { x: 1, y: 2 };
+    return Point { x: 1, y: 2 };
 }
 
 proc block_j(
@@ -499,65 +499,65 @@ proc block_j(
 ) -> Point {
     if rotation == 0 {
         if index == 0 {
-            give Point { x: 0, y: 0 };
+            return Point { x: 0, y: 0 };
         }
 
         if index == 1 {
-            give Point { x: 0, y: 1 };
+            return Point { x: 0, y: 1 };
         }
 
         if index == 2 {
-            give Point { x: 1, y: 1 };
+            return Point { x: 1, y: 1 };
         }
 
-        give Point { x: 2, y: 1 };
+        return Point { x: 2, y: 1 };
     }
 
     if rotation == 1 {
         if index == 0 {
-            give Point { x: 1, y: 0 };
+            return Point { x: 1, y: 0 };
         }
 
         if index == 1 {
-            give Point { x: 2, y: 0 };
+            return Point { x: 2, y: 0 };
         }
 
         if index == 2 {
-            give Point { x: 1, y: 1 };
+            return Point { x: 1, y: 1 };
         }
 
-        give Point { x: 1, y: 2 };
+        return Point { x: 1, y: 2 };
     }
 
     if rotation == 2 {
         if index == 0 {
-            give Point { x: 0, y: 1 };
+            return Point { x: 0, y: 1 };
         }
 
         if index == 1 {
-            give Point { x: 1, y: 1 };
+            return Point { x: 1, y: 1 };
         }
 
         if index == 2 {
-            give Point { x: 2, y: 1 };
+            return Point { x: 2, y: 1 };
         }
 
-        give Point { x: 2, y: 2 };
+        return Point { x: 2, y: 2 };
     }
 
     if index == 0 {
-        give Point { x: 1, y: 0 };
+        return Point { x: 1, y: 0 };
     }
 
     if index == 1 {
-        give Point { x: 1, y: 1 };
+        return Point { x: 1, y: 1 };
     }
 
     if index == 2 {
-        give Point { x: 0, y: 2 };
+        return Point { x: 0, y: 2 };
     }
 
-    give Point { x: 1, y: 2 };
+    return Point { x: 1, y: 2 };
 }
 
 proc block_l(
@@ -566,65 +566,65 @@ proc block_l(
 ) -> Point {
     if rotation == 0 {
         if index == 0 {
-            give Point { x: 2, y: 0 };
+            return Point { x: 2, y: 0 };
         }
 
         if index == 1 {
-            give Point { x: 0, y: 1 };
+            return Point { x: 0, y: 1 };
         }
 
         if index == 2 {
-            give Point { x: 1, y: 1 };
+            return Point { x: 1, y: 1 };
         }
 
-        give Point { x: 2, y: 1 };
+        return Point { x: 2, y: 1 };
     }
 
     if rotation == 1 {
         if index == 0 {
-            give Point { x: 1, y: 0 };
+            return Point { x: 1, y: 0 };
         }
 
         if index == 1 {
-            give Point { x: 1, y: 1 };
+            return Point { x: 1, y: 1 };
         }
 
         if index == 2 {
-            give Point { x: 1, y: 2 };
+            return Point { x: 1, y: 2 };
         }
 
-        give Point { x: 2, y: 2 };
+        return Point { x: 2, y: 2 };
     }
 
     if rotation == 2 {
         if index == 0 {
-            give Point { x: 0, y: 1 };
+            return Point { x: 0, y: 1 };
         }
 
         if index == 1 {
-            give Point { x: 1, y: 1 };
+            return Point { x: 1, y: 1 };
         }
 
         if index == 2 {
-            give Point { x: 2, y: 1 };
+            return Point { x: 2, y: 1 };
         }
 
-        give Point { x: 0, y: 2 };
+        return Point { x: 0, y: 2 };
     }
 
     if index == 0 {
-        give Point { x: 0, y: 0 };
+        return Point { x: 0, y: 0 };
     }
 
     if index == 1 {
-        give Point { x: 1, y: 0 };
+        return Point { x: 1, y: 0 };
     }
 
     if index == 2 {
-        give Point { x: 1, y: 1 };
+        return Point { x: 1, y: 1 };
     }
 
-    give Point { x: 1, y: 2 };
+    return Point { x: 1, y: 2 };
 }
 
 proc piece_block(
@@ -636,40 +636,40 @@ proc piece_block(
             piece.rotation);
 
     if piece.kind == PIECE_I {
-        give block_i(
+        return block_i(
             rotation,
             index);
     }
 
     if piece.kind == PIECE_O {
-        give block_o(index);
+        return block_o(index);
     }
 
     if piece.kind == PIECE_T {
-        give block_t(
+        return block_t(
             rotation,
             index);
     }
 
     if piece.kind == PIECE_S {
-        give block_s(
+        return block_s(
             rotation,
             index);
     }
 
     if piece.kind == PIECE_Z {
-        give block_z(
+        return block_z(
             rotation,
             index);
     }
 
     if piece.kind == PIECE_J {
-        give block_j(
+        return block_j(
             rotation,
             index);
     }
 
-    give block_l(
+    return block_l(
         rotation,
         index);
 }
@@ -683,7 +683,7 @@ proc piece_world_block(
             piece,
             index);
 
-    give Point {
+    return Point {
         x: piece.x + block.x,
         y: piece.y + block.y,
     };
@@ -703,11 +703,11 @@ proc piece_fits(
 
         if block.x < 0 ||
            block.x >= BOARD_WIDTH {
-            give false;
+            return false;
         }
 
         if block.y >= BOARD_HEIGHT {
-            give false;
+            return false;
         }
 
         if block.y >= 0 {
@@ -715,14 +715,14 @@ proc piece_fits(
                 board,
                 block.x,
                 block.y) != EMPTY {
-                give false;
+                return false;
             }
         }
 
         set index += 1;
     }
 
-    give true;
+    return true;
 }
 
 proc moved_piece(
@@ -730,7 +730,7 @@ proc moved_piece(
     dx: i64,
     dy: i64
 ) -> Piece {
-    give Piece {
+    return Piece {
         kind: piece.kind,
         rotation: piece.rotation,
         x: piece.x + dx,
@@ -741,7 +741,7 @@ proc moved_piece(
 proc rotated_piece(
     piece: &Piece
 ) -> Piece {
-    give Piece {
+    return Piece {
         kind: piece.kind,
         rotation:
             normalize_rotation(
@@ -766,10 +766,10 @@ proc try_move_piece(
     if piece_fits(
         board,
         &candidate) {
-        give candidate;
+        return candidate;
     }
 
-    give piece;
+    return piece;
 }
 
 proc try_rotate_piece(
@@ -782,7 +782,7 @@ proc try_rotate_piece(
     if piece_fits(
         board,
         &rotated) {
-        give rotated;
+        return rotated;
     }
 
     let left: Piece =
@@ -794,7 +794,7 @@ proc try_rotate_piece(
     if piece_fits(
         board,
         &left) {
-        give left;
+        return left;
     }
 
     let right: Piece =
@@ -806,7 +806,7 @@ proc try_rotate_piece(
     if piece_fits(
         board,
         &right) {
-        give right;
+        return right;
     }
 
     let left_two: Piece =
@@ -818,7 +818,7 @@ proc try_rotate_piece(
     if piece_fits(
         board,
         &left_two) {
-        give left_two;
+        return left_two;
     }
 
     let right_two: Piece =
@@ -830,10 +830,10 @@ proc try_rotate_piece(
     if piece_fits(
         board,
         &right_two) {
-        give right_two;
+        return right_two;
     }
 
-    give piece;
+    return piece;
 }
 
 proc piece_can_fall(
@@ -846,7 +846,7 @@ proc piece_can_fall(
             0,
             1);
 
-    give piece_fits(
+    return piece_fits(
         board,
         &next);
 }
@@ -883,7 +883,7 @@ proc lock_piece(
         set index += 1;
     }
 
-    give result;
+    return result;
 }
 
 proc piece_above_board(
@@ -898,13 +898,13 @@ proc piece_above_board(
                 index);
 
         if block.y < 0 {
-            give true;
+            return true;
         }
 
         set index += 1;
     }
 
-    give false;
+    return false;
 }
 
 proc row_full(
@@ -918,13 +918,13 @@ proc row_full(
             board,
             x,
             y) == EMPTY {
-            give false;
+            return false;
         }
 
         set x += 1;
     }
 
-    give true;
+    return true;
 }
 
 proc copy_row(
@@ -951,7 +951,7 @@ proc copy_row(
         set x += 1;
     }
 
-    give result;
+    return result;
 }
 
 proc clear_row(
@@ -971,7 +971,7 @@ proc clear_row(
         set x += 1;
     }
 
-    give result;
+    return result;
 }
 
 proc remove_row(
@@ -1002,7 +1002,7 @@ proc remove_row(
             &result,
             0);
 
-    give result;
+    return result;
 }
 
 form LineClearResult {
@@ -1039,7 +1039,7 @@ proc clear_complete_lines(
         }
     }
 
-    give LineClearResult {
+    return LineClearResult {
         board: result,
         lines: cleared,
     };
@@ -1050,94 +1050,94 @@ proc score_for_clear(
     level: i64
 ) -> i64 {
     if lines == 1 {
-        give 40 *
+        return 40 *
              (level + 1);
     }
 
     if lines == 2 {
-        give 100 *
+        return 100 *
              (level + 1);
     }
 
     if lines == 3 {
-        give 300 *
+        return 300 *
              (level + 1);
     }
 
     if lines >= 4 {
-        give 1200 *
+        return 1200 *
              (level + 1);
     }
 
-    give 0;
+    return 0;
 }
 
 proc level_for_lines(
     lines: i64
 ) -> i64 {
-    give lines / 10;
+    return lines / 10;
 }
 
 proc fall_delay_frames(
     level: i64
 ) -> i64 {
     if level <= 0 {
-        give 48;
+        return 48;
     }
 
     if level == 1 {
-        give 43;
+        return 43;
     }
 
     if level == 2 {
-        give 38;
+        return 38;
     }
 
     if level == 3 {
-        give 33;
+        return 33;
     }
 
     if level == 4 {
-        give 28;
+        return 28;
     }
 
     if level == 5 {
-        give 23;
+        return 23;
     }
 
     if level == 6 {
-        give 18;
+        return 18;
     }
 
     if level == 7 {
-        give 13;
+        return 13;
     }
 
     if level == 8 {
-        give 8;
+        return 8;
     }
 
     if level == 9 {
-        give 6;
+        return 6;
     }
 
     if level <= 12 {
-        give 5;
+        return 5;
     }
 
     if level <= 15 {
-        give 4;
+        return 4;
     }
 
     if level <= 18 {
-        give 3;
+        return 3;
     }
 
     if level <= 28 {
-        give 2;
+        return 2;
     }
 
-    give 1;
+    return 1;
 }
 
 proc random_next(
@@ -1150,7 +1150,7 @@ proc random_next(
         value * 6364136223846793005 +
         1442695040888963407;
 
-    give RandomState {
+    return RandomState {
         state: value,
     };
 }
@@ -1158,11 +1158,11 @@ proc random_next(
 proc random_value(
     random: &RandomState
 ) -> u64 {
-    give random.state;
+    return random.state;
 }
 
 proc initial_bag() -> Bag {
-    give Bag {
+    return Bag {
         values: [
             PIECE_I,
             PIECE_O,
@@ -1193,7 +1193,7 @@ proc swap_bag_values(
     set result.values[right] =
         temporary;
 
-    give result;
+    return result;
 }
 
 form BagShuffleResult {
@@ -1242,7 +1242,7 @@ proc shuffle_bag(
 
     set bag.index = 0;
 
-    give BagShuffleResult {
+    return BagShuffleResult {
         bag: bag,
         random: state,
     };
@@ -1283,7 +1283,7 @@ proc next_piece(
 
     set current_bag.index += 1;
 
-    give NextPieceResult {
+    return NextPieceResult {
         kind: kind,
         bag: current_bag,
         random: current_random,
@@ -1291,7 +1291,7 @@ proc next_piece(
 }
 
 proc initial_statistics() -> Statistics {
-    give Statistics {
+    return Statistics {
         score: 0,
         lines: 0,
         level: 0,
@@ -1340,7 +1340,7 @@ proc update_statistics(
         set result.tetrises += 1;
     }
 
-    give result;
+    return result;
 }
 
 proc make_initial_game() -> Game {
@@ -1362,7 +1362,7 @@ proc make_initial_game() -> Game {
             &first.bag,
             &first.random);
 
-    give Game {
+    return Game {
         board:
             make_empty_board(),
 
@@ -1410,7 +1410,7 @@ proc game_move_left(
     set result.current =
         moved;
 
-    give result;
+    return result;
 }
 
 proc game_move_right(
@@ -1429,7 +1429,7 @@ proc game_move_right(
     set result.current =
         moved;
 
-    give result;
+    return result;
 }
 
 proc game_rotate(
@@ -1446,7 +1446,7 @@ proc game_rotate(
     set result.current =
         rotated;
 
-    give result;
+    return result;
 }
 
 proc game_soft_drop(
@@ -1471,7 +1471,7 @@ proc game_soft_drop(
             1;
     }
 
-    give result;
+    return result;
 }
 
 proc hard_drop_distance(
@@ -1506,7 +1506,7 @@ proc hard_drop_distance(
         }
     }
 
-    give distance;
+    return distance;
 }
 
 proc game_hard_drop(
@@ -1532,7 +1532,7 @@ proc game_hard_drop(
     set result.lock_counter =
         1000;
 
-    give result;
+    return result;
 }
 
 proc spawn_next_piece(
@@ -1565,14 +1565,14 @@ proc spawn_next_piece(
     set result.lock_counter =
         0;
 
-    if !piece_fits(
+    if not piece_fits(
         &result.board,
         &result.current) {
         set result.game_over =
             true;
     }
 
-    give result;
+    return result;
 }
 
 proc lock_current_piece(
@@ -1586,7 +1586,7 @@ proc lock_current_piece(
         set result.game_over =
             true;
 
-        give result;
+        return result;
     }
 
     let locked: Board =
@@ -1609,7 +1609,7 @@ proc lock_current_piece(
     set result.stats =
         stats;
 
-    give spawn_next_piece(
+    return spawn_next_piece(
         &result);
 }
 
@@ -1628,7 +1628,7 @@ proc game_gravity_tick(
 
     if result.fall_counter <
        delay {
-        give result;
+        return result;
     }
 
     set result.fall_counter =
@@ -1649,18 +1649,18 @@ proc game_gravity_tick(
         set result.lock_counter =
             0;
 
-        give result;
+        return result;
     }
 
     set result.lock_counter +=
         1;
 
     if result.lock_counter >= 1 {
-        give lock_current_piece(
+        return lock_current_piece(
             &result);
     }
 
-    give result;
+    return result;
 }
 
 proc game_action(
@@ -1674,47 +1674,47 @@ proc game_action(
         set result.quit =
             true;
 
-        give result;
+        return result;
     }
 
     if action == ACTION_PAUSE {
         set result.paused =
-            !result.paused;
+            not result.paused;
 
-        give result;
+        return result;
     }
 
     if result.paused ||
        result.game_over {
-        give result;
+        return result;
     }
 
     if action == ACTION_LEFT {
-        give game_move_left(
+        return game_move_left(
             &result);
     }
 
     if action == ACTION_RIGHT {
-        give game_move_right(
+        return game_move_right(
             &result);
     }
 
     if action == ACTION_DOWN {
-        give game_soft_drop(
+        return game_soft_drop(
             &result);
     }
 
     if action == ACTION_ROTATE {
-        give game_rotate(
+        return game_rotate(
             &result);
     }
 
     if action == ACTION_DROP {
-        give game_hard_drop(
+        return game_hard_drop(
             &result);
     }
 
-    give result;
+    return result;
 }
 
 proc key_to_action(
@@ -1722,39 +1722,39 @@ proc key_to_action(
 ) -> i64 {
     if key == 'a' ||
        key == 'A' {
-        give ACTION_LEFT;
+        return ACTION_LEFT;
     }
 
     if key == 'd' ||
        key == 'D' {
-        give ACTION_RIGHT;
+        return ACTION_RIGHT;
     }
 
     if key == 's' ||
        key == 'S' {
-        give ACTION_DOWN;
+        return ACTION_DOWN;
     }
 
     if key == 'w' ||
        key == 'W' {
-        give ACTION_ROTATE;
+        return ACTION_ROTATE;
     }
 
     if key == ' ' {
-        give ACTION_DROP;
+        return ACTION_DROP;
     }
 
     if key == 'p' ||
        key == 'P' {
-        give ACTION_PAUSE;
+        return ACTION_PAUSE;
     }
 
     if key == 'q' ||
        key == 'Q' {
-        give ACTION_QUIT;
+        return ACTION_QUIT;
     }
 
-    give ACTION_NONE;
+    return ACTION_NONE;
 }
 
 proc current_piece_contains(
@@ -1772,13 +1772,13 @@ proc current_piece_contains(
 
         if block.x == x &&
            block.y == y {
-            give true;
+            return true;
         }
 
         set index += 1;
     }
 
-    give false;
+    return false;
 }
 
 proc ghost_piece(
@@ -1789,7 +1789,7 @@ proc ghost_piece(
             &game.board,
             &game.current);
 
-    give moved_piece(
+    return moved_piece(
         &game.current,
         0,
         distance);
@@ -1806,7 +1806,7 @@ proc render_cell(
         x,
         y) {
         terminal_print("[]");
-        give;
+        return;
     }
 
     let value: i64 =
@@ -1817,7 +1817,7 @@ proc render_cell(
 
     if value != EMPTY {
         terminal_print("[]");
-        give;
+        return;
     }
 
     if current_piece_contains(
@@ -1825,7 +1825,7 @@ proc render_cell(
         x,
         y) {
         terminal_print("..");
-        give;
+        return;
     }
 
     terminal_print("  ");
@@ -1868,77 +1868,77 @@ proc render_side_panel(
     if row == 0 {
         terminal_print("   SCORE  ");
         terminal_print_i64(game.stats.score);
-        give;
+        return;
     }
 
     if row == 1 {
         terminal_print("   LINES  ");
         terminal_print_i64(game.stats.lines);
-        give;
+        return;
     }
 
     if row == 2 {
         terminal_print("   LEVEL  ");
         terminal_print_i64(game.stats.level);
-        give;
+        return;
     }
 
     if row == 3 {
         terminal_print("   PIECES ");
         terminal_print_i64(game.stats.pieces);
-        give;
+        return;
     }
 
     if row == 5 {
         terminal_print("   NEXT");
-        give;
+        return;
     }
 
     if row >= 6 && row < 10 {
         render_piece_preview_row(
             game.next_kind,
             row - 6);
-        give;
+        return;
     }
 
     if row == 11 {
         terminal_print("   A/D : MOVE");
-        give;
+        return;
     }
 
     if row == 12 {
         terminal_print("   W   : ROTATE");
-        give;
+        return;
     }
 
     if row == 13 {
         terminal_print("   S   : SOFT DROP");
-        give;
+        return;
     }
 
     if row == 14 {
         terminal_print("   SPACE: HARD DROP");
-        give;
+        return;
     }
 
     if row == 15 {
         terminal_print("   P   : PAUSE");
-        give;
+        return;
     }
 
     if row == 16 {
         terminal_print("   Q   : QUIT");
-        give;
+        return;
     }
 
     if row == 18 && game.paused {
         terminal_print("   PAUSED");
-        give;
+        return;
     }
 
     if row == 18 && game.game_over {
         terminal_print("   GAME OVER");
-        give;
+        return;
     }
 
     if row == 19 && game.game_over {
@@ -2011,11 +2011,11 @@ proc process_input(
             next;
 
         if result.quit {
-            give result;
+            return result;
         }
     }
 
-    give result;
+    return result;
 }
 
 proc game_frame(
@@ -2025,11 +2025,11 @@ proc game_frame(
         process_input(game);
 
     if result.quit {
-        give result;
+        return result;
     }
 
-    if !result.paused &&
-       !result.game_over {
+    if not result.paused &&
+       not result.game_over {
         let next: Game =
             game_gravity_tick(
                 &result);
@@ -2038,7 +2038,7 @@ proc game_frame(
             next;
     }
 
-    give result;
+    return result;
 }
 
 proc run_game() -> int {
@@ -2079,7 +2079,7 @@ proc run_game() -> int {
 
     terminal_show_cursor();
 
-    give 0;
+    return 0;
 }
 
 proc test_empty_board() -> bool {
@@ -2096,7 +2096,7 @@ proc test_empty_board() -> bool {
                 &board,
                 x,
                 y) != EMPTY {
-                give false;
+                return false;
             }
 
             set x += 1;
@@ -2105,7 +2105,7 @@ proc test_empty_board() -> bool {
         set y += 1;
     }
 
-    give true;
+    return true;
 }
 
 proc test_piece_spawn() -> bool {
@@ -2119,16 +2119,16 @@ proc test_piece_spawn() -> bool {
         let piece: Piece =
             make_piece(kind);
 
-        if !piece_fits(
+        if not piece_fits(
             &board,
             &piece) {
-            give false;
+            return false;
         }
 
         set kind += 1;
     }
 
-    give true;
+    return true;
 }
 
 proc test_piece_rotation() -> bool {
@@ -2159,7 +2159,7 @@ proc test_piece_rotation() -> bool {
             &board,
             &third);
 
-    give first.rotation == 1 &&
+    return first.rotation == 1 &&
          second.rotation == 2 &&
          third.rotation == 3 &&
          fourth.rotation == 0;
@@ -2187,7 +2187,7 @@ proc test_piece_movement() -> bool {
             1,
             0);
 
-    give left.x ==
+    return left.x ==
              piece.x - 1 &&
          right.x ==
              piece.x;
@@ -2212,8 +2212,8 @@ proc test_hard_drop() -> bool {
             0,
             distance);
 
-    give distance > 0 &&
-         !piece_can_fall(
+    return distance > 0 &&
+         not piece_can_fall(
              &board,
              &dropped);
 }
@@ -2235,7 +2235,7 @@ proc test_lock_piece() -> bool {
             &board,
             &piece);
 
-    give board_get(
+    return board_get(
                &locked,
                4,
                18) == CELL_O &&
@@ -2272,7 +2272,7 @@ proc make_full_row(
         set x += 1;
     }
 
-    give result;
+    return result;
 }
 
 proc test_line_clear() -> bool {
@@ -2284,10 +2284,10 @@ proc test_line_clear() -> bool {
             &board,
             BOARD_HEIGHT - 1);
 
-    if !row_full(
+    if not row_full(
         &full,
         BOARD_HEIGHT - 1) {
-        give false;
+        return false;
     }
 
     let result: LineClearResult =
@@ -2295,7 +2295,7 @@ proc test_line_clear() -> bool {
             &full);
 
     if result.lines != 1 {
-        give false;
+        return false;
     }
 
     let mut x: i64 = 0;
@@ -2305,13 +2305,13 @@ proc test_line_clear() -> bool {
             &result.board,
             x,
             BOARD_HEIGHT - 1) != EMPTY {
-            give false;
+            return false;
         }
 
         set x += 1;
     }
 
-    give true;
+    return true;
 }
 
 proc test_four_line_clear() -> bool {
@@ -2342,11 +2342,11 @@ proc test_four_line_clear() -> bool {
         clear_complete_lines(
             &board);
 
-    give result.lines == 4;
+    return result.lines == 4;
 }
 
 proc test_scoring() -> bool {
-    give score_for_clear(0, 0) == 0 &&
+    return score_for_clear(0, 0) == 0 &&
          score_for_clear(1, 0) == 40 &&
          score_for_clear(2, 0) == 100 &&
          score_for_clear(3, 0) == 300 &&
@@ -2355,7 +2355,7 @@ proc test_scoring() -> bool {
 }
 
 proc test_level_progression() -> bool {
-    give level_for_lines(0) == 0 &&
+    return level_for_lines(0) == 0 &&
          level_for_lines(9) == 0 &&
          level_for_lines(10) == 1 &&
          level_for_lines(19) == 1 &&
@@ -2364,7 +2364,7 @@ proc test_level_progression() -> bool {
 }
 
 proc test_gravity_progression() -> bool {
-    give fall_delay_frames(0) == 48 &&
+    return fall_delay_frames(0) == 48 &&
          fall_delay_frames(1) == 43 &&
          fall_delay_frames(5) == 23 &&
          fall_delay_frames(9) == 6 &&
@@ -2429,7 +2429,7 @@ proc test_bag_contains_all_pieces() -> bool {
         set index += 1;
     }
 
-    give seen_i &&
+    return seen_i &&
          seen_o &&
          seen_t &&
          seen_s &&
@@ -2439,55 +2439,55 @@ proc test_bag_contains_all_pieces() -> bool {
 }
 
 proc self_test() -> int {
-    if !test_empty_board() {
-        give 1;
+    if not test_empty_board() {
+        return 1;
     }
 
-    if !test_piece_spawn() {
-        give 2;
+    if not test_piece_spawn() {
+        return 2;
     }
 
-    if !test_piece_rotation() {
-        give 3;
+    if not test_piece_rotation() {
+        return 3;
     }
 
-    if !test_piece_movement() {
-        give 4;
+    if not test_piece_movement() {
+        return 4;
     }
 
-    if !test_hard_drop() {
-        give 5;
+    if not test_hard_drop() {
+        return 5;
     }
 
-    if !test_lock_piece() {
-        give 6;
+    if not test_lock_piece() {
+        return 6;
     }
 
-    if !test_line_clear() {
-        give 7;
+    if not test_line_clear() {
+        return 7;
     }
 
-    if !test_four_line_clear() {
-        give 8;
+    if not test_four_line_clear() {
+        return 8;
     }
 
-    if !test_scoring() {
-        give 9;
+    if not test_scoring() {
+        return 9;
     }
 
-    if !test_level_progression() {
-        give 10;
+    if not test_level_progression() {
+        return 10;
     }
 
-    if !test_gravity_progression() {
-        give 11;
+    if not test_gravity_progression() {
+        return 11;
     }
 
-    if !test_bag_contains_all_pieces() {
-        give 12;
+    if not test_bag_contains_all_pieces() {
+        return 12;
     }
 
-    give 0;
+    return 0;
 }
 
 proc main() -> int {
@@ -2503,8 +2503,8 @@ proc main() -> int {
 
         terminal_print("\n");
 
-        give tests;
+        return tests;
     }
 
-    give run_game();
+    return run_game();
 }

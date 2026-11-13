@@ -8,4 +8,4 @@ space core;
 /// Version du paquet `core`.
 export const CORE_VERSION_MAJOR: u32 = 0;
 export const CORE_VERSION_MINOR: u32 = 1;
-export const CORE_VERSION_PATCH: u32 = 0;
+export const CORE_VERSION_PATCH: u32 = 1;

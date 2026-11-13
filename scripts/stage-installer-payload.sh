@@ -288,6 +288,3 @@ printf \
   "$DEST" \
   "$VERSION" \
   "$MAKE_CMD"
-
-printf '[stage-installer-payload] staged native C compiler platform=%s arch=%s dest=%s version=%s\n' \
-  "$PLATFORM" "$ARCH" "$DEST" "$VERSION"

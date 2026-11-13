@@ -1930,7 +1930,7 @@ vitte_printer_print_ast_node(
     const vitte_parser_t *parser,
     vitte_ast_node_id_t id)
 {
-    bool result;
+    bool result = false;
 
     if (!vitte_printer_context_valid(printer) ||
         parser == NULL ||

@@ -19,6 +19,32 @@ LICENSE_FILE=$ROOT_DIR/LICENSE
 LOGO_FILE=$ROOT_DIR/assets/logo.png
 PAYLOAD_SCRIPT=$ROOT_DIR/scripts/stage-installer-payload.sh
 scripts_build_maybe_help "usage: build-solaris-package.sh [--dry-run]"
+
+if [ "$LIST_TARGETS" -eq 1 ]; then
+  printf '%s\n' 'solaris i386' 'solaris amd64'
+  exit 0
+fi
+
+if [ "$PRINT_ENV" -eq 1 ]; then
+  printf 'VERSION=%s\n' "$VERSION"
+  printf 'OUT_DIR=%s\n' "$OUT_DIR"
+  printf 'ARCH=%s\n' "$ARCH"
+  printf 'PACKAGE_NAME=%s\n' "$PACKAGE_NAME"
+  printf 'SVR4_PACKAGE=%s\n' "$SVR4_PACKAGE"
+  exit 0
+fi
+
+if [ -n "$VERIFY_ONLY" ]; then
+  verify_dir=$VERIFY_ONLY
+  case "$verify_dir" in /*) ;; *) verify_dir=$ROOT_DIR/$verify_dir;; esac
+  VERSION=$VERSION OUT_DIR=$verify_dir VERIFY_METADATA=1 \
+    "$ROOT_DIR/scripts/verify-installers.sh"
+  exit 0
+fi
+
+[ "$CLEAN" -eq 0 ] ||
+  scripts_build_die 'use build-all-installers.sh --clean to remove installer staging directories'
+
 scripts_build_maybe_dry_run "would build Solaris SVR4 packages version=$VERSION arch=$ARCH out=$OUT_DIR"
 
 die() {
@@ -62,11 +88,7 @@ copy_tree() {
   [ -d "$source" ] ||
     die "$description directory not found: $source"
 
-  mkdir -p "$destination"
-
-  COPYFILE_DISABLE=1 \
-    tar -cf - -C "$source" . |
-    tar -xf - -C "$destination"
+  scripts_build_copy_tree "$source" "$destination"
 
   printf '[build-solaris-package] added %s: %s\n' \
     "$description" \
@@ -337,17 +359,35 @@ create_portable_kit() {
 set -eu
 PREFIX=${PREFIX:-/usr/local}
 DESTDIR=${DESTDIR:-}
-case "$PREFIX" in /*) ;; *) echo "PREFIX must be absolute: $PREFIX" >&2; exit 1 ;; esac
-[ "$(id -u)" -eq 0 ] || [ -n "$DESTDIR" ] || mkdir -p "$PREFIX" 2>/dev/null || { echo "Solaris portable install requires root unless DESTDIR is set or PREFIX is writable" >&2; exit 1; }
-target_root=${DESTDIR:-/}
-mkdir -p "$target_root"
-if [ "$PREFIX" = /usr/local ]; then
-  tar -cf - -C "$(dirname "$0")/root" . | tar -xf - -C "$target_root"
-else
-  mkdir -p "$target_root$PREFIX"
-  tar -cf - -C "$(dirname "$0")/root/usr/local" . | tar -xf - -C "$target_root$PREFIX"
+case "$PREFIX" in /) echo "PREFIX must not be /" >&2; exit 1 ;; /*) ;; *) echo "PREFIX must be absolute: $PREFIX" >&2; exit 1 ;; esac
+case "$PREFIX" in */) PREFIX=${PREFIX%/};; esac
+case "$PREFIX/" in */../*|*/./*|*//*) echo "PREFIX must not contain dot or empty path components: $PREFIX" >&2; exit 1 ;; esac
+if [ -n "$DESTDIR" ]; then
+  case "$DESTDIR" in /) echo "DESTDIR must not be /" >&2; exit 1 ;; /*) ;; *) echo "DESTDIR must be absolute: $DESTDIR" >&2; exit 1 ;; esac
+  case "$DESTDIR" in */) DESTDIR=${DESTDIR%/};; esac
+  case "$DESTDIR/" in */../*|*/./*|*//*) echo "DESTDIR must not contain dot or empty path components: $DESTDIR" >&2; exit 1 ;; esac
 fi
-integration_helper=$target_root$PREFIX/share/vitte/tools/install-unix-integrations.sh
+target_root=${DESTDIR:-/}
+target_prefix=$target_root$PREFIX
+check_path() {
+  current=$1
+  while :; do
+    [ ! -L "$current" ] || { echo "refusing to follow a symbolic link: $current" >&2; exit 1; }
+    [ "$current" != / ] || break
+    parent=$(dirname "$current")
+    [ "$parent" != "$current" ] || break
+    current=$parent
+  done
+}
+check_path "$target_prefix"
+mkdir -p "$target_prefix" 2>/dev/null || { echo "cannot create installation prefix: $target_prefix" >&2; exit 1; }
+[ -n "$DESTDIR" ] || [ "$(id -u)" -eq 0 ] || [ -w "$target_prefix" ] || { echo "Solaris portable install requires root or a writable PREFIX" >&2; exit 1; }
+if [ "$PREFIX" = /usr/local ]; then
+  cp -pR "$(dirname "$0")/root/." "$target_root/"
+else
+  cp -pR "$(dirname "$0")/root/usr/local/." "$target_prefix/"
+fi
+integration_helper=$target_prefix/share/vitte/tools/install-unix-integrations.sh
 [ -x "$integration_helper" ] || { echo "Vitte integration installer is missing: $integration_helper" >&2; exit 1; }
 PREFIX=$PREFIX DESTDIR=$DESTDIR "$integration_helper"
 echo "Vitte installed in $DESTDIR$PREFIX."
@@ -358,13 +398,35 @@ SH
 set -eu
 PREFIX=${PREFIX:-/usr/local}
 DESTDIR=${DESTDIR:-}
-case "$PREFIX" in /*) ;; *) echo "PREFIX must be absolute: $PREFIX" >&2; exit 1 ;; esac
-[ "$(id -u)" -eq 0 ] || [ -n "$DESTDIR" ] || [ -w "$PREFIX" ] || { echo "Solaris portable uninstall requires root unless DESTDIR is set or PREFIX is writable" >&2; exit 1; }
+case "$PREFIX" in /) echo "PREFIX must not be /" >&2; exit 1 ;; /*) ;; *) echo "PREFIX must be absolute: $PREFIX" >&2; exit 1 ;; esac
+case "$PREFIX" in */) PREFIX=${PREFIX%/};; esac
+case "$PREFIX/" in */../*|*/./*|*//*) echo "PREFIX must not contain dot or empty path components: $PREFIX" >&2; exit 1 ;; esac
+if [ -n "$DESTDIR" ]; then
+  case "$DESTDIR" in /) echo "DESTDIR must not be /" >&2; exit 1 ;; /*) ;; *) echo "DESTDIR must be absolute: $DESTDIR" >&2; exit 1 ;; esac
+  case "$DESTDIR" in */) DESTDIR=${DESTDIR%/};; esac
+  case "$DESTDIR/" in */../*|*/./*|*//*) echo "DESTDIR must not contain dot or empty path components: $DESTDIR" >&2; exit 1 ;; esac
+fi
 root=${DESTDIR:-/}
-rm -f "$root$PREFIX/bin/vitte" "$root$PREFIX/bin/vittec" "$root$PREFIX/bin/vitte"
-integration_helper=$root$PREFIX/share/vitte/tools/install-unix-integrations.sh
+target_prefix=$root$PREFIX
+check_path() {
+  current=$1
+  while :; do
+    [ ! -L "$current" ] || { echo "refusing to follow a symbolic link: $current" >&2; exit 1; }
+    [ "$current" != / ] || break
+    parent=$(dirname "$current")
+    [ "$parent" != "$current" ] || break
+    current=$parent
+  done
+}
+check_path "$target_prefix"
+check_path "$target_prefix/bin"
+check_path "$target_prefix/libexec/vitte"
+check_path "$target_prefix/share/vitte"
+[ -n "$DESTDIR" ] || [ "$(id -u)" -eq 0 ] || [ -w "$target_prefix" ] || { echo "Solaris portable uninstall requires root or a writable PREFIX" >&2; exit 1; }
+rm -f "$target_prefix/bin/vitte" "$target_prefix/bin/vittec" "$target_prefix/bin/vitte-installer-doctor"
+integration_helper=$target_prefix/share/vitte/tools/install-unix-integrations.sh
 if [ -x "$integration_helper" ]; then PREFIX=$PREFIX DESTDIR=$DESTDIR "$integration_helper" uninstall; fi
-rm -rf "$root$PREFIX/libexec/vitte" "$root$PREFIX/share/vitte"
+rm -rf "$target_prefix/libexec/vitte" "$target_prefix/share/vitte"
 echo "Vitte removed from $DESTDIR$PREFIX."
 SH
   chmod 0755 "$spool/uninstall.sh"

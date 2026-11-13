@@ -1765,7 +1765,8 @@ proc native_pipeline_run_with_config(
 
     let mut sema: Sema = Sema {};
     if not vitte_sema_init(&mut sema, &parser) {
-        let sema_error = vitte_sema_last_error(&sema) as u32;
+        let sema_last_error = vitte_sema_last_error(&sema);
+        let sema_error = sema_last_error as u32;
         vitte_sema_destroy(&mut sema);
         vitte_parser_destroy(&mut parser);
         vitte_lexer_destroy(&mut lexer);
@@ -1785,7 +1786,8 @@ proc native_pipeline_run_with_config(
     let mut sema_diagnostics = vitte_sema_diagnostic_count(&sema);
     let sema_statistics: SemaStats = vitte_sema_stats(&sema);
     let mut sema_errors = sema_statistics.errors as usize;
-    let sema_error = vitte_sema_last_error(&sema) as u32;
+    let sema_last_error = vitte_sema_last_error(&sema);
+    let sema_error = sema_last_error as u32;
     let sema_ast_fallback = action == NATIVE_FRONTEND_ACTION_COMPILE and semantic_fallback and
         sema_errors != 0 and not native_pipeline_has_generic_form_declaration(&parser);
     if sema_ast_fallback {

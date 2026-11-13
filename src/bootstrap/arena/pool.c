@@ -826,6 +826,7 @@ vitte_pool_page_layout_valid(
     size_t bitmap_size;
     size_t slots_offset;
     size_t allocation_size;
+    const unsigned char *slots;
     uintptr_t slots_address;
 
     if (!vitte_pool_magic_valid(pool) ||
@@ -859,10 +860,10 @@ vitte_pool_page_layout_valid(
         return false;
     }
 
+    slots =
+        vitte_pool_page_slots_const(page);
     slots_address =
-        (uintptr_t)
-            vitte_pool_page_slots_const(
-                page);
+        (uintptr_t)slots;
 
     if ((slots_address &
          (uintptr_t)(pool->alignment - 1u)) !=
@@ -891,6 +892,7 @@ vitte_pool_page_contains(
     uintptr_t address;
     uintptr_t begin;
     uintptr_t end;
+    const unsigned char *slots;
     size_t slots_bytes;
 
     if (!vitte_pool_magic_valid(pool) ||
@@ -907,10 +909,10 @@ vitte_pool_page_contains(
         return false;
     }
 
+    slots =
+        vitte_pool_page_slots_const(page);
     begin =
-        (uintptr_t)
-            vitte_pool_page_slots_const(
-                page);
+        (uintptr_t)slots;
 
     if ((uintptr_t)slots_bytes >
         UINTPTR_MAX - begin) {
@@ -939,6 +941,7 @@ vitte_pool_page_index_of(
     uintptr_t address;
     uintptr_t begin;
     uintptr_t difference;
+    const unsigned char *slots;
     size_t offset;
 
     if (index == NULL) {
@@ -957,10 +960,10 @@ vitte_pool_page_index_of(
     address =
         (uintptr_t)pointer;
 
+    slots =
+        vitte_pool_page_slots_const(page);
     begin =
-        (uintptr_t)
-            vitte_pool_page_slots_const(
-                page);
+        (uintptr_t)slots;
 
     difference =
         address - begin;

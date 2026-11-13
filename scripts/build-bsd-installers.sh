@@ -135,12 +135,36 @@ PREFIX=${PREFIX:-/usr/local}
 DESTDIR=${DESTDIR:-}
 
 case "$PREFIX" in
+  /) printf 'PREFIX must not be /\n' >&2; exit 1;;
   /*) ;;
   *)
     printf 'PREFIX must be absolute: %s\n' "$PREFIX" >&2
     exit 1
     ;;
 esac
+
+case "$PREFIX" in */) PREFIX=${PREFIX%/};; esac
+case "$PREFIX/" in
+  */../*|*/./*|*//*)
+    printf 'PREFIX must not contain dot or empty path components: %s\n' "$PREFIX" >&2
+    exit 1
+    ;;
+esac
+
+if [ -n "$DESTDIR" ]; then
+  case "$DESTDIR" in
+    /) printf 'DESTDIR must not be /\n' >&2; exit 1;;
+    /*) ;;
+    *) printf 'DESTDIR must be absolute: %s\n' "$DESTDIR" >&2; exit 1;;
+  esac
+  case "$DESTDIR" in */) DESTDIR=${DESTDIR%/};; esac
+  case "$DESTDIR/" in
+    */../*|*/./*|*//*)
+      printf 'DESTDIR must not contain dot or empty path components: %s\n' "$DESTDIR" >&2
+      exit 1
+      ;;
+  esac
+fi
 
 HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 
@@ -149,49 +173,48 @@ HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
   exit 1
 }
 
-if [ -z "$DESTDIR" ]; then
-  if [ "$(id -u)" -ne 0 ] && [ ! -w "$PREFIX" ]; then
-    mkdir -p "$PREFIX" 2>/dev/null || {
-      printf 'Vitte installation requires root or a writable PREFIX\n' >&2
+target_root=${DESTDIR:-/}
+target_prefix=$target_root$PREFIX
+
+check_path() {
+  current=$1
+  while :; do
+    [ ! -L "$current" ] || {
+      printf 'refusing to follow a symbolic link: %s\n' "$current" >&2
       exit 1
     }
-  fi
+    [ "$current" != / ] || break
+    parent=$(dirname "$current")
+    [ "$parent" != "$current" ] || break
+    current=$parent
+  done
+}
+
+check_path "$target_prefix"
+mkdir -p "$target_prefix" 2>/dev/null || {
+  printf 'cannot create installation prefix: %s\n' "$target_prefix" >&2
+  exit 1
+}
+if [ -z "$DESTDIR" ] &&
+   [ "$(id -u)" -ne 0 ] &&
+   [ ! -w "$target_prefix" ]
+then
+  printf 'Vitte installation requires root or a writable PREFIX\n' >&2
+  exit 1
 fi
 
-target_root=${DESTDIR:-/}
-
-mkdir -p "$target_root"
-
 if [ "$PREFIX" = /usr/local ]; then
-  tar -cf - -C "$HERE/root" . |
-    tar -xf - -C "$target_root"
+  cp -pR "$HERE/root/." "$target_root/"
 else
   [ -d "$HERE/root/usr/local" ] || {
     printf 'Vitte payload is missing usr/local\n' >&2
     exit 1
   }
 
-  mkdir -p "$target_root$PREFIX"
-
-  tar -cf - -C "$HERE/root/usr/local" . |
-    tar -xf - -C "$target_root$PREFIX"
-
-  for command in vitte vittec vitte-installer-doctor; do
-    wrapper=$target_root$PREFIX/bin/$command
-
-    if [ -f "$wrapper" ]; then
-      tmp=$wrapper.tmp.$$
-
-      sed "s#/usr/local#$PREFIX#g" \
-        "$wrapper" > "$tmp"
-
-      mv "$tmp" "$wrapper"
-      chmod 0755 "$wrapper"
-    fi
-  done
+  cp -pR "$HERE/root/usr/local/." "$target_prefix/"
 fi
 
-integration_helper=$target_root$PREFIX/share/vitte/tools/install-unix-integrations.sh
+integration_helper=$target_prefix/share/vitte/tools/install-unix-integrations.sh
 [ -x "$integration_helper" ] || {
   printf 'Vitte integration installer is missing: %s\n' "$integration_helper" >&2
   exit 1
@@ -222,6 +245,7 @@ PREFIX=${PREFIX:-/usr/local}
 DESTDIR=${DESTDIR:-}
 
 case "$PREFIX" in
+  /) printf 'PREFIX must not be /\n' >&2; exit 1;;
   /*) ;;
   *)
     printf 'PREFIX must be absolute: %s\n' "$PREFIX" >&2
@@ -229,29 +253,71 @@ case "$PREFIX" in
     ;;
 esac
 
-root=${DESTDIR:-/}
+case "$PREFIX" in */) PREFIX=${PREFIX%/};; esac
+case "$PREFIX/" in
+  */../*|*/./*|*//*)
+    printf 'PREFIX must not contain dot or empty path components: %s\n' "$PREFIX" >&2
+    exit 1
+    ;;
+esac
 
+if [ -n "$DESTDIR" ]; then
+  case "$DESTDIR" in
+    /) printf 'DESTDIR must not be /\n' >&2; exit 1;;
+    /*) ;;
+    *) printf 'DESTDIR must be absolute: %s\n' "$DESTDIR" >&2; exit 1;;
+  esac
+  case "$DESTDIR" in */) DESTDIR=${DESTDIR%/};; esac
+  case "$DESTDIR/" in
+    */../*|*/./*|*//*)
+      printf 'DESTDIR must not contain dot or empty path components: %s\n' "$DESTDIR" >&2
+      exit 1
+      ;;
+  esac
+fi
+
+root=${DESTDIR:-/}
+target_prefix=$root$PREFIX
+
+check_path() {
+  current=$1
+  while :; do
+    [ ! -L "$current" ] || {
+      printf 'refusing to follow a symbolic link: %s\n' "$current" >&2
+      exit 1
+    }
+    [ "$current" != / ] || break
+    parent=$(dirname "$current")
+    [ "$parent" != "$current" ] || break
+    current=$parent
+  done
+}
+
+check_path "$target_prefix"
+check_path "$target_prefix/bin"
+check_path "$target_prefix/libexec/vitte"
+check_path "$target_prefix/share/vitte"
 if [ -z "$DESTDIR" ] &&
    [ "$(id -u)" -ne 0 ] &&
-   [ ! -w "$PREFIX" ]
+   [ ! -w "$target_prefix" ]
 then
   printf 'Vitte uninstall requires root or a writable PREFIX\n' >&2
   exit 1
 fi
 
 rm -f \
-  "$root$PREFIX/bin/vitte" \
-  "$root$PREFIX/bin/vittec" \
-  "$root$PREFIX/bin/vitte-installer-doctor"
+  "$target_prefix/bin/vitte" \
+  "$target_prefix/bin/vittec" \
+  "$target_prefix/bin/vitte-installer-doctor"
 
-integration_helper=$root$PREFIX/share/vitte/tools/install-unix-integrations.sh
+integration_helper=$target_prefix/share/vitte/tools/install-unix-integrations.sh
 if [ -x "$integration_helper" ]; then
   PREFIX=$PREFIX DESTDIR=$DESTDIR "$integration_helper" uninstall
 fi
 
 rm -rf \
-  "$root$PREFIX/libexec/vitte" \
-  "$root$PREFIX/share/vitte"
+  "$target_prefix/libexec/vitte" \
+  "$target_prefix/share/vitte"
 
 printf 'Vitte removed from %s%s.\n' \
   "$DESTDIR" \
@@ -654,6 +720,17 @@ if [ "$LIST_TARGETS" -eq 1 ]; then
 
   exit 0
 fi
+
+if [ -n "$VERIFY_ONLY" ]; then
+  verify_dir=$VERIFY_ONLY
+  case "$verify_dir" in /*) ;; *) verify_dir=$ROOT_DIR/$verify_dir;; esac
+  VERSION=$VERSION OUT_DIR=$verify_dir VERIFY_METADATA=1 \
+    "$ROOT_DIR/scripts/verify-installers.sh"
+  exit 0
+fi
+
+[ "$CLEAN" -eq 0 ] ||
+  scripts_build_die 'use build-all-installers.sh --clean to remove installer staging directories'
 
 for family in $families; do
   if [ "$requested_arches" = all ]; then

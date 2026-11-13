@@ -1269,13 +1269,13 @@ proc sell_commodity(
     let commodity: CommodityKind =
         read_commodity();
 
-    let owned: i64 =
+    let cargo_owned: i64 =
         cargo_quantity(
             &game.player.cargo,
             commodity
         );
 
-    if owned <= 0 {
+    if cargo_owned <= 0 {
         io_print("Vous n'en possedez pas.\n");
         return;
     }
@@ -1287,7 +1287,7 @@ proc sell_commodity(
         );
 
     io_print("Vous possedez : ");
-    io_print_i64(owned);
+    io_print_i64(cargo_owned);
     println();
 
     io_print("Prix unitaire : ");
@@ -1307,7 +1307,7 @@ proc sell_commodity(
     let quantity: i64 =
         min_i64(
             requested,
-            owned
+            cargo_owned
         );
 
     let total: i64 =
@@ -1550,10 +1550,10 @@ proc player_combat_attack(
             damage
         );
 
-    let critical: i64 =
+    let critical_roll: i64 =
         random_i64(1, 100);
 
-    if critical <=
+    if critical_roll <=
         10 +
         game.player.ship.weapon_level * 2
     {

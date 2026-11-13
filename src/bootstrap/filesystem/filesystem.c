@@ -60,6 +60,7 @@
 #endif
 
 #include <errno.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -379,10 +380,12 @@ vitte_windows_getcwd_utf8(
         errno = EIO;
         return NULL;
     }
+#if SIZE_MAX <= UINT32_MAX
     if ((size_t)required > SIZE_MAX / sizeof(*wide_buffer) - 1u) {
         errno = EOVERFLOW;
         return NULL;
     }
+#endif
     wide_buffer = (wchar_t *)malloc(
         ((size_t)required + 1u) * sizeof(*wide_buffer));
     if (wide_buffer == NULL) {
@@ -636,6 +639,12 @@ vitte_windows_mkstemp(char *path)
 
 #define VITTE_FILESYSTEM_READ_CHUNK \
     ((size_t)(64u * 1024u))
+
+#if defined(_WIN32)
+_Static_assert(
+    VITTE_FILESYSTEM_READ_CHUNK <= UINT_MAX,
+    "Windows read chunk must fit in the CRT read size");
+#endif
 
 #define VITTE_FILESYSTEM_WRITE_MODE \
     ((unsigned int)0666)
@@ -1717,11 +1726,19 @@ vitte_filesystem_read_file(
         }
 
         do {
+#if defined(_WIN32)
+            count =
+                read(
+                    descriptor,
+                    buffer->data + buffer->length,
+                    (unsigned int)available);
+#else
             count =
                 read(
                     descriptor,
                     buffer->data + buffer->length,
                     available);
+#endif
         } while (count < 0 && errno == EINTR);
 
         if (count < 0) {
@@ -1799,11 +1816,22 @@ vitte_filesystem_write_descriptor(
         remaining = length - offset;
 
         do {
+#if defined(_WIN32)
+            if (remaining > UINT_MAX) {
+                remaining = UINT_MAX;
+            }
+            written =
+                write(
+                    descriptor,
+                    bytes + offset,
+                    (unsigned int)remaining);
+#else
             written =
                 write(
                     descriptor,
                     bytes + offset,
                     remaining);
+#endif
         } while (written < 0 && errno == EINTR);
 
         if (written < 0) {

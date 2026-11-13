@@ -2619,7 +2619,7 @@ Source: [`src/core.vit`](src/core.vit) · exports: 3
 ```vit
 export const CORE_VERSION_MAJOR: u32 = 0;
 export const CORE_VERSION_MINOR: u32 = 1;
-export const CORE_VERSION_PATCH: u32 = 0;
+export const CORE_VERSION_PATCH: u32 = 1;
 ```
 
 ## `core::error::assert`
@@ -3358,12 +3358,12 @@ export proc layout_extend(left: Layout, right: Layout) -> Layout;
 
 ## `core::mem::memory`
 
-Source: [`src/mem/memory.vitte`](src/mem/memory.vitte) · exports: 5
+Source: [`src/mem/memory.vit`](src/mem/memory.vit) · exports: 5
 
 ```vit
 export proc mem_fill(destination: *mut u8, value: u8, length: usize) -> bool;
 export proc mem_copy(destination: *mut u8, source: *const u8, length: usize) -> bool;
-export proc mem_compare(left: *const u8, right: *const u8, length: usize) -> ?i8;
+export proc mem_compare(left: *const u8, right: *const u8, length: usize, ordering: &mut i8) -> bool;
 export proc mem_equal(left: *const u8, right: *const u8, length: usize) -> bool;
 export proc mem_zero(destination: *mut u8, length: usize) -> bool;
 ```

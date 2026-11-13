@@ -1,3 +1,11 @@
+# 0.1.1
+
+- Align the source-level Core version with the package manifests.
+- Use the canonical `.vit` extension for the memory module and exercise its
+  byte-copy, fill, comparison, and failure contracts.
+- Return memory comparison through a boolean status and output parameter so
+  the API does not depend on unsupported scalar nullable returns.
+
 # 0.1.0
 
 - Les parseurs bootstrap et natif reconnaissent les paramètres génériques de

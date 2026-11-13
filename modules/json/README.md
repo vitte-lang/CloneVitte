@@ -56,6 +56,12 @@ make install PREFIX="$HOME/.local"
 `test-vitte` stages a compiler installation, then compiles and runs a consumer
 that imports the parser and encoder, parses a JSON object, and checks its
 compact encoding from the installed source tree.
+On MSYS2 in this checkout, run that smoke test with the bootstrap compiler:
+
+```sh
+make -C modules/json VITTE=../../build/bin/vitte-bootstrap.exe test-vitte
+```
+
 Normal `make install` installs the compiler and JSON source tree under
 `$PREFIX/share/vitte/modules/json`; `make uninstall` removes both. A staged
 installation can be made with `DESTDIR`, for example:

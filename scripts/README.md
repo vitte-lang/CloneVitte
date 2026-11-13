@@ -36,7 +36,7 @@ Examples:
 - Solaris: `FAMILY=solaris ARCH=i386 scripts/build-all-installers.sh`
 - Windows retrocompatibility kits: `FAMILY=windows ARCH=all scripts/build-all-installers.sh`
 - Windows professional matrix: `pwsh scripts/build-windows.ps1 -Arch all -WindowsTargets "xp vista 7 8 8.1 10 11"`
-- Windows wrapper inspection: `pwsh scripts/build-windows.ps1 -DryRun` (also `-ListTargets`, `-PrintEnv`, `-Help`). The wrapper accepts `-Arch`, `-Version`, `-OutDir`, `-PackageName`, `-WindowsTargets`, `-VitteBin`, `-Sign`, `-WindowsSignCert`, and `-StrictNative`, and converts Windows paths before invoking the POSIX builder.
+- Windows wrapper inspection: `pwsh scripts/build-windows.ps1 -DryRun` (also `-ListTargets`, `-PrintEnv`, `-Help`). The wrapper accepts `-Arch`, `-Version`, `-OutDir`, `-PackageName`, `-WindowsTargets`, `-VitteExe` (alias `-VitteBin`), `-Shell`, `-BuilderPath`, `-Sign`, `-SignCert` (alias `-WindowsSignCert`), and `-StrictNative`; it discovers common MSYS2/Git Bash locations, adds the selected shell's tool directories only for the build, converts Windows paths before invoking Bash, and restores the caller's environment afterward.
 
 Raspberry Pi 1 source installation:
 
@@ -44,7 +44,9 @@ Raspberry Pi 1 source installation:
 - Install build prerequisites first: `sudo apt-get install build-essential python3`.
 - Run `scripts/install-raspberry-pi1.sh` from the source checkout. It builds natively with one job by default, installs the compiler and JSON source module via `make install`, then compiles and runs a smoke program. The default prefix is `/usr/local`; the script asks for `sudo` only for the installation step when required.
 - For a user-writable installation: `scripts/install-raspberry-pi1.sh --prefix "$HOME/.local"`. Add `$HOME/.local/bin` to `PATH` if needed.
-- Inspect without changing the system: `scripts/install-raspberry-pi1.sh --dry-run`. Use `--destdir /absolute/stage` to stage an installation; `--allow-non-pi` requires `--destdir`, is only for staged host testing, and does not cross-compile for ARMv6.
+- Inspect without changing the system: `scripts/install-raspberry-pi1.sh --dry-run`; `--print-env` displays the resolved configuration. Use `--destdir /absolute/stage` to stage an installation; `--allow-non-pi` requires `--destdir`, is only for host staging, and does not cross-compile for ARMv6.
+- `--full` stages the runtime, standard library, headers, docs, examples, and editor assets. `--verify-only` checks an existing live installation; `--no-verify` skips the default compile-and-run smoke test. `--bootstrap` runs only an explicitly supplied `BOOTSTRAP_CMD`; `--offline` is the default and does not contact the network.
+- `--backup-dir DIR` chooses the parent directory for a timestamped backup of replaced files. Live installation commits are rolled back if a file replacement fails. `--log-file FILE`, `--min-memory-kib N`, and `--benchmark` enable append-only logging, a low-memory warning threshold, and elapsed-time reporting.
 - A Pi 1 has little memory; keep the default single build job unless the device has enough free memory or swap. Build failures are reported, not replaced by a possibly incompatible prebuilt binary.
 
 Runtime contract checks:

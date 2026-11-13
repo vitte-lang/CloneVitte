@@ -366,38 +366,26 @@ proc arena_poison_allocated(
     memory_ptr: *mut u8,
     size: usize
 ) {
-    if not ARENA_POISON_ALLOCATED {
-        return;
+    if ARENA_POISON_ALLOCATED and size != 0 {
+        fill(
+            memory_ptr,
+            ARENA_ALLOC_PATTERN,
+            size
+        );
     }
-
-    if size == 0 {
-        return;
-    }
-
-    fill(
-        memory_ptr,
-        ARENA_ALLOC_PATTERN,
-        size
-    );
 }
 
 proc arena_poison_reset_region(
     memory_ptr: *mut u8,
     size: usize
 ) {
-    if not ARENA_POISON_RESET {
-        return;
+    if ARENA_POISON_RESET and size != 0 {
+        fill(
+            memory_ptr,
+            ARENA_RESET_PATTERN,
+            size
+        );
     }
-
-    if size == 0 {
-        return;
-    }
-
-    fill(
-        memory_ptr,
-        ARENA_RESET_PATTERN,
-        size
-    );
 }
 
 

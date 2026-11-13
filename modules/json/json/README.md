@@ -31,6 +31,24 @@ Le Makefile détecte un compilateur `vitte` dans le `PATH` ; le paramètre
 make install PREFIX=/usr/local DESTDIR="$PWD/build/stage"
 ```
 
+## Créer l’archive du paquet
+
+Depuis le répertoire autonome `modules/json/json`, lancez :
+
+```sh
+make VITTE=/chemin/vers/vitte package
+```
+
+La cible exécute `verify`, puis crée l’archive source et sa somme SHA-256 dans
+`build/packages/`. L’archive contient le manifeste, les sources maintenues, les
+tests, la documentation, la licence et le Makefile; elle exclut les brouillons
+et les fichiers de compilation.
+Dans ce dépôt sous MSYS2, la commande équivalente est :
+
+```sh
+make VITTE=../../../build/bin/vitte-bootstrap.exe package
+```
+
 Le parent `share/vitte/modules` peut être ajouté à `VITTE_MODULE_PATH` si le
 compilateur ne le découvre pas automatiquement :
 

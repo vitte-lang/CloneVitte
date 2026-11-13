@@ -18,6 +18,34 @@ WINDOWS_VITTE_EXE=${WINDOWS_VITTE_EXE:-}
 WINDOWS_TARGETS=${WINDOWS_TARGETS:-xp vista 7 8 8.1 10 11}
 WINDOWS_MINIMUM_VERSION=${WINDOWS_MINIMUM_VERSION:-$(scripts_build_minimum_version_for_target windows)}
 scripts_build_maybe_help "usage: build-windows-installer.sh [--dry-run]"
+
+if [ "$LIST_TARGETS" -eq 1 ]; then
+  printf '%s\n' 'windows i386' 'windows amd64' 'windows arm64' 'windows armv7'
+  exit 0
+fi
+
+if [ "$PRINT_ENV" -eq 1 ]; then
+  printf 'VERSION=%s\n' "$VERSION"
+  printf 'OUT_DIR=%s\n' "$OUT_DIR"
+  printf 'ARCH=%s\n' "$ARCH"
+  printf 'PACKAGE_NAME=%s\n' "$PACKAGE_NAME"
+  printf 'WINDOWS_TARGETS=%s\n' "$WINDOWS_TARGETS"
+  printf 'SIGN=%s\n' "$SIGN"
+  printf 'STRICT_NATIVE=%s\n' "$REQUIRE_NATIVE"
+  exit 0
+fi
+
+if [ -n "$VERIFY_ONLY" ]; then
+  verify_dir=$VERIFY_ONLY
+  case "$verify_dir" in /*) ;; *) verify_dir=$ROOT_DIR/$verify_dir;; esac
+  VERSION=$VERSION OUT_DIR=$verify_dir VERIFY_METADATA=0 \
+    "$ROOT_DIR/scripts/verify-installers.sh"
+  exit 0
+fi
+
+[ "$CLEAN" -eq 0 ] ||
+  scripts_build_die 'use build-all-installers.sh --clean to remove installer staging directories'
+
 scripts_build_maybe_dry_run "would build Windows NSIS kits version=$VERSION arch=$ARCH out=$OUT_DIR"
 
 die() {
@@ -147,66 +175,296 @@ EOF
 write_powershell_installers() {
   stage=$1
   cat > "$stage/install.ps1" <<'EOF'
+param([string]$Prefix = "")
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DefaultPrefix = Join-Path $env:ProgramFiles "Vitte"
-if ([string]::IsNullOrEmpty($DefaultPrefix)) {
-  $DefaultPrefix = "C:\Vitte"
+if ([string]::IsNullOrWhiteSpace($Prefix)) {
+  $Prefix = Join-Path $env:ProgramFiles "Vitte"
 }
-$Prefix = $DefaultPrefix
-if ($args.Count -ge 1 -and -not [string]::IsNullOrEmpty($args[0])) {
-  $Prefix = $args[0]
+if ([string]::IsNullOrWhiteSpace($Prefix)) {
+  $Prefix = "C:\Vitte"
+}
+$Prefix = [IO.Path]::GetFullPath($Prefix).TrimEnd([char[]]@('\', '/'))
+$DriveRoot = [IO.Path]::GetPathRoot($Prefix).TrimEnd([char[]]@('\', '/'))
+if ([string]::IsNullOrWhiteSpace($Prefix) -or
+    [string]::Equals($Prefix, $DriveRoot, [StringComparison]::OrdinalIgnoreCase)) {
+  throw "Refusing to install into a drive root: $Prefix"
 }
 $Payload = Join-Path $ScriptDir "payload"
-if (-not (Test-Path $Payload)) {
+if (-not (Test-Path -LiteralPath $Payload -PathType Container)) {
   throw "missing payload directory: $Payload"
 }
-if (-not (Test-Path $Prefix)) {
-  New-Item -ItemType Directory -Force -Path $Prefix | Out-Null
+$Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$Principal = New-Object Security.Principal.WindowsPrincipal($Identity)
+if (-not $Principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  throw "Vitte installation requires an elevated PowerShell session."
 }
-Copy-Item -Path (Join-Path $Payload "*") -Destination $Prefix -Recurse -Force
-$BinDir = Join-Path $Prefix "bin"
+
+$PrefixRoot = $Prefix + [IO.Path]::DirectorySeparatorChar
+$Payload = [IO.Path]::GetFullPath($Payload).TrimEnd([char[]]@('\', '/')) +
+  [IO.Path]::DirectorySeparatorChar
+$PayloadRoot = $Payload.TrimEnd([char[]]@('\', '/'))
+if ([string]::Equals($Prefix, $PayloadRoot, [StringComparison]::OrdinalIgnoreCase) -or
+    $Prefix.StartsWith($Payload, [StringComparison]::OrdinalIgnoreCase)) {
+  throw "installation prefix must not be inside the installer payload: $Prefix"
+}
+
 $ShareDir = Join-Path $Prefix "share\vitte"
-[Environment]::SetEnvironmentVariable("VITTE_ROOT", $ShareDir, "Machine")
-$MachinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-if ($MachinePath -eq $null) { $MachinePath = "" }
-if ((";" + $MachinePath + ";").IndexOf(";" + $BinDir + ";", [StringComparison]::OrdinalIgnoreCase) -lt 0) {
-  if ($MachinePath.Length -eq 0) {
-    [Environment]::SetEnvironmentVariable("Path", $BinDir, "Machine")
-  } else {
-    [Environment]::SetEnvironmentVariable("Path", $BinDir + ";" + $MachinePath, "Machine")
+$BinDir = Join-Path $Prefix "bin"
+$OldRoot = [Environment]::GetEnvironmentVariable("VITTE_ROOT", "Machine")
+$OldPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+$BackupRoot = Join-Path ([IO.Path]::GetTempPath()) ("vitte-install-" + [Guid]::NewGuid().ToString("N"))
+$ChangedFiles = New-Object 'System.Collections.Generic.List[string]'
+$ExistingFiles = New-Object 'System.Collections.Generic.List[string]'
+$EnvironmentTouched = $false
+$KeepBackup = $false
+
+function Get-NormalizedPath([string]$Path) {
+  if ([string]::IsNullOrWhiteSpace($Path)) { return "" }
+  $value = $Path.Trim().Trim('"')
+  try { return [IO.Path]::GetFullPath($value).TrimEnd([char[]]@('\', '/')) }
+  catch { return $value.TrimEnd([char[]]@('\', '/')) }
+}
+
+function Assert-NoReparsePoint([string]$Path) {
+  $current = [IO.Path]::GetFullPath($Path)
+  while (-not [string]::IsNullOrWhiteSpace($current)) {
+    if (Test-Path -LiteralPath $current) {
+      $item = Get-Item -LiteralPath $current -Force
+      if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Refusing to write through a junction or symbolic link: $current"
+      }
+    }
+    if ([string]::Equals(
+      $current.TrimEnd([char[]]@('\', '/')),
+      [IO.Path]::GetPathRoot($current).TrimEnd([char[]]@('\', '/')),
+      [StringComparison]::OrdinalIgnoreCase
+    )) {
+      break
+    }
+    $current = Split-Path -Parent $current
   }
 }
-Write-Host "Vitte installed to $Prefix"
-Write-Host "Supported Windows: XP, Vista, 7, 8, 8.1, 10, 11"
+
+Assert-NoReparsePoint -Path $Prefix
+
+try {
+  New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
+  $PayloadFiles = Get-ChildItem -LiteralPath $Payload.TrimEnd([char[]]@('\', '/')) -Recurse -File
+  foreach ($File in $PayloadFiles) {
+    $RelativePath = $File.FullName.Substring($Payload.Length).TrimStart('\', '/')
+    $Destination = Join-Path $Prefix $RelativePath
+    $FullDestination = [IO.Path]::GetFullPath($Destination)
+    if (-not $FullDestination.StartsWith($PrefixRoot, [StringComparison]::OrdinalIgnoreCase)) {
+      throw "payload path escaped the installation prefix: $RelativePath"
+    }
+    $Parent = Split-Path -Parent $FullDestination
+    Assert-NoReparsePoint -Path $Parent
+    if (Test-Path -LiteralPath $FullDestination) {
+      $DestinationItem = Get-Item -LiteralPath $FullDestination -Force
+      if ($DestinationItem.PSIsContainer) {
+        throw "refusing to replace a directory with a payload file: $FullDestination"
+      }
+      if (($DestinationItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "refusing to replace a reparse point: $FullDestination"
+      }
+      $BackupFile = Join-Path $BackupRoot $RelativePath
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $BackupFile) | Out-Null
+      Copy-Item -LiteralPath $FullDestination -Destination $BackupFile -Force
+      $ExistingFiles.Add($RelativePath)
+    }
+    New-Item -ItemType Directory -Force -Path $Parent | Out-Null
+    $ChangedFiles.Add($RelativePath)
+    Copy-Item -LiteralPath $File.FullName -Destination $FullDestination -Force
+  }
+
+  $PathEntries = @()
+  if (-not [string]::IsNullOrWhiteSpace($OldPath)) {
+    $PathEntries = @($OldPath.Split(';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+  }
+  $NormalizedBin = Get-NormalizedPath $BinDir
+  $PathAlreadyPresent = $false
+  foreach ($Entry in $PathEntries) {
+    if ([string]::Equals((Get-NormalizedPath $Entry), $NormalizedBin, [StringComparison]::OrdinalIgnoreCase)) {
+      $PathAlreadyPresent = $true
+      break
+    }
+  }
+  if (-not $PathAlreadyPresent) {
+    if ([string]::IsNullOrWhiteSpace($OldPath)) { $NewPath = $BinDir }
+    else { $NewPath = $BinDir + ";" + $OldPath }
+    $EnvironmentTouched = $true
+    [Environment]::SetEnvironmentVariable("Path", $NewPath, "Machine")
+  }
+  $EnvironmentTouched = $true
+  [Environment]::SetEnvironmentVariable("VITTE_ROOT", $ShareDir, "Machine")
+  Write-Host "Vitte installed to $Prefix"
+  Write-Host "Supported Windows: XP, Vista, 7, 8, 8.1, 10, 11"
+}
+catch {
+  $InstallFailure = $_
+  $RollbackFailures = @()
+  for ($Index = $ChangedFiles.Count - 1; $Index -ge 0; $Index--) {
+    $RelativePath = $ChangedFiles[$Index]
+    $Destination = Join-Path $Prefix $RelativePath
+    try {
+      if ($ExistingFiles.Contains($RelativePath)) {
+        Copy-Item -LiteralPath (Join-Path $BackupRoot $RelativePath) -Destination $Destination -Force
+      }
+      elseif (Test-Path -LiteralPath $Destination) {
+        Remove-Item -LiteralPath $Destination -Force
+      }
+    }
+    catch {
+      $RollbackFailures += "$Destination : $($_.Exception.Message)"
+    }
+  }
+  if ($EnvironmentTouched) {
+    try {
+      [Environment]::SetEnvironmentVariable("Path", $OldPath, "Machine")
+      [Environment]::SetEnvironmentVariable("VITTE_ROOT", $OldRoot, "Machine")
+    }
+    catch {
+      $RollbackFailures += "machine environment: $($_.Exception.Message)"
+    }
+  }
+  if ($RollbackFailures.Count -gt 0) {
+    $KeepBackup = $true
+    throw "Installation failed: $($InstallFailure.Exception.Message). Rollback was incomplete: $($RollbackFailures -join '; ')"
+  }
+  throw $InstallFailure
+}
+finally {
+  if (-not $KeepBackup -and (Test-Path -LiteralPath $BackupRoot)) {
+    Remove-Item -LiteralPath $BackupRoot -Recurse -Force
+  }
+  elseif ($KeepBackup) {
+    Write-Warning "Rollback files were retained at $BackupRoot"
+  }
+}
 EOF
 
   cat > "$stage/uninstall.ps1" <<'EOF'
+param([string]$Prefix = "")
 $ErrorActionPreference = "Stop"
-$DefaultPrefix = Join-Path $env:ProgramFiles "Vitte"
-if ([string]::IsNullOrEmpty($DefaultPrefix)) {
-  $DefaultPrefix = "C:\Vitte"
+if ([string]::IsNullOrWhiteSpace($Prefix)) {
+  $Prefix = Join-Path $env:ProgramFiles "Vitte"
 }
-$Prefix = $DefaultPrefix
-if ($args.Count -ge 1 -and -not [string]::IsNullOrEmpty($args[0])) {
-  $Prefix = $args[0]
+if ([string]::IsNullOrWhiteSpace($Prefix)) {
+  $Prefix = "C:\Vitte"
 }
+$Prefix = [IO.Path]::GetFullPath($Prefix).TrimEnd([char[]]@('\', '/'))
+$DriveRoot = [IO.Path]::GetPathRoot($Prefix).TrimEnd([char[]]@('\', '/'))
+if ([string]::IsNullOrWhiteSpace($Prefix) -or
+    [string]::Equals($Prefix, $DriveRoot, [StringComparison]::OrdinalIgnoreCase)) {
+  throw "Refusing to uninstall from a drive root: $Prefix"
+}
+function Assert-NoReparsePoint([string]$Path) {
+  $current = [IO.Path]::GetFullPath($Path)
+  while (-not [string]::IsNullOrWhiteSpace($current)) {
+    if (Test-Path -LiteralPath $current) {
+      $item = Get-Item -LiteralPath $current -Force
+      if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Refusing to operate through a junction or symbolic link: $current"
+      }
+    }
+    if ([string]::Equals(
+      $current.TrimEnd([char[]]@('\', '/')),
+      [IO.Path]::GetPathRoot($current).TrimEnd([char[]]@('\', '/')),
+      [StringComparison]::OrdinalIgnoreCase
+    )) {
+      break
+    }
+    $current = Split-Path -Parent $current
+  }
+}
+foreach ($RelativePath in @("", "bin", "share", "libexec", "share\vitte", "libexec\vitte")) {
+  Assert-NoReparsePoint -Path (Join-Path $Prefix $RelativePath)
+}
+$ShareDir = Join-Path $Prefix "share\vitte"
+$Manifest = Join-Path $ShareDir "INSTALLATION.json"
+Assert-NoReparsePoint -Path $Manifest
+Assert-NoReparsePoint -Path (Join-Path $Prefix "bin\vitte.exe")
+if (-not (Test-Path -LiteralPath $Manifest -PathType Leaf) -or
+    -not (Test-Path -LiteralPath (Join-Path $Prefix "bin\vitte.exe") -PathType Leaf)) {
+  throw "Vitte installation markers were not found below $Prefix; nothing was removed."
+}
+$Installation = Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json
+if ($Installation.name -ne "vitte") {
+  throw "installation manifest does not identify a Vitte installation: $Manifest"
+}
+$Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$Principal = New-Object Security.Principal.WindowsPrincipal($Identity)
+if (-not $Principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  throw "Vitte uninstallation requires an elevated PowerShell session."
+}
+
+function Get-NormalizedPath([string]$Path) {
+  if ([string]::IsNullOrWhiteSpace($Path)) { return "" }
+  $value = $Path.Trim().Trim('"')
+  try { return [IO.Path]::GetFullPath($value).TrimEnd([char[]]@('\', '/')) }
+  catch { return $value.TrimEnd([char[]]@('\', '/')) }
+}
+
 $BinDir = Join-Path $Prefix "bin"
-$MachinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-if ($MachinePath -ne $null) {
-  $parts = @()
-  foreach ($part in $MachinePath.Split(";")) {
-    if ($part.Length -gt 0 -and [String]::Compare($part, $BinDir, $true) -ne 0) {
-      $parts += $part
+$ManagedDirectories = @("libexec\vitte", "share\vitte")
+foreach ($RelativePath in $ManagedDirectories) {
+  $ManagedPath = Join-Path $Prefix $RelativePath
+  if (Test-Path -LiteralPath $ManagedPath) {
+    $Item = Get-Item -LiteralPath $ManagedPath -Force
+    if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Refusing to recursively remove a junction or symbolic link: $ManagedPath"
     }
   }
-  [Environment]::SetEnvironmentVariable("Path", [String]::Join(";", $parts), "Machine")
 }
-[Environment]::SetEnvironmentVariable("VITTE_ROOT", $null, "Machine")
-if (Test-Path $Prefix) {
-  Remove-Item -Recurse -Force $Prefix
+$ManagedFiles = @(
+  "bin\vitte.exe", "bin\vittec.exe",
+  "bin\vitte.cmd", "bin\vittec.cmd",
+  "bin\vitte.ps1", "bin\vittec.ps1",
+  "bin\vitte-installer-doctor.cmd"
+)
+foreach ($RelativePath in $ManagedFiles) {
+  $ManagedPath = Join-Path $Prefix $RelativePath
+  if (Test-Path -LiteralPath $ManagedPath -PathType Leaf) {
+    $Item = Get-Item -LiteralPath $ManagedPath -Force
+    if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Refusing to remove a symbolic link: $ManagedPath"
+    }
+  }
 }
-Write-Host "Vitte removed from $Prefix"
+
+foreach ($RelativePath in $ManagedFiles) {
+  $ManagedPath = Join-Path $Prefix $RelativePath
+  if (Test-Path -LiteralPath $ManagedPath -PathType Leaf) {
+    Remove-Item -LiteralPath $ManagedPath -Force
+  }
+}
+foreach ($RelativePath in @("libexec\vitte", "share\vitte")) {
+  $ManagedPath = Join-Path $Prefix $RelativePath
+  if (Test-Path -LiteralPath $ManagedPath) {
+    $Item = Get-Item -LiteralPath $ManagedPath -Force
+    if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Refusing to recursively remove a junction or symbolic link: $ManagedPath"
+    }
+    Remove-Item -LiteralPath $ManagedPath -Recurse -Force
+  }
+}
+$MachinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+if (-not [string]::IsNullOrWhiteSpace($MachinePath)) {
+  $PathEntries = @()
+  foreach ($Entry in $MachinePath.Split(';')) {
+    if ([string]::IsNullOrWhiteSpace($Entry) -or
+        -not [string]::Equals((Get-NormalizedPath $Entry), (Get-NormalizedPath $BinDir), [StringComparison]::OrdinalIgnoreCase)) {
+      if (-not [string]::IsNullOrWhiteSpace($Entry)) { $PathEntries += $Entry }
+    }
+  }
+  [Environment]::SetEnvironmentVariable("Path", [String]::Join(";", $PathEntries), "Machine")
+}
+$CurrentRoot = [Environment]::GetEnvironmentVariable("VITTE_ROOT", "Machine")
+if ([string]::Equals((Get-NormalizedPath $CurrentRoot), (Get-NormalizedPath $ShareDir), [StringComparison]::OrdinalIgnoreCase)) {
+  [Environment]::SetEnvironmentVariable("VITTE_ROOT", $null, "Machine")
+}
+Write-Host "Vitte components removed from $Prefix; unrelated files were preserved."
 EOF
 }
 
@@ -242,9 +500,10 @@ OutFile "${OUT_FILE}"
 BrandingText "Vitte ${VERSION} | Compiler, runtime, editors and completions"
 ShowInstDetails show
 ShowUninstDetails show
-InstallDir "$PROGRAMFILES\Vitte"
 !if "${ARCH}" == "amd64"
   InstallDir "$PROGRAMFILES64\Vitte"
+!else
+  InstallDir "$PROGRAMFILES\Vitte"
 !endif
 InstallDirRegKey HKLM "Software\Vitte" "InstallDir"
 RequestExecutionLevel admin
@@ -275,6 +534,8 @@ Function AddToPath
   ${If} $0 == ""
     WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path" "$1"
   ${Else}
+    ${StrRep} $0 $0 "$1;" ""
+    ${StrRep} $0 $0 ";$1" ""
     StrCmp $0 "$1" done
     WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path" "$1;$0"
   ${EndIf}
@@ -287,10 +548,16 @@ FunctionEnd
 Function un.RemoveFromPath
   Push $0
   ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path"
+  StrCmp $0 "$INSTDIR\bin" exact_path
   ${UnStrRep} $0 $0 "$INSTDIR\bin;" ""
   ${UnStrRep} $0 $0 ";$INSTDIR\bin" ""
-  ${UnStrRep} $0 $0 "$INSTDIR\bin" ""
+  Goto save_path
+exact_path:
+  StrCpy $0 ""
+save_path:
   WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path" "$0"
+  ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "VITTE_ROOT"
+  StrCmp $0 "$INSTDIR\share\vitte" 0 +2
   DeleteRegValue HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "VITTE_ROOT"
   Pop $0
 FunctionEnd
@@ -301,12 +568,24 @@ Section "Vitte" SEC_VITTE
     MessageBox MB_ICONSTOP "Vitte requires Windows XP or later."
     Abort
   ${EndIf}
+  StrCpy $0 $INSTDIR 3
+  StrCmp $INSTDIR $0 invalid_install_path continue_install
+invalid_install_path:
+  MessageBox MB_ICONSTOP "Choose a directory below the drive root; Vitte cannot be installed into a drive root."
+  Abort
+continue_install:
   SetOutPath "$INSTDIR"
   File /r "payload\*"
   Call AddToPath
   CreateDirectory "$SMPROGRAMS\Vitte"
   CreateShortCut "$SMPROGRAMS\Vitte\Vitte shell.lnk" "$SYSDIR\cmd.exe" '/K ""$INSTDIR\bin\vitte.cmd" --help"'
   CreateShortCut "$SMPROGRAMS\Vitte\Uninstall Vitte.lnk" "$INSTDIR\uninstall.exe"
+  ReadRegStr $0 HKLM "Software\Vitte" "PreviousVitAssociation"
+  StrCmp $0 "" 0 association_saved
+  ReadRegStr $0 HKCR ".vit" ""
+  StrCmp $0 "Vitte.Source" association_saved
+  WriteRegStr HKLM "Software\Vitte" "PreviousVitAssociation" "$0"
+association_saved:
   WriteRegStr HKCR ".vit" "" "Vitte.Source"
   WriteRegStr HKCR "Vitte.Source" "" "Vitte source file"
   WriteRegStr HKCR "Vitte.Source\shell\check\command" "" '"$INSTDIR\bin\vitte.cmd" check "%1"'
@@ -329,11 +608,32 @@ Section "Uninstall"
   Call un.RemoveFromPath
   Delete "$DESKTOP\Vitte shell.lnk"
   RMDir /r "$SMPROGRAMS\Vitte"
+  ReadRegStr $0 HKCR ".vit" ""
+  StrCmp $0 "Vitte.Source" 0 association_done
+  ReadRegStr $0 HKLM "Software\Vitte" "PreviousVitAssociation"
+  StrCmp $0 "" remove_association
+  WriteRegStr HKCR ".vit" "" "$0"
+  Goto association_done
+remove_association:
+  DeleteRegValue HKCR ".vit" ""
+association_done:
   DeleteRegKey HKCR "Vitte.Source"
-  DeleteRegKey HKCR ".vit"
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Vitte"
   DeleteRegKey HKLM "Software\Vitte"
-  RMDir /r "$INSTDIR"
+  Delete "$INSTDIR\bin\vitte.exe"
+  Delete "$INSTDIR\bin\vittec.exe"
+  Delete "$INSTDIR\bin\vitte.cmd"
+  Delete "$INSTDIR\bin\vittec.cmd"
+  Delete "$INSTDIR\bin\vitte.ps1"
+  Delete "$INSTDIR\bin\vittec.ps1"
+  Delete "$INSTDIR\bin\vitte-installer-doctor.cmd"
+  Delete "$INSTDIR\uninstall.exe"
+  RMDir "$INSTDIR\bin"
+  RMDir /r "$INSTDIR\libexec\vitte"
+  RMDir "$INSTDIR\libexec"
+  RMDir /r "$INSTDIR\share\vitte"
+  RMDir "$INSTDIR\share"
+  RMDir "$INSTDIR"
 SectionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
@@ -342,8 +642,10 @@ SectionEnd
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 VIProductVersion "${VERSION}.0"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "FileVersion" "${VERSION}.0"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductName" "Vitte"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductVersion" "${VERSION}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "LegalCopyright" "Copyright (C) 2026 VitteFoundation"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "FileDescription" "Vitte ${ARCH} installer for Windows XP through Windows 11"
 NSI
 }

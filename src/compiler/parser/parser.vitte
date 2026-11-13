@@ -1332,7 +1332,6 @@ proc parser_has_generic_closer(parser: *const Parser) -> bool {
         }
         set distance += 1;
     }
-    return false;
 }
 
 proc parser_has_generic_suffix_at(
@@ -1390,7 +1389,6 @@ proc parser_has_generic_suffix_at(
         }
         set distance += 1;
     }
-    return false;
 }
 
 proc parser_has_generic_form_suffix(parser: *const Parser) -> bool {
@@ -2412,7 +2410,6 @@ proc parser_sizeof_operand_is_type(parser: *const Parser) -> bool {
         }
         set distance += 1;
     }
-    return false;
 }
 
 proc parser_parse_sizeof_expression(parser: *mut Parser) -> ASTNodeId {
@@ -4426,7 +4423,6 @@ proc parser_parse_value_declaration(
         }
         return parser_finish_value_declaration(parser, declaration);
     }
-    return PARSER_INVALID_NODE_ID;
 }
 
 proc parser_finish_value_declaration(parser: *mut Parser, declaration: ASTNodeId) -> ASTNodeId {

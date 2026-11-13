@@ -95,7 +95,7 @@ vitte_platform_run_windows(
     wchar_t **wide_arguments;
     size_t count;
     size_t index;
-    int result;
+    intptr_t result;
 
     count = 0u;
     while (arguments[count] != NULL) {
@@ -157,10 +157,14 @@ vitte_platform_getcwd(
         int utf8_size;
 
         required = GetCurrentDirectoryW(0u, NULL);
-        if (required == 0u || required == (DWORD)-1 ||
-            (size_t)required > SIZE_MAX / sizeof(*wide_buffer) - 1u) {
+        if (required == 0u || required == (DWORD)-1) {
             return false;
         }
+#if SIZE_MAX <= UINT32_MAX
+        if ((size_t)required > SIZE_MAX / sizeof(*wide_buffer) - 1u) {
+            return false;
+        }
+#endif
         wide_buffer = (wchar_t *)malloc(
             ((size_t)required + 1u) * sizeof(*wide_buffer));
         if (wide_buffer == NULL) {

@@ -1,4 +1,6 @@
 use core::mem::layout::{layout, layout_is_valid, layout_array, layout_extend_with_offset};
+use core::mem::memory::{mem_compare, mem_copy, mem_equal, mem_fill, mem_zero};
+use core::ptr::arithmetic::{ptr_add_bytes};
 
 test "memory layout alignment and replacement helpers preserve bounds" {
     let element = layout(3, 4);
@@ -8,4 +10,81 @@ test "memory layout alignment and replacement helpers preserve bounds" {
     assert(extension.valid);
     assert(extension.offset == 8);
     assert(extension.layout.align == 8);
+}
+
+test "memory byte operations handle overlap and preserve outputs on failure" {
+    let mut source: [u8; 4] = [
+        1 as u8,
+        2 as u8,
+        3 as u8,
+        4 as u8,
+    ];
+    let mut destination: [u8; 4] = [
+        0 as u8,
+        0 as u8,
+        0 as u8,
+        0 as u8,
+    ];
+    let source_pointer: *mut u8 = (&mut source) as *mut u8;
+    let destination_pointer: *mut u8 = (&mut destination) as *mut u8;
+
+    assert(mem_copy(
+        destination_pointer,
+        source_pointer as *const u8,
+        4,
+    ));
+    assert(mem_equal(
+        destination_pointer as *const u8,
+        source_pointer as *const u8,
+        4,
+    ));
+
+    let mut ordering: i8 = 7;
+    assert(mem_compare(
+        source_pointer as *const u8,
+        destination_pointer as *const u8,
+        4,
+        &mut ordering,
+    ));
+    assert(ordering == 0);
+
+    assert(mem_fill(destination_pointer, 9, 4));
+    assert(not mem_equal(
+        destination_pointer as *const u8,
+        source_pointer as *const u8,
+        4,
+    ));
+    assert(mem_compare(
+        source_pointer as *const u8,
+        destination_pointer as *const u8,
+        4,
+        &mut ordering,
+    ));
+    assert(ordering == -1);
+
+    let overlap_destination: *mut u8 = ptr_add_bytes(source_pointer, 1);
+    assert(mem_copy(
+        overlap_destination,
+        source_pointer as *const u8,
+        3,
+    ));
+    assert(source[0] == 1);
+    assert(source[1] == 1);
+    assert(source[2] == 2);
+    assert(source[3] == 3);
+
+    assert(mem_zero(destination_pointer, 4));
+    assert(destination[0] == 0);
+    assert(destination[3] == 0);
+
+    set ordering = 5;
+    assert(not mem_compare(
+        null,
+        source_pointer as *const u8,
+        1,
+        &mut ordering,
+    ));
+    assert(ordering == 5);
+    assert(mem_compare(null, null, 0, &mut ordering));
+    assert(ordering == 0);
 }

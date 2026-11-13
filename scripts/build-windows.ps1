@@ -1,96 +1,238 @@
-#requires -Version 5.1
-<#+
-.SYNOPSIS
-  Builds Vitte Windows installer packages through build-windows-installer.sh.
-.DESCRIPTION
-  Windows-native PowerShell entrypoint. Validates inputs and tool availability,
-  translates paths for Git Bash/MSYS2, forwards a scoped environment, and
-  propagates the builder exit code. It does not silently install toolchains.
-.EXAMPLE
-  .\scripts\build-windows-installer.ps1 -Arch amd64 -WindowsTargets '10 11' -Full -Verify
-.EXAMPLE
-  .\scripts\build-windows-installer.ps1 -ListTargets
-#>
 [CmdletBinding()]
 param(
-    [string]$Arch = $(if ($env:ARCH) { $env:ARCH } else { 'all' }),
-    [string]$Version = $env:VERSION,
-    [string]$OutDir = $env:OUT_DIR,
-    [Alias('Name')][string]$PackageName = $(if ($env:PACKAGE_NAME) { $env:PACKAGE_NAME } else { 'vitte' }),
-    [string]$WindowsTargets = $(if ($env:WINDOWS_TARGETS) { $env:WINDOWS_TARGETS } else { 'xp vista 7 8 8.1 10 11' }),
-    [Alias('VitteBin','WindowsVitte')][string]$WindowsVitteExe = $env:WINDOWS_VITTE_EXE,
-    [Alias('Signtool')][string]$WindowsSigntool = $(if ($env:WINDOWS_SIGNTOOL) { $env:WINDOWS_SIGNTOOL } else { 'signtool' }),
-    [Alias('SignCertificate')][string]$WindowsSignCert = $env:WINDOWS_SIGN_CERT,
-    [switch]$Sign,
-    [switch]$StrictNative,
-    [switch]$Full,
-    [switch]$Bootstrap,
-    [switch]$Verify,
-    [switch]$Reproducible,
+    [string]$Arch = 'amd64',
+    [string]$Version = '',
+    [string]$OutDir = '',
+    [string]$PackageName = 'vitte',
+    [string]$WindowsTargets = 'xp vista 7 8 8.1 10 11',
+    [Alias('VitteBin')]
+    [string]$VitteExe = '',
+    [Alias('WindowsSignCert')]
+    [string]$SignCert = '',
+    [string]$SignTool = 'signtool',
+    [string]$BuilderPath = '',
+    [string]$Shell = '',
     [switch]$DryRun,
     [switch]$ListTargets,
     [switch]$PrintEnv,
-    [switch]$Help,
-    [string]$Shell = $env:VITTE_SH,
-    [string]$BuilderPath,
-    [switch]$SkipToolChecks
+    [switch]$Sign,
+    [switch]$StrictNative,
+    [switch]$Help
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Fail([string]$Message) { throw "[vitte-windows] $Message" }
-function Find-Executable([string[]]$Candidates) {
-    foreach ($candidate in $Candidates) {
-        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            return (Resolve-Path -LiteralPath $candidate).ProviderPath
+function Show-Usage {
+    @'
+Usage: .\build-windows.ps1 [options]
+
+Build the Windows installer and portable ZIP through build-windows-installer.sh.
+Requires Bash (Git Bash or MSYS2); NSIS is required for executable installers.
+
+  -Arch ARCH             target architecture (amd64, arm64, i386; default amd64)
+  -Version VERSION       package version override
+  -OutDir DIR            output directory
+  -PackageName NAME      package name (default vitte)
+  -WindowsTargets LIST   Windows compatibility targets
+  -VitteExe PATH         compiler executable to package
+  -Sign -SignCert PATH   Authenticode-sign output using this certificate
+  -SignTool PATH         signtool executable (default signtool)
+  -BuilderPath PATH      alternate build-windows-installer.sh
+  -Shell PATH            Bash executable (default: discover PATH, MSYS2 or Git Bash)
+  -StrictNative          require native artifacts for every requested target
+  -DryRun                print the build plan without building
+  -ListTargets           list supported architectures
+  -PrintEnv              print the effective wrapper configuration
+  -Help                  show this help
+'@ | Write-Output
+}
+
+function Stop-WithError([string]$Message) {
+    throw "build-windows.ps1: $Message"
+}
+
+function Find-Application([string[]]$Names, [switch]$Optional) {
+    foreach ($name in $Names) {
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
         }
-        $cmd = Get-Command -Name $candidate -CommandType Application -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-        if ($null -ne $cmd) { return $cmd.Source }
-    }
-    return $null
-}
-function Convert-ToPosix([string]$Value, [bool]$MustExist = $false) {
-    if ([string]::IsNullOrWhiteSpace($Value)) { return $Value }
-    if ($MustExist -and -not (Test-Path -LiteralPath $Value)) { Fail "Path does not exist: $Value" }
-    if (Test-Path -LiteralPath $Value) {
-        $Value = (Resolve-Path -LiteralPath $Value).ProviderPath
-    } elseif (-not [System.IO.Path]::IsPathRooted($Value)) {
-        $Value = [System.IO.Path]::GetFullPath((Join-Path (Get-Location).ProviderPath $Value))
-    }
-    if ($script:cygpath) {
-        $result = & $script:cygpath -u -- $Value
-        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($result -join ''))) {
-            Fail "cygpath failed for $Value"
+        if (Test-Path -LiteralPath $name -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $name).Path
         }
-        return ($result -join '').Trim()
+        $command = Get-Command -Name $name -CommandType Application -ErrorAction SilentlyContinue
+        if ($null -ne $command) {
+            return $command.Source
+        }
     }
-    # Git Bash/MSYS2 uses /c/... for C:\... paths. UNC needs cygpath.
-    if ($Value -match '^[\\]{2}') { Fail 'UNC paths require cygpath.exe' }
-    if ($Value -match '^([A-Za-z]):[\\/](.*)$') {
-        return '/' + $Matches[1].ToLowerInvariant() + '/' + ($Matches[2] -replace '\\','/')
+    if (-not $Optional) {
+        Stop-WithError "required executable not found: $($Names -join ', ')"
     }
-    return ($Value -replace '\\','/')
+    return ''
 }
-function Quote-Posix([string]$Value) {
-    return "'" + $Value.Replace("'", "'\"'\"'") + "'"
-}
-function Set-ScopedEnvironment([string]$Key, [AllowNull()][string]$Value) {
-    if (-not $script:previousEnv.ContainsKey($Key)) {
-        $script:previousEnv[$Key] = [Environment]::GetEnvironmentVariable($Key, 'Process')
+
+function Convert-ToPosixPath([string]$Path, [string]$Cygpath) {
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
     }
-    [Environment]::SetEnvironmentVariable($Key, $Value, 'Process')
+
+    $resolvedPath = $Path
+    if (-not [IO.Path]::IsPathRooted($resolvedPath)) {
+        $resolvedPath = [IO.Path]::GetFullPath($resolvedPath)
+    }
+    if (Test-Path -LiteralPath $resolvedPath) {
+        $resolvedPath = (Resolve-Path -LiteralPath $resolvedPath).Path
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($Cygpath)) {
+        $converted = & $Cygpath -u -- $resolvedPath
+        if ($LASTEXITCODE -ne 0) {
+            Stop-WithError "cygpath could not convert: $resolvedPath"
+        }
+        return ($converted | Out-String).Trim()
+    }
+
+    if ($resolvedPath -match '^(?<drive>[A-Za-z]):[\\/](?<tail>.*)$') {
+        $drive = $Matches.drive.ToLowerInvariant()
+        $tail = $Matches.tail -replace '\\', '/'
+        return "/$drive/$tail"
+    }
+    if ($resolvedPath.StartsWith('/')) {
+        return ($resolvedPath -replace '\\', '/')
+    }
+    Stop-WithError "cannot convert path for Bash; install cygpath or use a drive-qualified path: $resolvedPath"
 }
-function Restore-Environment {
-    foreach ($key in $script:previousEnv.Keys) {
-        [Environment]::SetEnvironmentVariable($key, $script:previousEnv[$key], 'Process')
+
+if ($Help) {
+    Show-Usage
+    exit 0
+}
+
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ([string]::IsNullOrWhiteSpace($BuilderPath)) {
+    $BuilderPath = Join-Path $scriptDirectory 'build-windows-installer.sh'
+}
+if (-not (Test-Path -LiteralPath $BuilderPath -PathType Leaf)) {
+    Stop-WithError "builder script not found: $BuilderPath"
+}
+$BuilderPath = (Resolve-Path -LiteralPath $BuilderPath).Path
+
+if ($PrintEnv) {
+    @(
+        "ARCH=$Arch"
+        "VERSION=$Version"
+        "OUT_DIR=$OutDir"
+        "PACKAGE_NAME=$PackageName"
+        "WINDOWS_TARGETS=$WindowsTargets"
+        "WINDOWS_VITTE_EXE=$VitteExe"
+        "WINDOWS_SIGN_CERT=$SignCert"
+        "WINDOWS_SIGNTOOL=$SignTool"
+        "SIGN=$([int]$Sign.IsPresent)"
+        "STRICT_NATIVE=$([int]$StrictNative.IsPresent)"
+        "BUILDER_PATH=$BuilderPath"
+    ) | Write-Output
+    exit 0
+}
+
+$bashCandidates = @()
+if (-not [string]::IsNullOrWhiteSpace($Shell)) {
+    $bashCandidates += $Shell
+}
+if (-not [string]::IsNullOrWhiteSpace($env:VITTE_BASH)) {
+    $bashCandidates += $env:VITTE_BASH
+}
+$knownBashCandidates = @()
+if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_ROOT)) {
+    $knownBashCandidates += Join-Path $env:MSYS2_ROOT 'usr\bin\bash.exe'
+}
+if (-not [string]::IsNullOrWhiteSpace($env:SystemDrive)) {
+    $knownBashCandidates += Join-Path $env:SystemDrive 'msys64\usr\bin\bash.exe'
+}
+if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+    $knownBashCandidates += Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
+}
+if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    $knownBashCandidates += Join-Path $env:LOCALAPPDATA 'Programs\Git\bin\bash.exe'
+}
+$bashCandidates += $knownBashCandidates
+$bashCandidates += @('bash.exe', 'bash')
+$bash = Find-Application -Names $bashCandidates
+$bashDirectory = Split-Path -Parent $bash
+$cygpath = Find-Application -Names @(
+    (Join-Path $bashDirectory 'cygpath.exe'),
+    'cygpath.exe',
+    'cygpath'
+) -Optional
+
+$posixBuilder = Convert-ToPosixPath -Path $BuilderPath -Cygpath $cygpath
+$builderArguments = @()
+if ($ListTargets) { $builderArguments += '--list-targets' }
+if ($DryRun) { $builderArguments += '--dry-run' }
+
+$previousEnvironment = @{}
+$environmentValues = @{
+    ARCH = $Arch
+    PACKAGE_NAME = $PackageName
+    WINDOWS_TARGETS = $WindowsTargets
+    WINDOWS_SIGNTOOL = $SignTool
+}
+$pathEntries = @($bashDirectory)
+$msysRoot = Split-Path -Parent (Split-Path -Parent $bashDirectory)
+foreach ($directory in @(
+    (Join-Path $msysRoot 'ucrt64\bin'),
+    (Join-Path $msysRoot 'mingw64\bin')
+)) {
+    if (Test-Path -LiteralPath $directory -PathType Container) {
+        $pathEntries += $directory
+    }
+}
+$pathEntries += [Environment]::GetEnvironmentVariable('PATH', 'Process') -split [IO.Path]::PathSeparator
+$environmentValues.PATH = ($pathEntries |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+    Select-Object -Unique) -join [IO.Path]::PathSeparator
+if (-not [string]::IsNullOrWhiteSpace($Version)) { $environmentValues.VERSION = $Version }
+if (-not [string]::IsNullOrWhiteSpace($OutDir)) {
+    $environmentValues.OUT_DIR = Convert-ToPosixPath -Path $OutDir -Cygpath $cygpath
+}
+if (-not [string]::IsNullOrWhiteSpace($VitteExe)) {
+    $compilerPath = Convert-ToPosixPath -Path $VitteExe -Cygpath $cygpath
+    $environmentValues.VITTE_BIN = $compilerPath
+    $environmentValues.WINDOWS_VITTE_EXE = $compilerPath
+}
+if ($SignTool -match '^[A-Za-z]:[\\/]' -or (Test-Path -LiteralPath $SignTool -PathType Leaf)) {
+    $environmentValues.WINDOWS_SIGNTOOL = Convert-ToPosixPath -Path $SignTool -Cygpath $cygpath
+}
+if ($Sign) {
+    if ([string]::IsNullOrWhiteSpace($SignCert)) {
+        Stop-WithError '-Sign requires -SignCert'
+    }
+    $environmentValues.SIGN = '1'
+    $environmentValues.WINDOWS_SIGN_CERT = Convert-ToPosixPath -Path $SignCert -Cygpath $cygpath
+}
+if ($StrictNative) { $environmentValues.STRICT_NATIVE = '1' }
+
+$exitCode = 0
+try {
+    foreach ($key in $environmentValues.Keys) {
+        $previousEnvironment[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+        [Environment]::SetEnvironmentVariable($key, [string]$environmentValues[$key], 'Process')
+    }
+
+    $invokeArguments = @('-c', 'exec sh "$@"', 'vitte-windows-installer', $posixBuilder) + $builderArguments
+    & $bash @invokeArguments
+    $exitCode = $LASTEXITCODE
+}
+finally {
+    foreach ($key in $previousEnvironment.Keys) {
+        $previousValue = $previousEnvironment[$key]
+        if ($null -eq $previousValue) {
+            Remove-Item -Path "Env:$key" -ErrorAction SilentlyContinue
+        } else {
+            [Environment]::SetEnvironmentVariable($key, $previousValue, 'Process')
+        }
     }
 }
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$rootDir = (Resolve-Path -LiteralPath (Join-Path $scriptDir '..')).ProviderPath
-if ([string]::IsNullOrWhiteSpace($BuilderPath)) {
-    $BuilderPath = Join-Path $scriptDir 'build-windows-installer.sh'
+if ($exitCode -ne 0) {
+    exit $exitCode
 }
