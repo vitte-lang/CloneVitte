@@ -1,0 +1,3131 @@
+/// JSON lexer.
+///
+/// Strict RFC 8259-oriented lexical analysis for Vitte.
+///
+/// Responsibilities:
+/// - recognize JSON punctuation;
+/// - recognize `null`, `true` and `false`;
+/// - recognize strict JSON numbers;
+/// - recognize JSON strings;
+/// - validate and decode JSON string escapes;
+/// - track exact source positions and spans;
+/// - reject comments and non-JSON extensions;
+/// - reject malformed literals and numbers;
+/// - reject unescaped control characters;
+/// - expose tokens suitable for the JSON parser.
+///
+/// JSON whitespace is restricted to:
+/// - space U+0020
+/// - horizontal tab U+0009
+/// - line feed U+000A
+/// - carriage return U+000D
+///
+/// The lexer intentionally does not accept:
+/// - comments;
+/// - single-quoted strings;
+/// - hexadecimal numbers;
+/// - numeric separators;
+/// - leading `+`;
+/// - leading zeroes such as `01`;
+/// - `NaN`;
+/// - `Infinity`;
+/// - trailing decimal points;
+/// - incomplete exponents.
+
+space json::lexer::lexer;
+
+use json::error::position::*;
+use json::lexer::escape::*;
+use json::lexer::token::*;
+
+const JSON_LEXER_DEFAULT_MAX_TOKENS: usize = 1048576;
+const JSON_LEXER_DEFAULT_MAX_STRING_LENGTH: usize = 16777216;
+const JSON_LEXER_DEFAULT_MAX_NUMBER_LENGTH: usize = 4096;
+const JSON_LEXER_DEFAULT_MAX_SOURCE_LENGTH: usize = 268435456;
+
+export pick JsonLexerError {
+    None,
+
+    SourceTooLarge,
+    TooManyTokens,
+
+    UnexpectedCharacter,
+
+    InvalidLiteral,
+
+    InvalidNullLiteral,
+    InvalidTrueLiteral,
+    InvalidFalseLiteral,
+
+    InvalidNumber,
+    InvalidNumberLeadingZero,
+    InvalidNumberFraction,
+    InvalidNumberExponent,
+    NumberTooLong,
+
+    UnterminatedString,
+    UnescapedControlCharacter,
+    InvalidStringEscape,
+    InvalidUnicodeEscape,
+    StringTooLong,
+
+    Internal,
+}
+
+export form JsonLexerLimits {
+    max_tokens: usize,
+
+    max_string_length: usize,
+
+    max_number_length: usize,
+
+    max_source_length: usize,
+}
+
+export form JsonLexerDiagnostic {
+    error: JsonLexerError,
+
+    message: string,
+
+    detail: string,
+
+    /// Optional beginner-friendly fix suggestion.
+    /// Empty when the lexer cannot safely suggest a correction.
+    suggestion: string,
+
+    found: string,
+
+    span: JsonSpan,
+}
+
+export form JsonLexerResult {
+    ok: bool,
+
+    tokens: [JsonToken],
+
+    error: JsonLexerDiagnostic,
+
+    token_count: usize,
+}
+
+form JsonLexer {
+    source: string,
+
+    index: usize,
+
+    position: JsonPosition,
+
+    tokens: [JsonToken],
+
+    token_count: usize,
+
+    limits: JsonLexerLimits,
+
+    failed: bool,
+
+    error: JsonLexerDiagnostic,
+}
+
+/// -------------------------------------------------------------------------
+/// Limits
+/// -------------------------------------------------------------------------
+
+proc default_limits() -> JsonLexerLimits {
+    return JsonLexerLimits {
+        max_tokens:
+            JSON_LEXER_DEFAULT_MAX_TOKENS,
+
+        max_string_length:
+            JSON_LEXER_DEFAULT_MAX_STRING_LENGTH,
+
+        max_number_length:
+            JSON_LEXER_DEFAULT_MAX_NUMBER_LENGTH,
+
+        max_source_length:
+            JSON_LEXER_DEFAULT_MAX_SOURCE_LENGTH,
+    };
+}
+
+proc limits(
+    max_tokens: usize,
+    max_string_length: usize,
+    max_number_length: usize,
+    max_source_length: usize
+) -> JsonLexerLimits {
+    return JsonLexerLimits {
+        max_tokens: max_tokens,
+
+        max_string_length:
+            max_string_length,
+
+        max_number_length:
+            max_number_length,
+
+        max_source_length:
+            max_source_length,
+    };
+}
+
+proc limits_valid(
+    value: &JsonLexerLimits
+) -> bool {
+    return value.max_tokens > 0 &&
+         value.max_string_length > 0 &&
+         value.max_number_length > 0 &&
+         value.max_source_length > 0;
+}
+
+/// Return the limits used by `lex` when no custom profile is needed.
+export proc default_lexer_limits() -> JsonLexerLimits {
+    return default_limits();
+}
+
+/// Construct a custom lexer resource profile.
+///
+/// Every limit must be greater than zero. `lex_with_limits` reports invalid
+/// profiles as a failed `JsonLexerResult`.
+export proc new_lexer_limits(
+    max_tokens: usize,
+    max_string_length: usize,
+    max_number_length: usize,
+    max_source_length: usize
+) -> JsonLexerLimits {
+    return limits(
+        max_tokens,
+        max_string_length,
+        max_number_length,
+        max_source_length);
+}
+
+export proc lexer_limits_valid(
+    value: &JsonLexerLimits
+) -> bool {
+    return limits_valid(value);
+}
+
+/// -------------------------------------------------------------------------
+/// Token helpers
+/// -------------------------------------------------------------------------
+
+proc token(
+    kind: JsonTokenKind,
+    lexeme: string,
+    value: string,
+    location: JsonSpan
+) -> JsonToken {
+    return JsonToken {
+        kind: kind,
+
+        lexeme: lexeme,
+
+        value: value,
+
+        span: location,
+    };
+}
+
+proc invalid_token() -> JsonToken {
+    return token(
+        JsonTokenKind.Invalid,
+        "",
+        "",
+        empty_span());
+}
+
+proc end_token(
+    location: JsonPosition
+) -> JsonToken {
+    return token(
+        JsonTokenKind.End,
+        "",
+        "",
+        point(location));
+}
+
+proc token_kind_name(
+    kind: JsonTokenKind
+) -> string {
+    if kind ==
+       JsonTokenKind.Invalid {
+        return "invalid";
+    }
+
+    if kind ==
+       JsonTokenKind.End {
+        return "end";
+    }
+
+    if kind ==
+       JsonTokenKind.LeftBrace {
+        return "{";
+    }
+
+    if kind ==
+       JsonTokenKind.RightBrace {
+        return "}";
+    }
+
+    if kind ==
+       JsonTokenKind.LeftBracket {
+        return "[";
+    }
+
+    if kind ==
+       JsonTokenKind.RightBracket {
+        return "]";
+    }
+
+    if kind ==
+       JsonTokenKind.Colon {
+        return ":";
+    }
+
+    if kind ==
+       JsonTokenKind.Comma {
+        return ",";
+    }
+
+    if kind ==
+       JsonTokenKind.Null {
+        return "null";
+    }
+
+    if kind ==
+       JsonTokenKind.True {
+        return "true";
+    }
+
+    if kind ==
+       JsonTokenKind.False {
+        return "false";
+    }
+
+    if kind ==
+       JsonTokenKind.Number {
+        return "number";
+    }
+
+    return "string";
+}
+
+proc token_is_punctuation(
+    kind: JsonTokenKind
+) -> bool {
+    return kind ==
+             JsonTokenKind.LeftBrace ||
+         kind ==
+             JsonTokenKind.RightBrace ||
+         kind ==
+             JsonTokenKind.LeftBracket ||
+         kind ==
+             JsonTokenKind.RightBracket ||
+         kind ==
+             JsonTokenKind.Colon ||
+         kind ==
+             JsonTokenKind.Comma;
+}
+
+proc token_is_literal(
+    kind: JsonTokenKind
+) -> bool {
+    return kind ==
+             JsonTokenKind.Null ||
+         kind ==
+             JsonTokenKind.True ||
+         kind ==
+             JsonTokenKind.False ||
+         kind ==
+             JsonTokenKind.Number ||
+         kind ==
+             JsonTokenKind.String;
+}
+
+proc token_is_value(
+    kind: JsonTokenKind
+) -> bool {
+    return token_is_literal(kind) ||
+         kind ==
+             JsonTokenKind.LeftBrace ||
+         kind ==
+             JsonTokenKind.LeftBracket;
+}
+
+/// -------------------------------------------------------------------------
+/// Diagnostics
+/// -------------------------------------------------------------------------
+
+proc no_diagnostic() -> JsonLexerDiagnostic {
+    return JsonLexerDiagnostic {
+        error: JsonLexerError.None,
+
+        message: "",
+
+        detail: "",
+
+        suggestion: "",
+
+        found: "",
+
+        span: empty_span(),
+    };
+}
+
+proc report(
+    error: JsonLexerError,
+    message: string,
+    detail: string,
+    suggestion: string,
+    found: string,
+    location: JsonSpan
+) -> JsonLexerDiagnostic {
+    return JsonLexerDiagnostic {
+        error: error,
+
+        message: message,
+
+        detail: detail,
+
+        suggestion: suggestion,
+
+        found: found,
+
+        span: location,
+    };
+}
+
+/// Return a safe, actionable hint for common lexical mistakes.
+/// The empty string means that no automatic correction is reliable.
+proc suggestion_for(
+    error: JsonLexerError
+) -> string {
+    if error == JsonLexerError.UnexpectedCharacter {
+        return "JSON accepte uniquement des chaînes entre guillemets doubles, des nombres, true, false, null et les signes {}, [], :, et ,";
+    }
+
+    if error == JsonLexerError.InvalidLiteral ||
+       error == JsonLexerError.InvalidNullLiteral ||
+       error == JsonLexerError.InvalidTrueLiteral ||
+       error == JsonLexerError.InvalidFalseLiteral {
+        return "Vérifiez l'orthographe de true, false ou null. Ces mots s'écrivent en minuscules, sans guillemets";
+    }
+
+    if error == JsonLexerError.InvalidNumberLeadingZero {
+        return "Supprimez le zéro en trop : écrivez 0 ou un nombre qui commence par 1 à 9, par exemple 0.5 ou 12";
+    }
+
+    if error == JsonLexerError.InvalidNumberFraction {
+        return "Après le point, ajoutez au moins un chiffre, par exemple 1.5";
+    }
+
+    if error == JsonLexerError.InvalidNumberExponent {
+        return "Après e ou E, ajoutez un exposant complet, par exemple 1e3 ou 1e-3";
+    }
+
+    if error == JsonLexerError.UnterminatedString {
+        return "Ajoutez le guillemet double manquant à la fin de la chaîne";
+    }
+
+    if error == JsonLexerError.UnescapedControlCharacter {
+        return "Remplacez le caractère de contrôle par son échappement JSON, par exemple \\n ou \\t";
+    }
+
+    if error == JsonLexerError.InvalidStringEscape {
+        return "Utilisez un échappement JSON valide, comme \\n, \\t ou \\u suivi de quatre chiffres hexadécimaux";
+    }
+
+    if error == JsonLexerError.InvalidUnicodeEscape {
+        return "Un échappement Unicode doit avoir la forme \\u suivie de quatre chiffres hexadécimaux, par exemple \\u00E9";
+    }
+
+    return "";
+}
+
+proc error_name(
+    error: JsonLexerError
+) -> string {
+    if error ==
+       JsonLexerError.None {
+        return "none";
+    }
+
+    if error ==
+       JsonLexerError.SourceTooLarge {
+        return "source-too-large";
+    }
+
+    if error ==
+       JsonLexerError.TooManyTokens {
+        return "too-many-tokens";
+    }
+
+    if error ==
+       JsonLexerError.UnexpectedCharacter {
+        return "unexpected-character";
+    }
+
+    if error ==
+       JsonLexerError.InvalidLiteral {
+        return "invalid-literal";
+    }
+
+    if error ==
+       JsonLexerError.InvalidNullLiteral {
+        return "invalid-null-literal";
+    }
+
+    if error ==
+       JsonLexerError.InvalidTrueLiteral {
+        return "invalid-true-literal";
+    }
+
+    if error ==
+       JsonLexerError.InvalidFalseLiteral {
+        return "invalid-false-literal";
+    }
+
+    if error ==
+       JsonLexerError.InvalidNumber {
+        return "invalid-number";
+    }
+
+    if error ==
+       JsonLexerError.InvalidNumberLeadingZero {
+        return "invalid-number-leading-zero";
+    }
+
+    if error ==
+       JsonLexerError.InvalidNumberFraction {
+        return "invalid-number-fraction";
+    }
+
+    if error ==
+       JsonLexerError.InvalidNumberExponent {
+        return "invalid-number-exponent";
+    }
+
+    if error ==
+       JsonLexerError.NumberTooLong {
+        return "number-too-long";
+    }
+
+    if error ==
+       JsonLexerError.UnterminatedString {
+        return "unterminated-string";
+    }
+
+    if error ==
+       JsonLexerError.UnescapedControlCharacter {
+        return "unescaped-control-character";
+    }
+
+    if error ==
+       JsonLexerError.InvalidStringEscape {
+        return "invalid-string-escape";
+    }
+
+    if error ==
+       JsonLexerError.InvalidUnicodeEscape {
+        return "invalid-unicode-escape";
+    }
+
+    if error ==
+       JsonLexerError.StringTooLong {
+        return "string-too-long";
+    }
+
+    return "internal";
+}
+
+/// -------------------------------------------------------------------------
+/// Result helpers
+/// -------------------------------------------------------------------------
+
+proc lexer_success(
+    tokens: [JsonToken],
+    count: usize
+) -> JsonLexerResult {
+    return JsonLexerResult {
+        ok: true,
+
+        tokens: tokens,
+
+        error: no_diagnostic(),
+
+        token_count: count,
+    };
+}
+
+proc lexer_failure(
+    tokens: [JsonToken],
+    count: usize,
+    error: JsonLexerDiagnostic
+) -> JsonLexerResult {
+    return JsonLexerResult {
+        ok: false,
+
+        tokens: tokens,
+
+        error: error,
+
+        token_count: count,
+    };
+}
+
+/// -------------------------------------------------------------------------
+/// Lexer construction
+/// -------------------------------------------------------------------------
+
+proc lexer_with_limits(
+    source: string,
+    lexer_limits: JsonLexerLimits
+) -> JsonLexer {
+    return JsonLexer {
+        source: source,
+
+        index: 0,
+
+        position: start(),
+
+        tokens: [],
+
+        token_count: 0,
+
+        limits: lexer_limits,
+
+        failed: false,
+
+        error: no_diagnostic(),
+    };
+}
+
+proc lexer(
+    source: string
+) -> JsonLexer {
+    return lexer_with_limits(
+        source,
+        default_limits());
+}
+
+/// -------------------------------------------------------------------------
+/// State queries
+/// -------------------------------------------------------------------------
+
+proc at_end(
+    state: &JsonLexer
+) -> bool {
+    return state.index >=
+         state.source.length;
+}
+
+proc remaining(
+    state: &JsonLexer
+) -> usize {
+    if state.index >=
+       state.source.length {
+        return 0;
+    }
+
+    return state.source.length -
+         state.index;
+}
+
+proc current(
+    state: &JsonLexer
+) -> char {
+    return state.source[
+        state.index];
+}
+
+proc has_next(
+    state: &JsonLexer
+) -> bool {
+    return state.index + 1 <
+         state.source.length;
+}
+
+proc peek_next(
+    state: &JsonLexer
+) -> char {
+    return state.source[
+        state.index + 1];
+}
+
+proc has_at(
+    state: &JsonLexer,
+    offset: usize
+) -> bool {
+    return state.index + offset <
+         state.source.length;
+}
+
+proc peek_at(
+    state: &JsonLexer,
+    offset: usize
+) -> char {
+    return state.source[
+        state.index + offset];
+}
+
+/// -------------------------------------------------------------------------
+/// Character classes
+/// -------------------------------------------------------------------------
+
+proc is_json_whitespace(
+    value: char
+) -> bool {
+    return value == ' ' ||
+         value == '\t' ||
+         value == '\n' ||
+         value == '\r';
+}
+
+proc is_digit(
+    value: char
+) -> bool {
+    return value >= '0' &&
+         value <= '9';
+}
+
+proc is_nonzero_digit(
+    value: char
+) -> bool {
+    return value >= '1' &&
+         value <= '9';
+}
+
+proc is_literal_character(
+    value: char
+) -> bool {
+    return (value >= 'a' &&
+          value <= 'z') ||
+         (value >= 'A' &&
+          value <= 'Z') ||
+         is_digit(value) ||
+         value == '_';
+}
+
+proc is_number_terminator(
+    value: char
+) -> bool {
+    return is_json_whitespace(value) ||
+         value == ',' ||
+         value == ']' ||
+         value == '}';
+}
+
+proc is_literal_terminator(
+    value: char
+) -> bool {
+    return is_json_whitespace(value) ||
+         value == ',' ||
+         value == ']' ||
+         value == '}' ||
+         value == ':';
+}
+
+/// -------------------------------------------------------------------------
+/// State movement
+/// -------------------------------------------------------------------------
+
+proc advance_one(
+    state: &JsonLexer
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        *state;
+
+    if at_end(
+        &result) {
+        return result;
+    }
+
+    let value: char =
+        result.source[
+            result.index];
+
+    if value == '\r' {
+        if result.index + 1 <
+           result.source.length &&
+           result.source[
+               result.index + 1] ==
+                   '\n' {
+            set result.position =
+                advance_crlf(
+                    &result.position);
+
+            set result.index += 2;
+
+            return result;
+        }
+
+        set result.position =
+            advance_cr(
+                &result.position);
+
+        set result.index += 1;
+
+        return result;
+    }
+
+    if value == '\n' {
+        set result.position =
+            advance_lf(
+                &result.position);
+
+        set result.index += 1;
+
+        return result;
+    }
+
+    set result.position =
+        advance_column(
+            &result.position);
+
+    set result.index += 1;
+
+    return result;
+}
+
+proc advance_ascii_unit(
+    state: &JsonLexer
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        *state;
+
+    if at_end(
+        &result) {
+        return result;
+    }
+
+    set result.position =
+        advance_column(
+            &result.position);
+
+    set result.index += 1;
+
+    return result;
+}
+
+proc advance_count(
+    state: &JsonLexer,
+    count: usize
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        *state;
+
+    let mut index: usize = 0;
+
+    while index <
+          count &&
+          not at_end(
+              &result) {
+        set result =
+            advance_one(
+                &result);
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+/// -------------------------------------------------------------------------
+/// Source extraction
+/// -------------------------------------------------------------------------
+
+proc source_slice(
+    source: string,
+    begin: usize,
+    end: usize
+) -> string {
+    let mut result: string = "";
+
+    let mut index: usize =
+        begin;
+
+    while index <
+          end &&
+          index <
+          source.length {
+        set result =
+            result +
+            source[index];
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc state_slice(
+    state: &JsonLexer,
+    begin: usize,
+    end: usize
+) -> string {
+    return source_slice(
+        state.source,
+        begin,
+        end);
+}
+
+/// -------------------------------------------------------------------------
+/// Failure handling
+/// -------------------------------------------------------------------------
+
+proc fail(
+    state: &JsonLexer,
+    error: JsonLexerError,
+    message: string,
+    detail: string,
+    found: string,
+    location: JsonSpan
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        *state;
+
+    if result.failed {
+        return result;
+    }
+
+    set result.failed = true;
+
+    set result.error =
+        report(
+            error,
+            message,
+            detail,
+            suggestion_for(error),
+            found,
+            location);
+
+    return result;
+}
+
+proc fail_here(
+    state: &JsonLexer,
+    error: JsonLexerError,
+    message: string,
+    detail: string
+) -> JsonLexer {
+    let location: JsonSpan =
+        point(
+            state.position);
+
+    let mut found: string = "";
+
+    if not at_end(state) {
+        set found =
+            "" +
+            current(state);
+    }
+
+    return fail(
+        state,
+            error,
+            message,
+            detail,
+            found,
+            location);
+}
+
+/// -------------------------------------------------------------------------
+/// Token emission
+/// -------------------------------------------------------------------------
+
+proc emit(
+    state: &JsonLexer,
+    value: JsonToken
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        *state;
+
+    if result.failed {
+        return result;
+    }
+
+    if result.token_count >=
+       result.limits.max_tokens {
+        return fail(
+            &result,
+            JsonLexerError.TooManyTokens,
+            "JSON input contains too many tokens",
+            "the configured JSON token limit was exceeded",
+            "",
+            value.span);
+    }
+
+    set result.tokens.push(
+        value);
+
+    set result.token_count += 1;
+
+    return result;
+}
+
+/// -------------------------------------------------------------------------
+/// Whitespace
+/// -------------------------------------------------------------------------
+
+proc skip_whitespace(
+    state: &JsonLexer
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        *state;
+
+    while not at_end(
+        &result) &&
+        is_json_whitespace(
+            current(
+                &result)) {
+        set result =
+            advance_one(
+                &result);
+    }
+
+    return result;
+}
+
+/// -------------------------------------------------------------------------
+/// Punctuation
+/// -------------------------------------------------------------------------
+
+proc punctuation_kind(
+    value: char
+) -> JsonTokenKind {
+    if value == '{' {
+        return JsonTokenKind.LeftBrace;
+    }
+
+    if value == '}' {
+        return JsonTokenKind.RightBrace;
+    }
+
+    if value == '[' {
+        return JsonTokenKind.LeftBracket;
+    }
+
+    if value == ']' {
+        return JsonTokenKind.RightBracket;
+    }
+
+    if value == ':' {
+        return JsonTokenKind.Colon;
+    }
+
+    if value == ',' {
+        return JsonTokenKind.Comma;
+    }
+
+    return JsonTokenKind.Invalid;
+}
+
+proc is_punctuation(
+    value: char
+) -> bool {
+    return punctuation_kind(value) !=
+         JsonTokenKind.Invalid;
+}
+
+proc scan_punctuation(
+    state: &JsonLexer
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        *state;
+
+    let beginning: JsonPosition =
+        result.position;
+
+    let begin_index: usize =
+        result.index;
+
+    let kind: JsonTokenKind =
+        punctuation_kind(
+            current(
+                &result));
+
+    set result =
+        advance_ascii_unit(
+            &result);
+
+    let location: JsonSpan =
+        span(
+            beginning,
+            result.position);
+
+    let lexeme: string =
+        state_slice(
+            &result,
+            begin_index,
+            result.index);
+
+    return emit(
+        &result,
+        token(
+            kind,
+            lexeme,
+            lexeme,
+            location));
+}
+
+/// -------------------------------------------------------------------------
+/// Literal matching
+/// -------------------------------------------------------------------------
+
+proc source_matches_at(
+    source: string,
+    index: usize,
+    expected: string
+) -> bool {
+    if index +
+       expected.length >
+       source.length {
+        return false;
+    }
+
+    let mut cursor: usize = 0;
+
+    while cursor <
+          expected.length {
+        if source[index + cursor] !=
+           expected[cursor] {
+            return false;
+        }
+
+        set cursor += 1;
+    }
+
+    return true;
+}
+
+proc literal_boundary_valid(
+    source: string,
+    index: usize
+) -> bool {
+    if index >=
+       source.length {
+        return true;
+    }
+
+    return is_literal_terminator(
+        source[index]);
+}
+
+proc scan_fixed_literal(
+    state: &JsonLexer,
+    expected: string,
+    kind: JsonTokenKind,
+    invalid_error: JsonLexerError
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        *state;
+
+    let beginning: JsonPosition =
+        result.position;
+
+    let begin_index: usize =
+        result.index;
+
+    if not source_matches_at(
+        result.source,
+        result.index,
+        expected) {
+        let mut end_index: usize =
+            result.index;
+
+        while end_index <
+              result.source.length &&
+              is_literal_character(
+                  result.source[
+                      end_index]) {
+            set end_index += 1;
+        }
+
+        if end_index ==
+           result.index {
+            set end_index += 1;
+        }
+
+        let found: string =
+            source_slice(
+                result.source,
+                result.index,
+                end_index);
+
+        let end_position:
+            JsonPosition =
+                advance_text(
+                    &beginning,
+                    found);
+
+        return fail(
+            &result,
+            invalid_error,
+            "invalid JSON literal",
+            "JSON literals must be exactly null, true or false",
+            found,
+            span(
+                beginning,
+                end_position));
+    }
+
+    let literal_end: usize =
+        result.index +
+        expected.length;
+
+    if not literal_boundary_valid(
+        result.source,
+        literal_end) {
+        let mut end_index: usize =
+            literal_end;
+
+        while end_index <
+              result.source.length &&
+              is_literal_character(
+                  result.source[
+                      end_index]) {
+            set end_index += 1;
+        }
+
+        let found: string =
+            source_slice(
+                result.source,
+                begin_index,
+                end_index);
+
+        let end_position:
+            JsonPosition =
+                advance_text(
+                    &beginning,
+                    found);
+
+        return fail(
+            &result,
+            invalid_error,
+            "invalid JSON literal",
+            "characters cannot immediately follow a JSON literal",
+            found,
+            span(
+                beginning,
+                end_position));
+    }
+
+    set result =
+        advance_count(
+            &result,
+            expected.length);
+
+    let location: JsonSpan =
+        span(
+            beginning,
+            result.position);
+
+    return emit(
+        &result,
+        token(
+            kind,
+            expected,
+            expected,
+            location));
+}
+
+proc scan_null(
+    state: &JsonLexer
+) -> JsonLexer {
+    return scan_fixed_literal(
+        state,
+        "null",
+        JsonTokenKind.Null,
+        JsonLexerError.InvalidNullLiteral);
+}
+
+proc scan_true(
+    state: &JsonLexer
+) -> JsonLexer {
+    return scan_fixed_literal(
+        state,
+        "true",
+        JsonTokenKind.True,
+        JsonLexerError.InvalidTrueLiteral);
+}
+
+proc scan_false(
+    state: &JsonLexer
+) -> JsonLexer {
+    return scan_fixed_literal(
+        state,
+        "false",
+        JsonTokenKind.False,
+        JsonLexerError.InvalidFalseLiteral);
+}
+
+/// -------------------------------------------------------------------------
+/// Number scanning
+///
+/// JSON number grammar:
+///
+///     number = [ "-" ] int [ frac ] [ exp ]
+///
+///     int    = "0" | digit1-9 *digit
+///     frac   = "." 1*digit
+///     exp    = ("e" | "E") ["-" | "+"] 1*digit
+///
+/// -------------------------------------------------------------------------
+
+proc scan_number(
+    state: &JsonLexer
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        *state;
+
+    let beginning: JsonPosition =
+        result.position;
+
+    let begin_index: usize =
+        result.index;
+
+    if current(
+        &result) == '-' {
+        set result =
+            advance_ascii_unit(
+                &result);
+
+        if at_end(
+            &result) ||
+            not is_digit(
+                current(
+                    &result)) {
+            return fail(
+                &result,
+                JsonLexerError.InvalidNumber,
+                "invalid JSON number",
+                "a minus sign must be followed by a decimal digit",
+                "-",
+                span(
+                    beginning,
+                    result.position));
+        }
+    }
+
+    if current(
+        &result) == '0' {
+        set result =
+            advance_ascii_unit(
+                &result);
+
+        if not at_end(
+            &result) &&
+            is_digit(
+                current(
+                    &result)) {
+            let invalid_start:
+                JsonPosition =
+                    result.position;
+
+            let invalid_index:
+                usize =
+                    result.index;
+
+            while not at_end(
+                &result) &&
+                is_digit(
+                    current(
+                        &result)) {
+                set result =
+                    advance_ascii_unit(
+                        &result);
+            }
+
+            return fail(
+                &result,
+                JsonLexerError.InvalidNumberLeadingZero,
+                "invalid JSON number",
+                "leading zeroes are not permitted in JSON numbers",
+                state_slice(
+                    &result,
+                    invalid_index,
+                    result.index),
+                span(
+                    invalid_start,
+                    result.position));
+        }
+    } else {
+        if at_end(
+            &result) ||
+            not is_nonzero_digit(
+                current(
+                    &result)) {
+            return fail_here(
+                &result,
+                JsonLexerError.InvalidNumber,
+                "invalid JSON number",
+                "expected a decimal digit");
+        }
+
+        while not at_end(
+            &result) &&
+            is_digit(
+                current(
+                    &result)) {
+            set result =
+                advance_ascii_unit(
+                    &result);
+        }
+    }
+
+    if not at_end(
+        &result) &&
+        current(
+            &result) == '.' {
+        let fraction_start:
+            JsonPosition =
+                result.position;
+
+        set result =
+            advance_ascii_unit(
+                &result);
+
+        if at_end(
+            &result) ||
+            not is_digit(
+                current(
+                    &result)) {
+            return fail(
+                &result,
+                JsonLexerError.InvalidNumberFraction,
+                "invalid JSON number fraction",
+                "a decimal point must be followed by at least one digit",
+                ".",
+                span(
+                    fraction_start,
+                    result.position));
+        }
+
+        while not at_end(
+            &result) &&
+            is_digit(
+                current(
+                    &result)) {
+            set result =
+                advance_ascii_unit(
+                    &result);
+        }
+    }
+
+    if not at_end(
+        &result) &&
+        (current(
+             &result) == 'e' ||
+         current(
+             &result) == 'E') {
+        let exponent_start:
+            JsonPosition =
+                result.position;
+
+        set result =
+            advance_ascii_unit(
+                &result);
+
+        if not at_end(
+            &result) &&
+            (current(
+                 &result) == '+' ||
+             current(
+                 &result) == '-') {
+            set result =
+                advance_ascii_unit(
+                    &result);
+        }
+
+        if at_end(
+            &result) ||
+            not is_digit(
+                current(
+                    &result)) {
+            return fail(
+                &result,
+                JsonLexerError.InvalidNumberExponent,
+                "invalid JSON number exponent",
+                "an exponent must contain at least one decimal digit",
+                state_slice(
+                    &result,
+                    begin_index,
+                    result.index),
+                span(
+                    exponent_start,
+                    result.position));
+        }
+
+        while not at_end(
+            &result) &&
+            is_digit(
+                current(
+                    &result)) {
+            set result =
+                advance_ascii_unit(
+                    &result);
+        }
+    }
+
+    if not at_end(
+        &result) &&
+        not is_number_terminator(
+            current(
+                &result)) {
+        let invalid_start:
+            JsonPosition =
+                result.position;
+
+        let invalid_index:
+            usize =
+                result.index;
+
+        while not at_end(
+            &result) &&
+            not is_number_terminator(
+                current(
+                    &result)) &&
+            not is_punctuation(
+                current(
+                    &result)) {
+            set result =
+                advance_ascii_unit(
+                    &result);
+        }
+
+        return fail(
+            &result,
+            JsonLexerError.InvalidNumber,
+            "invalid character after JSON number",
+            "JSON numbers must be followed by whitespace, ',', ']' or '}'",
+            state_slice(
+                &result,
+                invalid_index,
+                result.index),
+            span(
+                invalid_start,
+                result.position));
+    }
+
+    let length: usize =
+        result.index -
+        begin_index;
+
+    if length >
+       result.limits.max_number_length {
+        return fail(
+            &result,
+            JsonLexerError.NumberTooLong,
+            "JSON number is too long",
+            "the configured JSON number length limit was exceeded",
+            state_slice(
+                &result,
+                begin_index,
+                result.index),
+            span(
+                beginning,
+                result.position));
+    }
+
+    let lexeme: string =
+        state_slice(
+            &result,
+            begin_index,
+            result.index);
+
+    return emit(
+        &result,
+        token(
+            JsonTokenKind.Number,
+            lexeme,
+            lexeme,
+            span(
+                beginning,
+                result.position)));
+}
+
+/// -------------------------------------------------------------------------
+/// String scanning
+///
+/// The token lexeme includes surrounding quotation marks.
+/// The token value contains decoded string contents.
+/// -------------------------------------------------------------------------
+
+proc scan_string(
+    state: &JsonLexer
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        *state;
+
+    let beginning: JsonPosition =
+        result.position;
+
+    let begin_index: usize =
+        result.index;
+
+    set result =
+        advance_ascii_unit(
+            &result);
+
+    let content_begin: usize =
+        result.index;
+
+    let mut decoded: string = "";
+
+    let mut decoded_length: usize = 0;
+
+    while not at_end(
+        &result) {
+        let value: char =
+            current(
+                &result);
+
+        if value == '"' {
+            set result =
+                advance_ascii_unit(
+                    &result);
+
+            let lexeme: string =
+                state_slice(
+                    &result,
+                    begin_index,
+                    result.index);
+
+            return emit(
+                &result,
+                token(
+                    JsonTokenKind.String,
+                    lexeme,
+                    decoded,
+                    span(
+                        beginning,
+                        result.position)));
+        }
+
+        if value == '\\' {
+            let escape_start:
+                JsonPosition =
+                    result.position;
+
+            let escape_index:
+                usize =
+                    result.index;
+
+            let escaped:
+                JsonEscapeResult =
+                    decode_escape(
+                        result.source,
+                        escape_index);
+
+            if not escaped.ok {
+                let mapped_error:
+                    JsonLexerError =
+                        JsonLexerError.InvalidStringEscape;
+
+                let mut detail: string =
+                    escape_error_name(
+                        escaped.error);
+
+                if escaped.error ==
+                       JsonEscapeError.InvalidHexDigit ||
+                   escaped.error ==
+                       JsonEscapeError.IncompleteUnicodeEscape ||
+                   escaped.error ==
+                       JsonEscapeError.UnexpectedLowSurrogate ||
+                   escaped.error ==
+                       JsonEscapeError.MissingLowSurrogate ||
+                   escaped.error ==
+                       JsonEscapeError.InvalidLowSurrogate ||
+                   escaped.error ==
+                       JsonEscapeError.InvalidUnicodeScalar {
+                    set detail =
+                        "invalid Unicode escape: " +
+                        detail;
+                }
+
+                return fail(
+                    &result,
+                    mapped_error,
+                    "invalid escape sequence in JSON string",
+                    detail,
+                    state_slice(
+                        &result,
+                        escape_index,
+                        escaped.error_span.end.offset),
+                    escaped.error_span);
+            }
+
+            let text: string =
+                escape_text(
+                    &escaped.value);
+
+            set decoded =
+                decoded +
+                text;
+
+            set decoded_length +=
+                text.length;
+
+            if decoded_length >
+               result.limits.max_string_length {
+                return fail(
+                    &result,
+                    JsonLexerError.StringTooLong,
+                    "JSON string is too long",
+                    "the configured decoded JSON string length limit was exceeded",
+                    "",
+                    span(
+                        beginning,
+                        escape_start));
+            }
+
+            set result =
+                advance_count(
+                    &result,
+                    escaped.value.consumed);
+
+            continue;
+        }
+
+        let scalar: u64 =
+            value as u64;
+
+        if scalar < 0x20 {
+            let control_start:
+                JsonPosition =
+                    result.position;
+
+            let after:
+                JsonLexer =
+                    advance_one(
+                        &result);
+
+            return fail(
+                &result,
+                JsonLexerError.UnescapedControlCharacter,
+                "unescaped control character in JSON string",
+                "characters U+0000 through U+001F must be escaped inside JSON strings",
+                "" + value,
+                span(
+                    control_start,
+                    after.position));
+        }
+
+        set decoded =
+            decoded +
+            value;
+
+        set decoded_length += 1;
+
+        if decoded_length >
+           result.limits.max_string_length {
+            return fail(
+                &result,
+                JsonLexerError.StringTooLong,
+                "JSON string is too long",
+                "the configured decoded JSON string length limit was exceeded",
+                "",
+                span(
+                    beginning,
+                    result.position));
+        }
+
+        set result =
+            advance_one(
+                &result);
+    }
+
+    return fail(
+        &result,
+        JsonLexerError.UnterminatedString,
+        "unterminated JSON string",
+        "expected a closing quotation mark",
+        state_slice(
+            &result,
+            content_begin,
+            result.index),
+        span(
+            beginning,
+            result.position));
+}
+
+/// -------------------------------------------------------------------------
+/// Unknown input
+/// -------------------------------------------------------------------------
+
+proc scan_invalid_literal(
+    state: &JsonLexer
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        *state;
+
+    let beginning: JsonPosition =
+        result.position;
+
+    let begin_index: usize =
+        result.index;
+
+    while not at_end(
+        &result) &&
+        is_literal_character(
+            current(
+                &result)) {
+        set result =
+            advance_ascii_unit(
+                &result);
+    }
+
+    if result.index ==
+       begin_index {
+        set result =
+            advance_one(
+                &result);
+    }
+
+    let found: string =
+        state_slice(
+            &result,
+            begin_index,
+            result.index);
+
+    return fail(
+        &result,
+        JsonLexerError.InvalidLiteral,
+        "invalid JSON literal",
+        "valid JSON literals are null, true and false",
+        found,
+        span(
+            beginning,
+            result.position));
+}
+
+proc scan_unexpected(
+    state: &JsonLexer
+) -> JsonLexer {
+    let beginning:
+        JsonPosition =
+            state.position;
+
+    let found: string =
+        "" +
+        current(state);
+
+    let after: JsonLexer =
+        advance_one(
+            state);
+
+    return fail(
+        state,
+        JsonLexerError.UnexpectedCharacter,
+        "unexpected character in JSON input",
+        "the character does not begin a valid JSON token",
+        found,
+        span(
+            beginning,
+            after.position));
+}
+
+/// -------------------------------------------------------------------------
+/// One-token dispatch
+/// -------------------------------------------------------------------------
+
+proc scan_next(
+    state: &JsonLexer
+) -> JsonLexer {
+    let mut result: JsonLexer =
+        skip_whitespace(
+            state);
+
+    if result.failed ||
+       at_end(
+           &result) {
+        return result;
+    }
+
+    let value: char =
+        current(
+            &result);
+
+    if is_punctuation(
+        value) {
+        return scan_punctuation(
+            &result);
+    }
+
+    if value == '"' {
+        return scan_string(
+            &result);
+    }
+
+    if value == '-' ||
+       is_digit(value) {
+        return scan_number(
+            &result);
+    }
+
+    if value == 'n' {
+        return scan_null(
+            &result);
+    }
+
+    if value == 't' {
+        return scan_true(
+            &result);
+    }
+
+    if value == 'f' {
+        return scan_false(
+            &result);
+    }
+
+    if (value >= 'a' &&
+        value <= 'z') ||
+       (value >= 'A' &&
+        value <= 'Z') ||
+       value == '_' {
+        return scan_invalid_literal(
+            &result);
+    }
+
+    return scan_unexpected(
+        &result);
+}
+
+/// -------------------------------------------------------------------------
+/// Full lexing
+/// -------------------------------------------------------------------------
+
+proc run(
+    initial: JsonLexer
+) -> JsonLexerResult {
+    let mut state: JsonLexer =
+        initial;
+
+    if not limits_valid(
+        &state.limits) {
+        let error: JsonLexerDiagnostic =
+            report(
+                JsonLexerError.Internal,
+                "invalid JSON lexer limits",
+                "all JSON lexer limits must be greater than zero",
+                "Vérifiez les limites configurées avant de lancer l'analyse JSON",
+                "",
+                empty_span());
+
+        return lexer_failure(
+            state.tokens,
+            state.token_count,
+            error);
+    }
+
+    if state.source.length >
+       state.limits.max_source_length {
+        let source_end:
+            JsonPosition =
+                position_after(
+                    state.source);
+
+        let error: JsonLexerDiagnostic =
+            report(
+                JsonLexerError.SourceTooLarge,
+                "JSON source is too large",
+                "the configured JSON source length limit was exceeded",
+                "Réduisez le document ou augmentez max_source_length",
+                "",
+                span(
+                    start(),
+                    source_end));
+
+        return lexer_failure(
+            state.tokens,
+            state.token_count,
+            error);
+    }
+
+    while not at_end(
+        &state) &&
+        not state.failed {
+        set state =
+            scan_next(
+                &state);
+    }
+
+    if state.failed {
+        return lexer_failure(
+            state.tokens,
+            state.token_count,
+            state.error);
+    }
+
+    set state =
+        skip_whitespace(
+            &state);
+
+    if state.failed {
+        return lexer_failure(
+            state.tokens,
+            state.token_count,
+            state.error);
+    }
+
+    set state =
+        emit(
+            &state,
+            end_token(
+                state.position));
+
+    if state.failed {
+        return lexer_failure(
+            state.tokens,
+            state.token_count,
+            state.error);
+    }
+
+    return lexer_success(
+        state.tokens,
+        state.token_count);
+}
+
+export proc lex_with_limits(
+    source: string,
+    lexer_limits: JsonLexerLimits
+) -> JsonLexerResult {
+    return run(
+        lexer_with_limits(
+            source,
+            lexer_limits));
+}
+
+export proc lex(
+    source: string
+) -> JsonLexerResult {
+    return run(
+        lexer(source));
+}
+
+/// -------------------------------------------------------------------------
+/// Token result queries
+/// -------------------------------------------------------------------------
+
+proc token_count(
+    result: &JsonLexerResult
+) -> usize {
+    return result.token_count;
+}
+
+proc empty(
+    result: &JsonLexerResult
+) -> bool {
+    return result.token_count <= 1;
+}
+
+proc token_at(
+    result: &JsonLexerResult,
+    index: usize
+) -> JsonToken {
+    if index >=
+       result.token_count {
+        return invalid_token();
+    }
+
+    return result.tokens[index];
+}
+
+proc first_token(
+    result: &JsonLexerResult
+) -> JsonToken {
+    if result.token_count == 0 {
+        return invalid_token();
+    }
+
+    return result.tokens[0];
+}
+
+proc last_token(
+    result: &JsonLexerResult
+) -> JsonToken {
+    if result.token_count == 0 {
+        return invalid_token();
+    }
+
+    return result.tokens[
+        result.token_count - 1];
+}
+
+proc significant_token_count(
+    result: &JsonLexerResult
+) -> usize {
+    if result.token_count == 0 {
+        return 0;
+    }
+
+    if result.tokens[
+           result.token_count - 1].kind ==
+       JsonTokenKind.End {
+        return result.token_count - 1;
+    }
+
+    return result.token_count;
+}
+
+proc has_error(
+    result: &JsonLexerResult
+) -> bool {
+    return not result.ok;
+}
+
+/// -------------------------------------------------------------------------
+/// Token counting by kind
+/// -------------------------------------------------------------------------
+
+proc count_kind(
+    result: &JsonLexerResult,
+    kind: JsonTokenKind
+) -> usize {
+    let mut count: usize = 0;
+
+    let mut index: usize = 0;
+
+    while index <
+          result.token_count {
+        if result.tokens[index].kind ==
+           kind {
+            set count += 1;
+        }
+
+        set index += 1;
+    }
+
+    return count;
+}
+
+proc string_count(
+    result: &JsonLexerResult
+) -> usize {
+    return count_kind(
+        result,
+        JsonTokenKind.String);
+}
+
+proc number_count(
+    result: &JsonLexerResult
+) -> usize {
+    return count_kind(
+        result,
+        JsonTokenKind.Number);
+}
+
+proc literal_count(
+    result: &JsonLexerResult
+) -> usize {
+    return count_kind(
+               result,
+               JsonTokenKind.Null) +
+         count_kind(
+               result,
+               JsonTokenKind.True) +
+         count_kind(
+               result,
+               JsonTokenKind.False) +
+         count_kind(
+               result,
+               JsonTokenKind.Number) +
+         count_kind(
+               result,
+               JsonTokenKind.String);
+}
+
+/// -------------------------------------------------------------------------
+/// Structural statistics
+/// -------------------------------------------------------------------------
+
+proc opening_container_count(
+    result: &JsonLexerResult
+) -> usize {
+    return count_kind(
+               result,
+               JsonTokenKind.LeftBrace) +
+         count_kind(
+               result,
+               JsonTokenKind.LeftBracket);
+}
+
+proc closing_container_count(
+    result: &JsonLexerResult
+) -> usize {
+    return count_kind(
+               result,
+               JsonTokenKind.RightBrace) +
+         count_kind(
+               result,
+               JsonTokenKind.RightBracket);
+}
+
+/// -------------------------------------------------------------------------
+/// Token equality
+/// -------------------------------------------------------------------------
+
+proc tokens_equal(
+    left: &JsonToken,
+    right: &JsonToken
+) -> bool {
+    return left.kind ==
+             right.kind &&
+         left.lexeme ==
+             right.lexeme &&
+         left.value ==
+             right.value &&
+         spans_equal(
+             &left.span,
+             &right.span);
+}
+
+/// -------------------------------------------------------------------------
+/// Result validation
+/// -------------------------------------------------------------------------
+
+proc validate_token(
+    value: &JsonToken
+) -> bool {
+    if not span_valid(
+        &value.span) {
+        return false;
+    }
+
+    if value.kind ==
+       JsonTokenKind.Invalid {
+        return false;
+    }
+
+    if value.kind ==
+       JsonTokenKind.End {
+        return value.lexeme.length == 0;
+    }
+
+    return value.lexeme.length != 0;
+}
+
+proc validate_result(
+    result: &JsonLexerResult
+) -> bool {
+    if not result.ok {
+        return result.error.error !=
+             JsonLexerError.None;
+    }
+
+    if result.token_count == 0 {
+        return false;
+    }
+
+    if result.tokens.length <
+       result.token_count {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index <
+          result.token_count {
+        if not validate_token(
+            &result.tokens[index]) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return result.tokens[
+        result.token_count - 1].kind ==
+            JsonTokenKind.End;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — empty input
+/// -------------------------------------------------------------------------
+
+test "json lexer empty input" {
+    let result: JsonLexerResult =
+        lex("");
+
+    assert result.ok;
+
+    assert result.token_count == 1;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.End;
+
+    assert validate_result(
+        &result);
+}
+
+test "json lexer whitespace only" {
+    let result: JsonLexerResult =
+        lex(
+            " \t\r\n ");
+
+    assert result.ok;
+
+    assert result.token_count == 1;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.End;
+
+    assert result.tokens[0].span.start.line ==
+        1;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — punctuation
+/// -------------------------------------------------------------------------
+
+test "json lexer punctuation" {
+    let result: JsonLexerResult =
+        lex(
+            "{}[]:,");
+
+    assert result.ok;
+
+    assert result.token_count == 7;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.LeftBrace;
+
+    assert result.tokens[1].kind ==
+        JsonTokenKind.RightBrace;
+
+    assert result.tokens[2].kind ==
+        JsonTokenKind.LeftBracket;
+
+    assert result.tokens[3].kind ==
+        JsonTokenKind.RightBracket;
+
+    assert result.tokens[4].kind ==
+        JsonTokenKind.Colon;
+
+    assert result.tokens[5].kind ==
+        JsonTokenKind.Comma;
+
+    assert result.tokens[6].kind ==
+        JsonTokenKind.End;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — literals
+/// -------------------------------------------------------------------------
+
+test "json lexer null" {
+    let result: JsonLexerResult =
+        lex("null");
+
+    assert result.ok;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.Null;
+
+    assert result.tokens[0].lexeme ==
+        "null";
+}
+
+test "json lexer true" {
+    let result: JsonLexerResult =
+        lex("true");
+
+    assert result.ok;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.True;
+}
+
+test "json lexer false" {
+    let result: JsonLexerResult =
+        lex("false");
+
+    assert result.ok;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.False;
+}
+
+test "json lexer rejects malformed null" {
+    let result: JsonLexerResult =
+        lex("nul");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidNullLiteral;
+}
+
+test "json lexer rejects literal suffix" {
+    let result: JsonLexerResult =
+        lex("trueValue");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidTrueLiteral;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — integers
+/// -------------------------------------------------------------------------
+
+test "json lexer zero" {
+    let result: JsonLexerResult =
+        lex("0");
+
+    assert result.ok;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.Number;
+
+    assert result.tokens[0].value ==
+        "0";
+}
+
+test "json lexer positive integer" {
+    let result: JsonLexerResult =
+        lex("42");
+
+    assert result.ok;
+
+    assert result.tokens[0].value ==
+        "42";
+}
+
+test "json lexer negative integer" {
+    let result: JsonLexerResult =
+        lex("-42");
+
+    assert result.ok;
+
+    assert result.tokens[0].value ==
+        "-42";
+}
+
+test "json lexer large integer" {
+    let result: JsonLexerResult =
+        lex(
+            "9223372036854775807");
+
+    assert result.ok;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.Number;
+}
+
+test "json lexer rejects leading zero" {
+    let result: JsonLexerResult =
+        lex("01");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidNumberLeadingZero;
+}
+
+test "json lexer rejects negative leading zero" {
+    let result: JsonLexerResult =
+        lex("-01");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidNumberLeadingZero;
+}
+
+test "json lexer rejects lone minus" {
+    let result: JsonLexerResult =
+        lex("-");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidNumber;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — fractions
+/// -------------------------------------------------------------------------
+
+test "json lexer decimal" {
+    let result: JsonLexerResult =
+        lex("42.5");
+
+    assert result.ok;
+
+    assert result.tokens[0].value ==
+        "42.5";
+}
+
+test "json lexer negative decimal" {
+    let result: JsonLexerResult =
+        lex("-0.125");
+
+    assert result.ok;
+
+    assert result.tokens[0].value ==
+        "-0.125";
+}
+
+test "json lexer rejects missing fraction digits" {
+    let result: JsonLexerResult =
+        lex("42.");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidNumberFraction;
+}
+
+test "json lexer rejects leading decimal point" {
+    let result: JsonLexerResult =
+        lex(".5");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.UnexpectedCharacter;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — exponent
+/// -------------------------------------------------------------------------
+
+test "json lexer positive exponent" {
+    let result: JsonLexerResult =
+        lex("1e10");
+
+    assert result.ok;
+
+    assert result.tokens[0].value ==
+        "1e10";
+}
+
+test "json lexer uppercase exponent" {
+    let result: JsonLexerResult =
+        lex("1E10");
+
+    assert result.ok;
+}
+
+test "json lexer signed exponent" {
+    let positive: JsonLexerResult =
+        lex("1e+10");
+
+    let negative: JsonLexerResult =
+        lex("1e-10");
+
+    assert positive.ok;
+    assert negative.ok;
+}
+
+test "json lexer decimal exponent" {
+    let result: JsonLexerResult =
+        lex("-12.5e+20");
+
+    assert result.ok;
+
+    assert result.tokens[0].value ==
+        "-12.5e+20";
+}
+
+test "json lexer rejects empty exponent" {
+    let result: JsonLexerResult =
+        lex("1e");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidNumberExponent;
+}
+
+test "json lexer rejects signed empty exponent" {
+    let result: JsonLexerResult =
+        lex("1e+");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidNumberExponent;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — strings
+/// -------------------------------------------------------------------------
+
+test "json lexer empty string" {
+    let result: JsonLexerResult =
+        lex("\"\"");
+
+    assert result.ok;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.String;
+
+    assert result.tokens[0].value ==
+        "";
+}
+
+test "json lexer ordinary string" {
+    let result: JsonLexerResult =
+        lex("\"Vitte\"");
+
+    assert result.ok;
+
+    assert result.tokens[0].lexeme ==
+        "\"Vitte\"";
+
+    assert result.tokens[0].value ==
+        "Vitte";
+}
+
+test "json lexer escaped quote" {
+    let result: JsonLexerResult =
+        lex(
+            "\"Vitte \\\"JSON\\\"\"");
+
+    assert result.ok;
+
+    assert result.tokens[0].value ==
+        "Vitte \"JSON\"";
+}
+
+test "json lexer escaped backslash" {
+    let result: JsonLexerResult =
+        lex(
+            "\"a\\\\b\"");
+
+    assert result.ok;
+
+    assert result.tokens[0].value ==
+        "a\\b";
+}
+
+test "json lexer escaped slash" {
+    let result: JsonLexerResult =
+        lex(
+            "\"a\\/b\"");
+
+    assert result.ok;
+
+    assert result.tokens[0].value ==
+        "a/b";
+}
+
+test "json lexer escaped controls" {
+    let result: JsonLexerResult =
+        lex(
+            "\"a\\nb\\tc\\rd\\be\\f\"");
+
+    assert result.ok;
+
+    assert result.tokens[0].value ==
+        "a\nb\tc\rd\be\f";
+}
+
+test "json lexer unicode escape" {
+    let result: JsonLexerResult =
+        lex(
+            "\"caf\\u00E9\"");
+
+    assert result.ok;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.String;
+}
+
+test "json lexer surrogate pair" {
+    let result: JsonLexerResult =
+        lex(
+            "\"\\uD83D\\uDE00\"");
+
+    assert result.ok;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.String;
+}
+
+test "json lexer rejects invalid escape" {
+    let result: JsonLexerResult =
+        lex(
+            "\"\\x\"");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidStringEscape;
+}
+
+test "json lexer rejects incomplete unicode escape" {
+    let result: JsonLexerResult =
+        lex(
+            "\"\\u12\"");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidStringEscape;
+}
+
+test "json lexer rejects unescaped newline in string" {
+    let result: JsonLexerResult =
+        lex(
+            "\"first\nsecond\"");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.UnescapedControlCharacter;
+}
+
+test "json lexer rejects unterminated string" {
+    let result: JsonLexerResult =
+        lex(
+            "\"Vitte");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.UnterminatedString;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — complete arrays
+/// -------------------------------------------------------------------------
+
+test "json lexer empty array" {
+    let result: JsonLexerResult =
+        lex("[]");
+
+    assert result.ok;
+
+    assert result.token_count == 3;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.LeftBracket;
+
+    assert result.tokens[1].kind ==
+        JsonTokenKind.RightBracket;
+
+    assert result.tokens[2].kind ==
+        JsonTokenKind.End;
+}
+
+test "json lexer scalar array" {
+    let result: JsonLexerResult =
+        lex(
+            "[null,true,false,42,-1.5,\"Vitte\"]");
+
+    assert result.ok;
+
+    assert count_kind(
+        &result,
+        JsonTokenKind.Null) == 1;
+
+    assert count_kind(
+        &result,
+        JsonTokenKind.True) == 1;
+
+    assert count_kind(
+        &result,
+        JsonTokenKind.False) == 1;
+
+    assert number_count(
+        &result) == 2;
+
+    assert string_count(
+        &result) == 1;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — complete objects
+/// -------------------------------------------------------------------------
+
+test "json lexer empty object" {
+    let result: JsonLexerResult =
+        lex("{}");
+
+    assert result.ok;
+
+    assert result.tokens[0].kind ==
+        JsonTokenKind.LeftBrace;
+
+    assert result.tokens[1].kind ==
+        JsonTokenKind.RightBrace;
+}
+
+test "json lexer simple object" {
+    let result: JsonLexerResult =
+        lex(
+            "{\"name\":\"Vitte\",\"version\":1}");
+
+    assert result.ok;
+
+    assert string_count(
+        &result) == 3;
+
+    assert number_count(
+        &result) == 1;
+
+    assert count_kind(
+        &result,
+        JsonTokenKind.Colon) == 2;
+
+    assert count_kind(
+        &result,
+        JsonTokenKind.Comma) == 1;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — whitespace
+/// -------------------------------------------------------------------------
+
+test "json lexer accepts JSON whitespace" {
+    let result: JsonLexerResult =
+        lex(
+            " \t\r\n { \n \"value\" \t : \r 42 \n } ");
+
+    assert result.ok;
+
+    assert significant_token_count(
+        &result) == 5;
+}
+
+test "json lexer tracks multiline positions" {
+    let result: JsonLexerResult =
+        lex(
+            "{\n  \"value\": 42\n}");
+
+    assert result.ok;
+
+    assert result.tokens[1].kind ==
+        JsonTokenKind.String;
+
+    assert result.tokens[1].span.start.line ==
+        1;
+
+    assert result.tokens[1].span.start.column ==
+        2;
+}
+
+test "json lexer tracks crlf positions" {
+    let result: JsonLexerResult =
+        lex(
+            "{\r\n  \"value\": 42\r\n}");
+
+    assert result.ok;
+
+    assert result.tokens[1].span.start.line ==
+        1;
+
+    assert result.tokens[1].span.start.column ==
+        2;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — invalid extensions
+/// -------------------------------------------------------------------------
+
+test "json lexer rejects comments" {
+    let result: JsonLexerResult =
+        lex(
+            "{\"a\":1 // comment\n}");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.UnexpectedCharacter;
+}
+
+test "json lexer rejects block comments" {
+    let result: JsonLexerResult =
+        lex(
+            "{\"a\":1 /* comment */}");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.UnexpectedCharacter;
+}
+
+test "json lexer rejects single quoted strings" {
+    let result: JsonLexerResult =
+        lex(
+            "{'a':1}");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.UnexpectedCharacter;
+}
+
+test "json lexer rejects plus number" {
+    let result: JsonLexerResult =
+        lex("+42");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.UnexpectedCharacter;
+}
+
+test "json lexer rejects hexadecimal number" {
+    let result: JsonLexerResult =
+        lex("0x2A");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidNumber;
+}
+
+test "json lexer rejects NaN" {
+    let result: JsonLexerResult =
+        lex("NaN");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidLiteral;
+}
+
+test "json lexer rejects Infinity" {
+    let result: JsonLexerResult =
+        lex("Infinity");
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.InvalidLiteral;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — token spans
+/// -------------------------------------------------------------------------
+
+test "json lexer number span" {
+    let result: JsonLexerResult =
+        lex("42");
+
+    assert result.ok;
+
+    assert result.tokens[0].span.start.offset ==
+        0;
+
+    assert result.tokens[0].span.end.offset ==
+        2;
+}
+
+test "json lexer string span includes quotes" {
+    let result: JsonLexerResult =
+        lex("\"Vitte\"");
+
+    assert result.ok;
+
+    assert result.tokens[0].span.start.offset ==
+        0;
+
+    assert result.tokens[0].span.end.offset ==
+        7;
+}
+
+test "json lexer object token spans" {
+    let result: JsonLexerResult =
+        lex(
+            "{\"x\":1}");
+
+    assert result.ok;
+
+    assert result.tokens[0].span.start.offset ==
+        0;
+
+    assert result.tokens[0].span.end.offset ==
+        1;
+
+    assert result.tokens[1].span.start.offset ==
+        1;
+
+    assert result.tokens[1].span.end.offset ==
+        4;
+
+    assert result.tokens[2].span.start.offset ==
+        4;
+
+    assert result.tokens[2].span.end.offset ==
+        5;
+
+    assert result.tokens[3].span.start.offset ==
+        5;
+
+    assert result.tokens[3].span.end.offset ==
+        6;
+
+    assert result.tokens[4].span.start.offset ==
+        6;
+
+    assert result.tokens[4].span.end.offset ==
+        7;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — limits
+/// -------------------------------------------------------------------------
+
+test "json lexer source limit" {
+    let lexer_limits: JsonLexerLimits =
+        limits(
+            100,
+            100,
+            100,
+            4);
+
+    let result: JsonLexerResult =
+        lex_with_limits(
+            "\"Vitte\"",
+            lexer_limits);
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.SourceTooLarge;
+}
+
+test "json lexer number limit" {
+    let lexer_limits: JsonLexerLimits =
+        limits(
+            100,
+            100,
+            3,
+            100);
+
+    let result: JsonLexerResult =
+        lex_with_limits(
+            "1234",
+            lexer_limits);
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.NumberTooLong;
+}
+
+test "json lexer string limit" {
+    let lexer_limits: JsonLexerLimits =
+        limits(
+            100,
+            3,
+            100,
+            100);
+
+    let result: JsonLexerResult =
+        lex_with_limits(
+            "\"Vitte\"",
+            lexer_limits);
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.StringTooLong;
+}
+
+test "json lexer token limit" {
+    let lexer_limits: JsonLexerLimits =
+        limits(
+            3,
+            100,
+            100,
+            100);
+
+    let result: JsonLexerResult =
+        lex_with_limits(
+            "[1,2]",
+            lexer_limits);
+
+    assert not result.ok;
+
+    assert result.error.error ==
+        JsonLexerError.TooManyTokens;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — realistic document
+/// -------------------------------------------------------------------------
+
+test "json lexer realistic document" {
+    let source: string =
+        "{\n" +
+        "  \"language\": \"Vitte\",\n" +
+        "  \"version\": 1,\n" +
+        "  \"native\": true,\n" +
+        "  \"backend\": \"C17\",\n" +
+        "  \"nothing\": null,\n" +
+        "  \"numbers\": [0, -1, 42.5, 1e10],\n" +
+        "  \"nested\": {\n" +
+        "    \"enabled\": false,\n" +
+        "    \"message\": \"hello\\nworld\"\n" +
+        "  }\n" +
+        "}";
+
+    let result: JsonLexerResult =
+        lex(source);
+
+    assert result.ok;
+
+    assert validate_result(
+        &result);
+
+    assert count_kind(
+        &result,
+        JsonTokenKind.Null) == 1;
+
+    assert count_kind(
+        &result,
+        JsonTokenKind.True) == 1;
+
+    assert count_kind(
+        &result,
+        JsonTokenKind.False) == 1;
+
+    assert number_count(
+        &result) == 5;
+
+    assert string_count(
+        &result) == 11;
+
+    assert opening_container_count(
+        &result) == 3;
+
+    assert closing_container_count(
+        &result) == 3;
+}
+
+/// -------------------------------------------------------------------------
+/// Tests — deterministic tokenization
+/// -------------------------------------------------------------------------
+
+test "json lexer deterministic" {
+    let source: string =
+        "{\"a\":[1,2,3],\"b\":true,\"c\":\"Vitte\"}";
+
+    let left: JsonLexerResult =
+        lex(source);
+
+    let right: JsonLexerResult =
+        lex(source);
+
+    assert left.ok;
+    assert right.ok;
+
+    assert left.token_count ==
+        right.token_count;
+
+    let mut index: usize = 0;
+
+    while index <
+          left.token_count {
+        assert tokens_equal(
+            &left.tokens[index],
+            &right.tokens[index]);
+
+        set index += 1;
+    }
+}

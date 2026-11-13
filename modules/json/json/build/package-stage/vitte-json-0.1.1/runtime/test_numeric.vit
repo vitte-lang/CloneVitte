@@ -1,0 +1,29 @@
+/// Public contract tests for json.runtime.numeric.
+
+space json::runtime::test_numeric;
+
+use json::runtime::numeric::*;
+
+test "numeric scanner classifies integers" {
+    let scanned = scan("42");
+
+    assert scanned.ok;
+    assert scanned.kind == JsonNumericKind.Integer;
+    assert scanned.integer_digits == 2;
+}
+
+test "numeric scanner rejects invalid input" {
+    let scanned = scan("01");
+
+    assert not scanned.ok;
+    assert not valid("01");
+}
+
+test "numeric formatting returns decimal text" {
+    let formatted = format_i64(-42);
+
+    assert formatted.length == 3;
+    assert formatted[0] == '-';
+    assert formatted[1] == '4';
+    assert formatted[2] == '2';
+}

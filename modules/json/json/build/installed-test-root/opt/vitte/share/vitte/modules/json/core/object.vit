@@ -1,0 +1,3596 @@
+/// JSON object core.
+///
+/// Complete JSON object representation and manipulation layer.
+///
+/// Goals:
+/// - represent ordered JSON object members;
+/// - preserve insertion order;
+/// - provide safe key lookup;
+/// - support insertion, replacement and removal;
+/// - support nested objects and arrays;
+/// - support structural equality;
+/// - expose key/value/member operations;
+/// - detect duplicate keys;
+/// - provide merge operations;
+/// - provide filtering and statistics;
+/// - provide validation helpers;
+/// - use only Vitte language syntax.
+///
+/// This module keeps its JSON value representation local.
+/// A future json.core.value module can provide the canonical recursive
+/// representation shared by arrays, objects, numbers and the parser.
+
+space json::core::object;
+
+const DEFAULT_CAPACITY: usize = 8;
+const MINIMUM_CAPACITY: usize = 1;
+
+pick JsonObjectValueKind {
+    Null,
+    Bool,
+    Integer,
+    Float,
+    String,
+    Array,
+    Object,
+}
+
+pick JsonObjectError {
+    None,
+    KeyNotFound,
+    DuplicateKey,
+    EmptyKey,
+    IndexOutOfBounds,
+    Empty,
+    InvalidRange,
+    InvalidValue,
+    CapacityOverflow,
+}
+
+form JsonObjectArrayValue {
+    values: [JsonObjectValue],
+}
+
+form JsonObjectMember {
+    key: string,
+    value: JsonObjectValue,
+}
+
+form JsonObjectValue {
+    kind: JsonObjectValueKind,
+
+    bool_value: bool,
+
+    integer_value: i64,
+
+    float_value: f64,
+
+    string_value: string,
+
+    array_value: [JsonObjectValue],
+
+    object_value: [JsonObjectMember],
+}
+
+form JsonObject {
+    members: [JsonObjectMember],
+
+    length: usize,
+
+    capacity: usize,
+}
+
+form JsonObjectValueResult {
+    ok: bool,
+
+    value: JsonObjectValue,
+
+    error: JsonObjectError,
+
+    index: usize,
+}
+
+form JsonObjectMemberResult {
+    ok: bool,
+
+    member: JsonObjectMember,
+
+    error: JsonObjectError,
+
+    index: usize,
+}
+
+form JsonObjectResult {
+    ok: bool,
+
+    value: JsonObject,
+
+    error: JsonObjectError,
+
+    index: usize,
+}
+
+form JsonObjectIndexResult {
+    found: bool,
+
+    index: usize,
+}
+
+proc null_value() -> JsonObjectValue {
+    return JsonObjectValue {
+        kind:
+            JsonObjectValueKind.Null,
+
+        bool_value:
+            false,
+
+        integer_value:
+            0,
+
+        float_value:
+            0.0,
+
+        string_value:
+            "",
+
+        array_value:
+            [],
+
+        object_value:
+            [],
+    };
+}
+
+proc bool_value(
+    value: bool
+) -> JsonObjectValue {
+    return JsonObjectValue {
+        kind:
+            JsonObjectValueKind.Bool,
+
+        bool_value:
+            value,
+
+        integer_value:
+            0,
+
+        float_value:
+            0.0,
+
+        string_value:
+            "",
+
+        array_value:
+            [],
+
+        object_value:
+            [],
+    };
+}
+
+proc integer_value(
+    value: i64
+) -> JsonObjectValue {
+    return JsonObjectValue {
+        kind:
+            JsonObjectValueKind.Integer,
+
+        bool_value:
+            false,
+
+        integer_value:
+            value,
+
+        float_value:
+            0.0,
+
+        string_value:
+            "",
+
+        array_value:
+            [],
+
+        object_value:
+            [],
+    };
+}
+
+proc float_value(
+    value: f64
+) -> JsonObjectValue {
+    return JsonObjectValue {
+        kind:
+            JsonObjectValueKind.Float,
+
+        bool_value:
+            false,
+
+        integer_value:
+            0,
+
+        float_value:
+            value,
+
+        string_value:
+            "",
+
+        array_value:
+            [],
+
+        object_value:
+            [],
+    };
+}
+
+proc string_value(
+    value: string
+) -> JsonObjectValue {
+    return JsonObjectValue {
+        kind:
+            JsonObjectValueKind.String,
+
+        bool_value:
+            false,
+
+        integer_value:
+            0,
+
+        float_value:
+            0.0,
+
+        string_value:
+            value,
+
+        array_value:
+            [],
+
+        object_value:
+            [],
+    };
+}
+
+proc array_value(
+    values: [JsonObjectValue]
+) -> JsonObjectValue {
+    return JsonObjectValue {
+        kind:
+            JsonObjectValueKind.Array,
+
+        bool_value:
+            false,
+
+        integer_value:
+            0,
+
+        float_value:
+            0.0,
+
+        string_value:
+            "",
+
+        array_value:
+            values,
+
+        object_value:
+            [],
+    };
+}
+
+proc object_value(
+    object: &JsonObject
+) -> JsonObjectValue {
+    return JsonObjectValue {
+        kind:
+            JsonObjectValueKind.Object,
+
+        bool_value:
+            false,
+
+        integer_value:
+            0,
+
+        float_value:
+            0.0,
+
+        string_value:
+            "",
+
+        array_value:
+            [],
+
+        object_value:
+            object.members,
+    };
+}
+
+proc member(
+    key: string,
+    value: JsonObjectValue
+) -> JsonObjectMember {
+    return JsonObjectMember {
+        key: key,
+        value: value,
+    };
+}
+
+proc empty_member() -> JsonObjectMember {
+    return JsonObjectMember {
+        key: "",
+        value: null_value(),
+    };
+}
+
+proc empty() -> JsonObject {
+    return JsonObject {
+        members: [],
+
+        length: 0,
+
+        capacity:
+            DEFAULT_CAPACITY,
+    };
+}
+
+proc with_capacity(
+    requested: usize
+) -> JsonObject {
+    let mut actual: usize =
+        requested;
+
+    if actual <
+       MINIMUM_CAPACITY {
+        set actual =
+            MINIMUM_CAPACITY;
+    }
+
+    return JsonObject {
+        members: [],
+
+        length: 0,
+
+        capacity: actual,
+    };
+}
+
+proc singleton(
+    key: string,
+    value: JsonObjectValue
+) -> JsonObject {
+    let mut result: JsonObject =
+        with_capacity(1);
+
+    set result.members.push(
+        member(
+            key,
+            value));
+
+    set result.length = 1;
+
+    return result;
+}
+
+proc len(
+    object: &JsonObject
+) -> usize {
+    return object.length;
+}
+
+proc capacity(
+    object: &JsonObject
+) -> usize {
+    return object.capacity;
+}
+
+proc is_empty(
+    object: &JsonObject
+) -> bool {
+    return object.length == 0;
+}
+
+proc is_not_empty(
+    object: &JsonObject
+) -> bool {
+    return object.length != 0;
+}
+
+proc is_valid_index(
+    object: &JsonObject,
+    index: usize
+) -> bool {
+    return index <
+         object.length;
+}
+
+proc next_capacity(
+    current: usize
+) -> usize {
+    if current <
+       MINIMUM_CAPACITY {
+        return DEFAULT_CAPACITY;
+    }
+
+    return current * 2;
+}
+
+proc capacity_for(
+    current: usize,
+    required: usize
+) -> usize {
+    let mut result: usize =
+        current;
+
+    if result <
+       MINIMUM_CAPACITY {
+        set result =
+            DEFAULT_CAPACITY;
+    }
+
+    while result < required {
+        set result =
+            next_capacity(
+                result);
+    }
+
+    return result;
+}
+
+proc reserve(
+    object: &JsonObject,
+    required: usize
+) -> JsonObject {
+    let mut result: JsonObject =
+        clone(object);
+
+    if required <=
+       result.capacity {
+        return result;
+    }
+
+    set result.capacity =
+        capacity_for(
+            result.capacity,
+            required);
+
+    return result;
+}
+
+proc reserve_additional(
+    object: &JsonObject,
+    additional: usize
+) -> JsonObject {
+    return reserve(
+        object,
+        object.length +
+        additional);
+}
+
+proc value_is_null(
+    value: &JsonObjectValue
+) -> bool {
+    return value.kind ==
+         JsonObjectValueKind.Null;
+}
+
+proc value_is_bool(
+    value: &JsonObjectValue
+) -> bool {
+    return value.kind ==
+         JsonObjectValueKind.Bool;
+}
+
+proc value_is_integer(
+    value: &JsonObjectValue
+) -> bool {
+    return value.kind ==
+         JsonObjectValueKind.Integer;
+}
+
+proc value_is_float(
+    value: &JsonObjectValue
+) -> bool {
+    return value.kind ==
+         JsonObjectValueKind.Float;
+}
+
+proc value_is_number(
+    value: &JsonObjectValue
+) -> bool {
+    return value_is_integer(value) ||
+         value_is_float(value);
+}
+
+proc value_is_string(
+    value: &JsonObjectValue
+) -> bool {
+    return value.kind ==
+         JsonObjectValueKind.String;
+}
+
+proc value_is_array(
+    value: &JsonObjectValue
+) -> bool {
+    return value.kind ==
+         JsonObjectValueKind.Array;
+}
+
+proc value_is_object(
+    value: &JsonObjectValue
+) -> bool {
+    return value.kind ==
+         JsonObjectValueKind.Object;
+}
+
+proc value_as_bool(
+    value: &JsonObjectValue
+) -> bool {
+    return value.bool_value;
+}
+
+proc value_as_integer(
+    value: &JsonObjectValue
+) -> i64 {
+    if value_is_integer(value) {
+        return value.integer_value;
+    }
+
+    if value_is_float(value) {
+        return value.float_value
+            as i64;
+    }
+
+    return 0;
+}
+
+proc value_as_float(
+    value: &JsonObjectValue
+) -> f64 {
+    if value_is_float(value) {
+        return value.float_value;
+    }
+
+    if value_is_integer(value) {
+        return value.integer_value
+            as f64;
+    }
+
+    return 0.0;
+}
+
+proc value_as_string(
+    value: &JsonObjectValue
+) -> string {
+    return value.string_value;
+}
+
+proc value_copy(
+    value: &JsonObjectValue
+) -> JsonObjectValue {
+    return JsonObjectValue {
+        kind:
+            value.kind,
+
+        bool_value:
+            value.bool_value,
+
+        integer_value:
+            value.integer_value,
+
+        float_value:
+            value.float_value,
+
+        string_value:
+            value.string_value,
+
+        array_value:
+            value.array_value,
+
+        object_value:
+            value.object_value,
+    };
+}
+
+proc member_copy(
+    value: &JsonObjectMember
+) -> JsonObjectMember {
+    return JsonObjectMember {
+        key:
+            value.key,
+
+        value:
+            value_copy(
+                &value.value),
+    };
+}
+
+proc array_values_equal(
+    left: [JsonObjectValue],
+    right: [JsonObjectValue]
+) -> bool {
+    if left.length !=
+       right.length {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index <
+          left.length {
+        let left_value: JsonObjectValue =
+            left[index];
+
+        let right_value: JsonObjectValue =
+            right[index];
+
+        if not value_equals(
+            &left_value,
+            &right_value) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc object_members_equal(
+    left: [JsonObjectMember],
+    right: [JsonObjectMember]
+) -> bool {
+    if left.length !=
+       right.length {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index <
+          left.length {
+        let left_member: JsonObjectMember =
+            left[index];
+
+        let right_member: JsonObjectMember =
+            right[index];
+
+        if left_member.key !=
+           right_member.key {
+            return false;
+        }
+
+        if not value_equals(
+            &left_member.value,
+            &right_member.value) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc value_equals(
+    left: &JsonObjectValue,
+    right: &JsonObjectValue
+) -> bool {
+    if left.kind !=
+       right.kind {
+        if value_is_number(left) &&
+           value_is_number(right) {
+            return value_as_float(left) ==
+                 value_as_float(right);
+        }
+
+        return false;
+    }
+
+    if value_is_null(left) {
+        return true;
+    }
+
+    if value_is_bool(left) {
+        return left.bool_value ==
+             right.bool_value;
+    }
+
+    if value_is_integer(left) {
+        return left.integer_value ==
+             right.integer_value;
+    }
+
+    if value_is_float(left) {
+        return left.float_value ==
+             right.float_value;
+    }
+
+    if value_is_string(left) {
+        return left.string_value ==
+             right.string_value;
+    }
+
+    if value_is_array(left) {
+        return array_values_equal(
+            left.array_value,
+            right.array_value);
+    }
+
+    if value_is_object(left) {
+        return object_members_equal(
+            left.object_value,
+            right.object_value);
+    }
+
+    return false;
+}
+
+proc value_not_equals(
+    left: &JsonObjectValue,
+    right: &JsonObjectValue
+) -> bool {
+    return not value_equals(
+        left,
+        right);
+}
+
+proc index_of(
+    object: &JsonObject,
+    key: string
+) -> JsonObjectIndexResult {
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        if object.members[index].
+               key ==
+           key {
+            return JsonObjectIndexResult {
+                found: true,
+                index: index,
+            };
+        }
+
+        set index += 1;
+    }
+
+    return JsonObjectIndexResult {
+        found: false,
+        index: 0,
+    };
+}
+
+proc last_index_of(
+    object: &JsonObject,
+    key: string
+) -> JsonObjectIndexResult {
+    let mut index: usize =
+        object.length;
+
+    while index > 0 {
+        set index -= 1;
+
+        if object.members[index].
+               key ==
+           key {
+            return JsonObjectIndexResult {
+                found: true,
+                index: index,
+            };
+        }
+    }
+
+    return JsonObjectIndexResult {
+        found: false,
+        index: 0,
+    };
+}
+
+proc has(
+    object: &JsonObject,
+    key: string
+) -> bool {
+    let result: JsonObjectIndexResult =
+        index_of(
+            object,
+            key);
+
+    return result.found;
+}
+
+proc contains_key(
+    object: &JsonObject,
+    key: string
+) -> bool {
+    return has(
+        object,
+        key);
+}
+
+proc key_count(
+    object: &JsonObject,
+    key: string
+) -> usize {
+    let mut result: usize = 0;
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        if object.members[index].
+               key ==
+           key {
+            set result += 1;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc has_duplicate_keys(
+    object: &JsonObject
+) -> bool {
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        if key_count(
+               object,
+               object.members[index].
+                   key) > 1 {
+            return true;
+        }
+
+        set index += 1;
+    }
+
+    return false;
+}
+
+proc get(
+    object: &JsonObject,
+    key: string
+) -> JsonObjectValue {
+    let result: JsonObjectIndexResult =
+        index_of(
+            object,
+            key);
+
+    if not result.found {
+        return null_value();
+    }
+
+    return object.members[
+        result.index
+    ].value;
+}
+
+proc get_result(
+    object: &JsonObject,
+    key: string
+) -> JsonObjectValueResult {
+    let result: JsonObjectIndexResult =
+        index_of(
+            object,
+            key);
+
+    if not result.found {
+        return JsonObjectValueResult {
+            ok: false,
+
+            value:
+                null_value(),
+
+            error:
+                JsonObjectError.KeyNotFound,
+
+            index: 0,
+        };
+    }
+
+    return JsonObjectValueResult {
+        ok: true,
+
+        value:
+            object.members[
+                result.index
+            ].value,
+
+        error:
+            JsonObjectError.None,
+
+        index:
+            result.index,
+    };
+}
+
+proc get_at(
+    object: &JsonObject,
+    index: usize
+) -> JsonObjectMemberResult {
+    if not is_valid_index(
+        object,
+        index) {
+        return JsonObjectMemberResult {
+            ok: false,
+
+            member:
+                empty_member(),
+
+            error:
+                JsonObjectError.IndexOutOfBounds,
+
+            index: index,
+        };
+    }
+
+    return JsonObjectMemberResult {
+        ok: true,
+
+        member:
+            object.members[index],
+
+        error:
+            JsonObjectError.None,
+
+        index: index,
+    };
+}
+
+proc first(
+    object: &JsonObject
+) -> JsonObjectMemberResult {
+    if is_empty(object) {
+        return JsonObjectMemberResult {
+            ok: false,
+
+            member:
+                empty_member(),
+
+            error:
+                JsonObjectError.Empty,
+
+            index: 0,
+        };
+    }
+
+    return JsonObjectMemberResult {
+        ok: true,
+
+        member:
+            object.members[0],
+
+        error:
+            JsonObjectError.None,
+
+        index: 0,
+    };
+}
+
+proc last(
+    object: &JsonObject
+) -> JsonObjectMemberResult {
+    if is_empty(object) {
+        return JsonObjectMemberResult {
+            ok: false,
+
+            member:
+                empty_member(),
+
+            error:
+                JsonObjectError.Empty,
+
+            index: 0,
+        };
+    }
+
+    let index: usize =
+        object.length - 1;
+
+    return JsonObjectMemberResult {
+        ok: true,
+
+        member:
+            object.members[index],
+
+        error:
+            JsonObjectError.None,
+
+        index: index,
+    };
+}
+
+proc get_bool(
+    object: &JsonObject,
+    key: string
+) -> bool {
+    let value: JsonObjectValue =
+        get(
+            object,
+            key);
+
+    return value_as_bool(
+        &value);
+}
+
+proc get_integer(
+    object: &JsonObject,
+    key: string
+) -> i64 {
+    let value: JsonObjectValue =
+        get(
+            object,
+            key);
+
+    return value_as_integer(
+        &value);
+}
+
+proc get_float(
+    object: &JsonObject,
+    key: string
+) -> f64 {
+    let value: JsonObjectValue =
+        get(
+            object,
+            key);
+
+    return value_as_float(
+        &value);
+}
+
+proc get_string(
+    object: &JsonObject,
+    key: string
+) -> string {
+    let value: JsonObjectValue =
+        get(
+            object,
+            key);
+
+    return value_as_string(
+        &value);
+}
+
+proc insert_member_unchecked(
+    object: &JsonObject,
+    value: JsonObjectMember
+) -> JsonObject {
+    let mut result: JsonObject =
+        reserve(
+            object,
+            object.length + 1);
+
+    set result.members.push(
+        value);
+
+    set result.length += 1;
+
+    return result;
+}
+
+proc insert(
+    object: &JsonObject,
+    key: string,
+    value: JsonObjectValue
+) -> JsonObjectResult {
+    if key.length == 0 {
+        return JsonObjectResult {
+            ok: false,
+
+            value: clone(object),
+
+            error:
+                JsonObjectError.EmptyKey,
+
+            index: 0,
+        };
+    }
+
+    let existing:
+        JsonObjectIndexResult =
+            index_of(
+                object,
+                key);
+
+    if existing.found {
+        return JsonObjectResult {
+            ok: false,
+
+            value: clone(object),
+
+            error:
+                JsonObjectError.DuplicateKey,
+
+            index:
+                existing.index,
+        };
+    }
+
+    let result: JsonObject =
+        insert_member_unchecked(
+            object,
+            member(
+                key,
+                value));
+
+    return JsonObjectResult {
+        ok: true,
+
+        value: result,
+
+        error:
+            JsonObjectError.None,
+
+        index:
+            result.length - 1,
+    };
+}
+
+proc insert_null(
+    object: &JsonObject,
+    key: string
+) -> JsonObjectResult {
+    return insert(
+        object,
+        key,
+        null_value());
+}
+
+proc insert_bool(
+    object: &JsonObject,
+    key: string,
+    value: bool
+) -> JsonObjectResult {
+    return insert(
+        object,
+        key,
+        bool_value(value));
+}
+
+proc insert_integer(
+    object: &JsonObject,
+    key: string,
+    value: i64
+) -> JsonObjectResult {
+    return insert(
+        object,
+        key,
+        integer_value(value));
+}
+
+proc insert_float(
+    object: &JsonObject,
+    key: string,
+    value: f64
+) -> JsonObjectResult {
+    return insert(
+        object,
+        key,
+        float_value(value));
+}
+
+proc insert_string(
+    object: &JsonObject,
+    key: string,
+    value: string
+) -> JsonObjectResult {
+    return insert(
+        object,
+        key,
+        string_value(value));
+}
+
+proc insert_array(
+    object: &JsonObject,
+    key: string,
+    value: [JsonObjectValue]
+) -> JsonObjectResult {
+    return insert(
+        object,
+        key,
+        array_value(value));
+}
+
+proc insert_object(
+    object: &JsonObject,
+    key: string,
+    value: &JsonObject
+) -> JsonObjectResult {
+    return insert(
+        object,
+        key,
+        object_value(value));
+}
+
+proc set_value(
+    object: &JsonObject,
+    key: string,
+    value: JsonObjectValue
+) -> JsonObject {
+    let existing:
+        JsonObjectIndexResult =
+            index_of(
+                object,
+                key);
+
+    if existing.found {
+        let mut result: JsonObject =
+            clone(object);
+
+        set result.members[
+            existing.index
+        ].value = value;
+
+        return result;
+    }
+
+    if key.length == 0 {
+        return clone(object);
+    }
+
+    return insert_member_unchecked(
+        object,
+        member(
+            key,
+            value));
+}
+
+proc set_null(
+    object: &JsonObject,
+    key: string
+) -> JsonObject {
+    return set_value(
+        object,
+        key,
+        null_value());
+}
+
+proc set_bool(
+    object: &JsonObject,
+    key: string,
+    value: bool
+) -> JsonObject {
+    return set_value(
+        object,
+        key,
+        bool_value(value));
+}
+
+proc set_integer(
+    object: &JsonObject,
+    key: string,
+    value: i64
+) -> JsonObject {
+    return set_value(
+        object,
+        key,
+        integer_value(value));
+}
+
+proc set_float(
+    object: &JsonObject,
+    key: string,
+    value: f64
+) -> JsonObject {
+    return set_value(
+        object,
+        key,
+        float_value(value));
+}
+
+proc set_string(
+    object: &JsonObject,
+    key: string,
+    value: string
+) -> JsonObject {
+    return set_value(
+        object,
+        key,
+        string_value(value));
+}
+
+proc set_array(
+    object: &JsonObject,
+    key: string,
+    value: [JsonObjectValue]
+) -> JsonObject {
+    return set_value(
+        object,
+        key,
+        array_value(value));
+}
+
+proc set_object(
+    object: &JsonObject,
+    key: string,
+    value: &JsonObject
+) -> JsonObject {
+    return set_value(
+        object,
+        key,
+        object_value(value));
+}
+
+proc replace(
+    object: &JsonObject,
+    key: string,
+    value: JsonObjectValue
+) -> JsonObjectResult {
+    let existing:
+        JsonObjectIndexResult =
+            index_of(
+                object,
+                key);
+
+    if not existing.found {
+        return JsonObjectResult {
+            ok: false,
+
+            value: clone(object),
+
+            error:
+                JsonObjectError.KeyNotFound,
+
+            index: 0,
+        };
+    }
+
+    let mut result: JsonObject =
+        clone(object);
+
+    set result.members[
+        existing.index
+    ].value = value;
+
+    return JsonObjectResult {
+        ok: true,
+
+        value: result,
+
+        error:
+            JsonObjectError.None,
+
+        index:
+            existing.index,
+    };
+}
+
+proc rename(
+    object: &JsonObject,
+    old_key: string,
+    new_key: string
+) -> JsonObjectResult {
+    if new_key.length == 0 {
+        return JsonObjectResult {
+            ok: false,
+
+            value: clone(object),
+
+            error:
+                JsonObjectError.EmptyKey,
+
+            index: 0,
+        };
+    }
+
+    let old_index:
+        JsonObjectIndexResult =
+            index_of(
+                object,
+                old_key);
+
+    if not old_index.found {
+        return JsonObjectResult {
+            ok: false,
+
+            value: clone(object),
+
+            error:
+                JsonObjectError.KeyNotFound,
+
+            index: 0,
+        };
+    }
+
+    if old_key != new_key {
+        let new_index:
+            JsonObjectIndexResult =
+                index_of(
+                    object,
+                    new_key);
+
+        if new_index.found {
+            return JsonObjectResult {
+                ok: false,
+
+                value: clone(object),
+
+                error:
+                    JsonObjectError.DuplicateKey,
+
+                index:
+                    new_index.index,
+            };
+        }
+    }
+
+    let mut result: JsonObject =
+        clone(object);
+
+    set result.members[
+        old_index.index
+    ].key = new_key;
+
+    return JsonObjectResult {
+        ok: true,
+
+        value: result,
+
+        error:
+            JsonObjectError.None,
+
+        index:
+            old_index.index,
+    };
+}
+
+proc remove(
+    object: &JsonObject,
+    key: string
+) -> JsonObjectResult {
+    let existing:
+        JsonObjectIndexResult =
+            index_of(
+                object,
+                key);
+
+    if not existing.found {
+        return JsonObjectResult {
+            ok: false,
+
+            value: clone(object),
+
+            error:
+                JsonObjectError.KeyNotFound,
+
+            index: 0,
+        };
+    }
+
+    let mut result: JsonObject =
+        with_capacity(
+            object.capacity);
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        if index !=
+           existing.index {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &object.members[
+                            index
+                        ]));
+        }
+
+        set index += 1;
+    }
+
+    return JsonObjectResult {
+        ok: true,
+
+        value: result,
+
+        error:
+            JsonObjectError.None,
+
+        index:
+            existing.index,
+    };
+}
+
+proc remove_at(
+    object: &JsonObject,
+    target: usize
+) -> JsonObjectResult {
+    if not is_valid_index(
+        object,
+        target) {
+        return JsonObjectResult {
+            ok: false,
+
+            value: clone(object),
+
+            error:
+                JsonObjectError.IndexOutOfBounds,
+
+            index: target,
+        };
+    }
+
+    let mut result: JsonObject =
+        with_capacity(
+            object.capacity);
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        if index != target {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &object.members[
+                            index
+                        ]));
+        }
+
+        set index += 1;
+    }
+
+    return JsonObjectResult {
+        ok: true,
+
+        value: result,
+
+        error:
+            JsonObjectError.None,
+
+        index: target,
+    };
+}
+
+proc remove_first(
+    object: &JsonObject
+) -> JsonObjectResult {
+    if is_empty(object) {
+        return JsonObjectResult {
+            ok: false,
+
+            value: clone(object),
+
+            error:
+                JsonObjectError.Empty,
+
+            index: 0,
+        };
+    }
+
+    return remove_at(
+        object,
+        0);
+}
+
+proc remove_last(
+    object: &JsonObject
+) -> JsonObjectResult {
+    if is_empty(object) {
+        return JsonObjectResult {
+            ok: false,
+
+            value: clone(object),
+
+            error:
+                JsonObjectError.Empty,
+
+            index: 0,
+        };
+    }
+
+    return remove_at(
+        object,
+        object.length - 1);
+}
+
+proc clear(
+    object: &JsonObject
+) -> JsonObject {
+    return JsonObject {
+        members: [],
+
+        length: 0,
+
+        capacity:
+            object.capacity,
+    };
+}
+
+proc reset() -> JsonObject {
+    return empty();
+}
+
+proc clone(
+    object: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        with_capacity(
+            object.capacity);
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        set result =
+            insert_member_unchecked(
+                &result,
+                member_copy(
+                    &object.members[
+                        index
+                    ]));
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc keys(
+    object: &JsonObject
+) -> [string] {
+    let mut result: [string] =
+        [];
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        set result.push(
+            object.members[
+                index
+            ].key);
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc values(
+    object: &JsonObject
+) -> [JsonObjectValue] {
+    let mut result:
+        [JsonObjectValue] =
+            [];
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        set result.push(
+            value_copy(
+                &object.members[
+                    index
+                ].value));
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc members(
+    object: &JsonObject
+) -> [JsonObjectMember] {
+    let mut result:
+        [JsonObjectMember] =
+            [];
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        set result.push(
+            member_copy(
+                &object.members[
+                    index
+                ]));
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc count_kind(
+    object: &JsonObject,
+    kind: JsonObjectValueKind
+) -> usize {
+    let mut result: usize = 0;
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        if object.members[
+               index
+           ].value.kind ==
+           kind {
+            set result += 1;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc count_null(
+    object: &JsonObject
+) -> usize {
+    return count_kind(
+        object,
+        JsonObjectValueKind.Null);
+}
+
+proc count_bool(
+    object: &JsonObject
+) -> usize {
+    return count_kind(
+        object,
+        JsonObjectValueKind.Bool);
+}
+
+proc count_integer(
+    object: &JsonObject
+) -> usize {
+    return count_kind(
+        object,
+        JsonObjectValueKind.Integer);
+}
+
+proc count_float(
+    object: &JsonObject
+) -> usize {
+    return count_kind(
+        object,
+        JsonObjectValueKind.Float);
+}
+
+proc count_number(
+    object: &JsonObject
+) -> usize {
+    return count_integer(object) +
+         count_float(object);
+}
+
+proc count_string(
+    object: &JsonObject
+) -> usize {
+    return count_kind(
+        object,
+        JsonObjectValueKind.String);
+}
+
+proc count_array(
+    object: &JsonObject
+) -> usize {
+    return count_kind(
+        object,
+        JsonObjectValueKind.Array);
+}
+
+proc count_object(
+    object: &JsonObject
+) -> usize {
+    return count_kind(
+        object,
+        JsonObjectValueKind.Object);
+}
+
+proc contains_null(
+    object: &JsonObject
+) -> bool {
+    return count_null(object) > 0;
+}
+
+proc contains_bool(
+    object: &JsonObject
+) -> bool {
+    return count_bool(object) > 0;
+}
+
+proc contains_integer(
+    object: &JsonObject
+) -> bool {
+    return count_integer(object) > 0;
+}
+
+proc contains_number(
+    object: &JsonObject
+) -> bool {
+    return count_number(object) > 0;
+}
+
+proc contains_string(
+    object: &JsonObject
+) -> bool {
+    return count_string(object) > 0;
+}
+
+proc contains_array(
+    object: &JsonObject
+) -> bool {
+    return count_array(object) > 0;
+}
+
+proc contains_object(
+    object: &JsonObject
+) -> bool {
+    return count_object(object) > 0;
+}
+
+proc contains_value(
+    object: &JsonObject,
+    value: &JsonObjectValue
+) -> bool {
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        if value_equals(
+            &object.members[
+                index
+            ].value,
+            value) {
+            return true;
+        }
+
+        set index += 1;
+    }
+
+    return false;
+}
+
+proc value_count(
+    object: &JsonObject,
+    value: &JsonObjectValue
+) -> usize {
+    let mut result: usize = 0;
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        if value_equals(
+            &object.members[
+                index
+            ].value,
+            value) {
+            set result += 1;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc equals_ordered(
+    left: &JsonObject,
+    right: &JsonObject
+) -> bool {
+    if left.length !=
+       right.length {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index <
+          left.length {
+        let left_member:
+            JsonObjectMember =
+                left.members[index];
+
+        let right_member:
+            JsonObjectMember =
+                right.members[index];
+
+        if left_member.key !=
+           right_member.key {
+            return false;
+        }
+
+        if not value_equals(
+            &left_member.value,
+            &right_member.value) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc equals(
+    left: &JsonObject,
+    right: &JsonObject
+) -> bool {
+    if left.length !=
+       right.length {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index <
+          left.length {
+        let current:
+            JsonObjectMember =
+                left.members[index];
+
+        let found:
+            JsonObjectIndexResult =
+                index_of(
+                    right,
+                    current.key);
+
+        if not found.found {
+            return false;
+        }
+
+        if not value_equals(
+            &current.value,
+            &right.members[
+                found.index
+            ].value) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc not_equals(
+    left: &JsonObject,
+    right: &JsonObject
+) -> bool {
+    return not equals(
+        left,
+        right);
+}
+
+proc merge(
+    left: &JsonObject,
+    right: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        clone(left);
+
+    let mut index: usize = 0;
+
+    while index <
+          right.length {
+        let current:
+            JsonObjectMember =
+                right.members[index];
+
+        set result =
+            set_value(
+                &result,
+                current.key,
+                value_copy(
+                    &current.value));
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc merge_preserve_left(
+    left: &JsonObject,
+    right: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        clone(left);
+
+    let mut index: usize = 0;
+
+    while index <
+          right.length {
+        let current:
+            JsonObjectMember =
+                right.members[index];
+
+        if not has(
+            &result,
+            current.key) {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &current));
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc intersection(
+    left: &JsonObject,
+    right: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        empty();
+
+    let mut index: usize = 0;
+
+    while index <
+          left.length {
+        let current:
+            JsonObjectMember =
+                left.members[index];
+
+        if has(
+            right,
+            current.key) {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &current));
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc difference(
+    left: &JsonObject,
+    right: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        empty();
+
+    let mut index: usize = 0;
+
+    while index <
+          left.length {
+        let current:
+            JsonObjectMember =
+                left.members[index];
+
+        if not has(
+            right,
+            current.key) {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &current));
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_nulls(
+    object: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        empty();
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        let current:
+            JsonObjectMember =
+                object.members[index];
+
+        if value_is_null(
+            &current.value) {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &current));
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_bools(
+    object: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        empty();
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        let current:
+            JsonObjectMember =
+                object.members[index];
+
+        if value_is_bool(
+            &current.value) {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &current));
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_integers(
+    object: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        empty();
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        let current:
+            JsonObjectMember =
+                object.members[index];
+
+        if value_is_integer(
+            &current.value) {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &current));
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_numbers(
+    object: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        empty();
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        let current:
+            JsonObjectMember =
+                object.members[index];
+
+        if value_is_number(
+            &current.value) {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &current));
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_strings(
+    object: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        empty();
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        let current:
+            JsonObjectMember =
+                object.members[index];
+
+        if value_is_string(
+            &current.value) {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &current));
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_arrays(
+    object: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        empty();
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        let current:
+            JsonObjectMember =
+                object.members[index];
+
+        if value_is_array(
+            &current.value) {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &current));
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc only_objects(
+    object: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        empty();
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        let current:
+            JsonObjectMember =
+                object.members[index];
+
+        if value_is_object(
+            &current.value) {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &current));
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc compact_nulls(
+    object: &JsonObject
+) -> JsonObject {
+    let mut result: JsonObject =
+        empty();
+
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        let current:
+            JsonObjectMember =
+                object.members[index];
+
+        if not value_is_null(
+            &current.value) {
+            set result =
+                insert_member_unchecked(
+                    &result,
+                    member_copy(
+                        &current));
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc integer_sum(
+    object: &JsonObject
+) -> i64 {
+    let mut result: i64 = 0;
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        let value: JsonObjectValue =
+            object.members[
+                index
+            ].value;
+
+        if value_is_integer(
+            &value) {
+            set result +=
+                value.integer_value;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc number_sum(
+    object: &JsonObject
+) -> f64 {
+    let mut result: f64 = 0.0;
+    let mut index: usize = 0;
+
+    while index <
+          object.length {
+        let value: JsonObjectValue =
+            object.members[
+                index
+            ].value;
+
+        if value_is_integer(
+            &value) {
+            set result +=
+                value.integer_value
+                    as f64;
+        }
+
+        if value_is_float(
+            &value) {
+            set result +=
+                value.float_value;
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc nested_object(
+    value: &JsonObjectValue
+) -> JsonObject {
+    if not value_is_object(value) {
+        return empty();
+    }
+
+    return JsonObject {
+        members:
+            value.object_value,
+
+        length:
+            value.object_value.length,
+
+        capacity:
+            capacity_for(
+                MINIMUM_CAPACITY,
+                value.object_value.length),
+    };
+}
+
+proc object_depth_from_members(
+    members_value: [JsonObjectMember]
+) -> usize {
+    let mut maximum: usize = 1;
+    let mut index: usize = 0;
+
+    while index <
+          members_value.length {
+        let current:
+            JsonObjectValue =
+                members_value[
+                    index
+                ].value;
+
+        let candidate: usize =
+            value_depth(
+                &current) + 1;
+
+        if candidate >
+           maximum {
+            set maximum =
+                candidate;
+        }
+
+        set index += 1;
+    }
+
+    return maximum;
+}
+
+proc array_depth_from_values(
+    values_value: [JsonObjectValue]
+) -> usize {
+    let mut maximum: usize = 1;
+    let mut index: usize = 0;
+
+    while index <
+          values_value.length {
+        let candidate: usize =
+            value_depth(
+                &values_value[
+                    index
+                ]) + 1;
+
+        if candidate >
+           maximum {
+            set maximum =
+                candidate;
+        }
+
+        set index += 1;
+    }
+
+    return maximum;
+}
+
+proc value_depth(
+    value: &JsonObjectValue
+) -> usize {
+    if value_is_array(value) {
+        return array_depth_from_values(
+            value.array_value);
+    }
+
+    if value_is_object(value) {
+        return object_depth_from_members(
+            value.object_value);
+    }
+
+    return 0;
+}
+
+proc depth(
+    object: &JsonObject
+) -> usize {
+    return object_depth_from_members(
+        object.members);
+}
+
+proc scalar_count_in_array(
+    values_value: [JsonObjectValue]
+) -> usize {
+    let mut result: usize = 0;
+    let mut index: usize = 0;
+
+    while index <
+          values_value.length {
+        let current:
+            JsonObjectValue =
+                values_value[index];
+
+        if value_is_array(
+            &current) {
+            set result +=
+                scalar_count_in_array(
+                    current.array_value);
+        } else {
+            if value_is_object(
+                &current) {
+                set result +=
+                    scalar_count_in_members(
+                        current.object_value);
+            } else {
+                set result += 1;
+            }
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc scalar_count_in_members(
+    members_value: [JsonObjectMember]
+) -> usize {
+    let mut result: usize = 0;
+    let mut index: usize = 0;
+
+    while index <
+          members_value.length {
+        let current:
+            JsonObjectValue =
+                members_value[
+                    index
+                ].value;
+
+        if value_is_array(
+            &current) {
+            set result +=
+                scalar_count_in_array(
+                    current.array_value);
+        } else {
+            if value_is_object(
+                &current) {
+                set result +=
+                    scalar_count_in_members(
+                        current.object_value);
+            } else {
+                set result += 1;
+            }
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc scalar_count(
+    object: &JsonObject
+) -> usize {
+    return scalar_count_in_members(
+        object.members);
+}
+
+proc total_value_count_in_array(
+    values_value: [JsonObjectValue]
+) -> usize {
+    let mut result: usize =
+        values_value.length;
+
+    let mut index: usize = 0;
+
+    while index <
+          values_value.length {
+        let current:
+            JsonObjectValue =
+                values_value[index];
+
+        if value_is_array(
+            &current) {
+            set result +=
+                total_value_count_in_array(
+                    current.array_value);
+        }
+
+        if value_is_object(
+            &current) {
+            set result +=
+                total_value_count_in_members(
+                    current.object_value);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc total_value_count_in_members(
+    members_value: [JsonObjectMember]
+) -> usize {
+    let mut result: usize =
+        members_value.length;
+
+    let mut index: usize = 0;
+
+    while index <
+          members_value.length {
+        let current:
+            JsonObjectValue =
+                members_value[
+                    index
+                ].value;
+
+        if value_is_array(
+            &current) {
+            set result +=
+                total_value_count_in_array(
+                    current.array_value);
+        }
+
+        if value_is_object(
+            &current) {
+            set result +=
+                total_value_count_in_members(
+                    current.object_value);
+        }
+
+        set index += 1;
+    }
+
+    return result;
+}
+
+proc total_value_count(
+    object: &JsonObject
+) -> usize {
+    return total_value_count_in_members(
+        object.members);
+}
+
+proc validate_array_values(
+    values_value: [JsonObjectValue]
+) -> bool {
+    let mut index: usize = 0;
+
+    while index <
+          values_value.length {
+        if not validate_value(
+            &values_value[index]) {
+            return false;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc validate_object_members(
+    members_value: [JsonObjectMember]
+) -> bool {
+    let mut index: usize = 0;
+
+    while index <
+          members_value.length {
+        if members_value[
+               index
+           ].key.length == 0 {
+            return false;
+        }
+
+        if not validate_value(
+            &members_value[
+                index
+            ].value) {
+            return false;
+        }
+
+        let mut other: usize =
+            index + 1;
+
+        while other <
+              members_value.length {
+            if members_value[
+                   index
+               ].key ==
+               members_value[
+                   other
+               ].key {
+                return false;
+            }
+
+            set other += 1;
+        }
+
+        set index += 1;
+    }
+
+    return true;
+}
+
+proc validate_value(
+    value: &JsonObjectValue
+) -> bool {
+    if value_is_null(value) {
+        return true;
+    }
+
+    if value_is_bool(value) {
+        return true;
+    }
+
+    if value_is_integer(value) {
+        return true;
+    }
+
+    if value_is_float(value) {
+        return true;
+    }
+
+    if value_is_string(value) {
+        return true;
+    }
+
+    if value_is_array(value) {
+        return validate_array_values(
+            value.array_value);
+    }
+
+    if value_is_object(value) {
+        return validate_object_members(
+            value.object_value);
+    }
+
+    return false;
+}
+
+proc validate(
+    object: &JsonObject
+) -> bool {
+    if object.capacity <
+       MINIMUM_CAPACITY {
+        return false;
+    }
+
+    if object.length >
+       object.capacity {
+        return false;
+    }
+
+    if object.members.length !=
+       object.length {
+        return false;
+    }
+
+    return validate_object_members(
+        object.members);
+}
+
+proc error_name(
+    error: JsonObjectError
+) -> string {
+    if error ==
+       JsonObjectError.None {
+        return "none";
+    }
+
+    if error ==
+       JsonObjectError.KeyNotFound {
+        return "key not found";
+    }
+
+    if error ==
+       JsonObjectError.DuplicateKey {
+        return "duplicate key";
+    }
+
+    if error ==
+       JsonObjectError.EmptyKey {
+        return "empty key";
+    }
+
+    if error ==
+       JsonObjectError.IndexOutOfBounds {
+        return "index out of bounds";
+    }
+
+    if error ==
+       JsonObjectError.Empty {
+        return "empty object";
+    }
+
+    if error ==
+       JsonObjectError.InvalidRange {
+        return "invalid range";
+    }
+
+    if error ==
+       JsonObjectError.InvalidValue {
+        return "invalid value";
+    }
+
+    return "capacity overflow";
+}
+
+proc test_empty() -> bool {
+    let object: JsonObject =
+        empty();
+
+    return is_empty(&object) &&
+         len(&object) == 0 &&
+         capacity(&object) >=
+             MINIMUM_CAPACITY &&
+         validate(&object);
+}
+
+proc test_insert_integer() -> bool {
+    let object: JsonObject =
+        empty();
+
+    let result: JsonObjectResult =
+        insert_integer(
+            &object,
+            "answer",
+            42);
+
+    if not result.ok {
+        return false;
+    }
+
+    return result.value.length == 1 &&
+         has(
+             &result.value,
+             "answer") &&
+         get_integer(
+             &result.value,
+             "answer") == 42;
+}
+
+proc test_insert_all_scalar_types() -> bool {
+    let mut object: JsonObject =
+        empty();
+
+    let null_result: JsonObjectResult =
+        insert_null(
+            &object,
+            "null");
+
+    if not null_result.ok {
+        return false;
+    }
+
+    set object =
+        null_result.value;
+
+    let bool_result: JsonObjectResult =
+        insert_bool(
+            &object,
+            "bool",
+            true);
+
+    if not bool_result.ok {
+        return false;
+    }
+
+    set object =
+        bool_result.value;
+
+    let integer_result: JsonObjectResult =
+        insert_integer(
+            &object,
+            "integer",
+            42);
+
+    if not integer_result.ok {
+        return false;
+    }
+
+    set object =
+        integer_result.value;
+
+    let float_result: JsonObjectResult =
+        insert_float(
+            &object,
+            "float",
+            42.5);
+
+    if not float_result.ok {
+        return false;
+    }
+
+    set object =
+        float_result.value;
+
+    let string_result: JsonObjectResult =
+        insert_string(
+            &object,
+            "string",
+            "Vitte");
+
+    if not string_result.ok {
+        return false;
+    }
+
+    set object =
+        string_result.value;
+
+    return object.length == 5 &&
+         count_null(&object) == 1 &&
+         count_bool(&object) == 1 &&
+         count_integer(&object) == 1 &&
+         count_float(&object) == 1 &&
+         count_string(&object) == 1;
+}
+
+proc test_duplicate_key() -> bool {
+    let object: JsonObject =
+        set_integer(
+            &empty(),
+            "answer",
+            42);
+
+    let result: JsonObjectResult =
+        insert_integer(
+            &object,
+            "answer",
+            43);
+
+    return not result.ok &&
+         result.error ==
+             JsonObjectError.DuplicateKey &&
+         get_integer(
+             &result.value,
+             "answer") == 42;
+}
+
+proc test_set_replaces() -> bool {
+    let mut object: JsonObject =
+        empty();
+
+    set object =
+        set_integer(
+            &object,
+            "answer",
+            41);
+
+    set object =
+        set_integer(
+            &object,
+            "answer",
+            42);
+
+    return object.length == 1 &&
+         get_integer(
+             &object,
+             "answer") == 42;
+}
+
+proc test_remove() -> bool {
+    let mut object: JsonObject =
+        empty();
+
+    set object =
+        set_integer(
+            &object,
+            "first",
+            20);
+
+    set object =
+        set_integer(
+            &object,
+            "second",
+            22);
+
+    let result: JsonObjectResult =
+        remove(
+            &object,
+            "first");
+
+    return result.ok &&
+         result.value.length == 1 &&
+         not has(
+             &result.value,
+             "first") &&
+         get_integer(
+             &result.value,
+             "second") == 22;
+}
+
+proc test_rename() -> bool {
+    let object: JsonObject =
+        set_integer(
+            &empty(),
+            "old",
+            42);
+
+    let result: JsonObjectResult =
+        rename(
+            &object,
+            "old",
+            "answer");
+
+    return result.ok &&
+         not has(
+             &result.value,
+             "old") &&
+         has(
+             &result.value,
+             "answer") &&
+         get_integer(
+             &result.value,
+             "answer") == 42;
+}
+
+proc test_order_preserved() -> bool {
+    let mut object: JsonObject =
+        empty();
+
+    set object =
+        set_integer(
+            &object,
+            "first",
+            20);
+
+    set object =
+        set_integer(
+            &object,
+            "second",
+            21);
+
+    set object =
+        set_integer(
+            &object,
+            "third",
+            22);
+
+    return object.members[0].key ==
+             "first" &&
+         object.members[1].key ==
+             "second" &&
+         object.members[2].key ==
+             "third";
+}
+
+proc test_merge() -> bool {
+    let mut left: JsonObject =
+        empty();
+
+    set left =
+        set_integer(
+            &left,
+            "first",
+            20);
+
+    set left =
+        set_integer(
+            &left,
+            "shared",
+            1);
+
+    let mut right: JsonObject =
+        empty();
+
+    set right =
+        set_integer(
+            &right,
+            "second",
+            22);
+
+    set right =
+        set_integer(
+            &right,
+            "shared",
+            42);
+
+    let result: JsonObject =
+        merge(
+            &left,
+            &right);
+
+    return result.length == 3 &&
+         get_integer(
+             &result,
+             "first") == 20 &&
+         get_integer(
+             &result,
+             "second") == 22 &&
+         get_integer(
+             &result,
+             "shared") == 42;
+}
+
+proc test_merge_preserve_left() -> bool {
+    let mut left: JsonObject =
+        empty();
+
+    set left =
+        set_integer(
+            &left,
+            "answer",
+            42);
+
+    let mut right: JsonObject =
+        empty();
+
+    set right =
+        set_integer(
+            &right,
+            "answer",
+            100);
+
+    set right =
+        set_integer(
+            &right,
+            "other",
+            22);
+
+    let result: JsonObject =
+        merge_preserve_left(
+            &left,
+            &right);
+
+    return result.length == 2 &&
+         get_integer(
+             &result,
+             "answer") == 42 &&
+         get_integer(
+             &result,
+             "other") == 22;
+}
+
+proc test_equality_order_independent() -> bool {
+    let mut left: JsonObject =
+        empty();
+
+    set left =
+        set_integer(
+            &left,
+            "a",
+            20);
+
+    set left =
+        set_integer(
+            &left,
+            "b",
+            22);
+
+    let mut right: JsonObject =
+        empty();
+
+    set right =
+        set_integer(
+            &right,
+            "b",
+            22);
+
+    set right =
+        set_integer(
+            &right,
+            "a",
+            20);
+
+    return equals(
+               &left,
+               &right) &&
+         not equals_ordered(
+               &left,
+               &right);
+}
+
+proc test_numeric_equality() -> bool {
+    let integer_number:
+        JsonObjectValue =
+            integer_value(42);
+
+    let float_number:
+        JsonObjectValue =
+            float_value(42.0);
+
+    return value_equals(
+        &integer_number,
+        &float_number);
+}
+
+proc test_filter() -> bool {
+    let mut object: JsonObject =
+        empty();
+
+    set object =
+        set_integer(
+            &object,
+            "a",
+            20);
+
+    set object =
+        set_string(
+            &object,
+            "name",
+            "Vitte");
+
+    set object =
+        set_integer(
+            &object,
+            "b",
+            22);
+
+    set object =
+        set_bool(
+            &object,
+            "enabled",
+            true);
+
+    let integers: JsonObject =
+        only_integers(
+            &object);
+
+    return integers.length == 2 &&
+         integer_sum(
+             &integers) == 42;
+}
+
+proc test_compact_nulls() -> bool {
+    let mut object: JsonObject =
+        empty();
+
+    set object =
+        set_null(
+            &object,
+            "remove");
+
+    set object =
+        set_integer(
+            &object,
+            "answer",
+            42);
+
+    let result: JsonObject =
+        compact_nulls(
+            &object);
+
+    return result.length == 1 &&
+         not has(
+             &result,
+             "remove") &&
+         get_integer(
+             &result,
+             "answer") == 42;
+}
+
+proc test_nested_object() -> bool {
+    let mut child: JsonObject =
+        empty();
+
+    set child =
+        set_integer(
+            &child,
+            "first",
+            20);
+
+    set child =
+        set_integer(
+            &child,
+            "second",
+            22);
+
+    let mut parent: JsonObject =
+        empty();
+
+    set parent =
+        set_object(
+            &parent,
+            "child",
+            &child);
+
+    let child_value:
+        JsonObjectValue =
+            get(
+                &parent,
+                "child");
+
+    if not value_is_object(
+        &child_value) {
+        return false;
+    }
+
+    let restored: JsonObject =
+        nested_object(
+            &child_value);
+
+    return restored.length == 2 &&
+         integer_sum(
+             &restored) == 42;
+}
+
+proc test_nested_array() -> bool {
+    let mut values_value:
+        [JsonObjectValue] =
+            [];
+
+    set values_value.push(
+        integer_value(20));
+
+    set values_value.push(
+        integer_value(22));
+
+    let mut object: JsonObject =
+        empty();
+
+    set object =
+        set_array(
+            &object,
+            "values",
+            values_value);
+
+    let value: JsonObjectValue =
+        get(
+            &object,
+            "values");
+
+    return value_is_array(
+               &value) &&
+         value.array_value.length ==
+             2 &&
+         value.array_value[
+             0
+         ].integer_value == 20 &&
+         value.array_value[
+             1
+         ].integer_value == 22;
+}
+
+proc test_intersection() -> bool {
+    let mut left: JsonObject =
+        empty();
+
+    set left =
+        set_integer(
+            &left,
+            "a",
+            20);
+
+    set left =
+        set_integer(
+            &left,
+            "b",
+            22);
+
+    let mut right: JsonObject =
+        empty();
+
+    set right =
+        set_integer(
+            &right,
+            "b",
+            100);
+
+    set right =
+        set_integer(
+            &right,
+            "c",
+            200);
+
+    let result: JsonObject =
+        intersection(
+            &left,
+            &right);
+
+    return result.length == 1 &&
+         has(
+             &result,
+             "b") &&
+         get_integer(
+             &result,
+             "b") == 22;
+}
+
+proc test_difference() -> bool {
+    let mut left: JsonObject =
+        empty();
+
+    set left =
+        set_integer(
+            &left,
+            "a",
+            20);
+
+    set left =
+        set_integer(
+            &left,
+            "b",
+            22);
+
+    let right: JsonObject =
+        set_integer(
+            &empty(),
+            "a",
+            100);
+
+    let result: JsonObject =
+        difference(
+            &left,
+            &right);
+
+    return result.length == 1 &&
+         has(
+             &result,
+             "b") &&
+         get_integer(
+             &result,
+             "b") == 22;
+}
+
+proc test_keys_values() -> bool {
+    let mut object: JsonObject =
+        empty();
+
+    set object =
+        set_integer(
+            &object,
+            "first",
+            20);
+
+    set object =
+        set_integer(
+            &object,
+            "second",
+            22);
+
+    let object_keys:
+        [string] =
+            keys(
+                &object);
+
+    let object_values:
+        [JsonObjectValue] =
+            values(
+                &object);
+
+    return object_keys.length == 2 &&
+         object_values.length == 2 &&
+         object_keys[0] ==
+             "first" &&
+         object_keys[1] ==
+             "second" &&
+         object_values[
+             0
+         ].integer_value == 20 &&
+         object_values[
+             1
+         ].integer_value == 22;
+}
+
+proc test_first_last() -> bool {
+    let mut object: JsonObject =
+        empty();
+
+    set object =
+        set_integer(
+            &object,
+            "first",
+            20);
+
+    set object =
+        set_integer(
+            &object,
+            "second",
+            22);
+
+    let first_result:
+        JsonObjectMemberResult =
+            first(
+                &object);
+
+    let last_result:
+        JsonObjectMemberResult =
+            last(
+                &object);
+
+    return first_result.ok &&
+         last_result.ok &&
+         first_result.member.key ==
+             "first" &&
+         first_result.member.value.
+             integer_value == 20 &&
+         last_result.member.key ==
+             "second" &&
+         last_result.member.value.
+             integer_value == 22;
+}
+
+proc test_clone() -> bool {
+    let mut object: JsonObject =
+        empty();
+
+    set object =
+        set_integer(
+            &object,
+            "first",
+            20);
+
+    set object =
+        set_integer(
+            &object,
+            "second",
+            22);
+
+    let copied: JsonObject =
+        clone(
+            &object);
+
+    return equals(
+               &object,
+               &copied) &&
+         equals_ordered(
+               &object,
+               &copied);
+}
+
+proc test_scalar_count() -> bool {
+    let mut child: JsonObject =
+        empty();
+
+    set child =
+        set_integer(
+            &child,
+            "a",
+            20);
+
+    set child =
+        set_integer(
+            &child,
+            "b",
+            22);
+
+    let mut parent: JsonObject =
+        empty();
+
+    set parent =
+        set_object(
+            &parent,
+            "child",
+            &child);
+
+    set parent =
+        set_bool(
+            &parent,
+            "enabled",
+            true);
+
+    return scalar_count(
+        &parent) == 3;
+}
+
+proc test_validation() -> bool {
+    let mut object: JsonObject =
+        empty();
+
+    set object =
+        set_null(
+            &object,
+            "null");
+
+    set object =
+        set_bool(
+            &object,
+            "bool",
+            true);
+
+    set object =
+        set_integer(
+            &object,
+            "integer",
+            42);
+
+    set object =
+        set_float(
+            &object,
+            "float",
+            42.5);
+
+    set object =
+        set_string(
+            &object,
+            "string",
+            "Vitte");
+
+    return validate(
+        &object);
+}
+
+proc self_test() -> bool {
+    return test_empty() &&
+         test_insert_integer() &&
+         test_insert_all_scalar_types() &&
+         test_duplicate_key() &&
+         test_set_replaces() &&
+         test_remove() &&
+         test_rename() &&
+         test_order_preserved() &&
+         test_merge() &&
+         test_merge_preserve_left() &&
+         test_equality_order_independent() &&
+         test_numeric_equality() &&
+         test_filter() &&
+         test_compact_nulls() &&
+         test_nested_object() &&
+         test_nested_array() &&
+         test_intersection() &&
+         test_difference() &&
+         test_keys_values() &&
+         test_first_last() &&
+         test_clone() &&
+         test_scalar_count() &&
+         test_validation();
+}
