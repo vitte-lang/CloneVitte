@@ -2142,6 +2142,17 @@ def main() -> int:
             "bootstrap nullable values must compile and run with exit 0; "
             f"got {bootstrap_nullable}"
         )
+    for compiler in (native, bootstrap):
+        strict_result = run_strict_c17_emission(
+            compiler,
+            nullable_example,
+            "nullable unwrap",
+        )
+        if strict_result.returncode != 0:
+            raise AssertionError(
+                f"{compiler.name}: strict C17 nullable unwrap exited "
+                f"{strict_result.returncode}; stderr={strict_result.stderr[:1000]!r}"
+            )
     print("Nullable value runtime passed on both compilers.")
 
     coalesce_example = (

@@ -141,9 +141,9 @@ vitte --version</code></pre>
 <p>Le Makefile accepte également <code>DESTDIR</code> pour préparer une installation dans un répertoire de staging, par exemple lors de la fabrication d’un paquet. Ce répertoire sert au packaging ; il ne remplace pas le préfixe utilisé à l’exécution.</p>
 
 <h2 id="modules">Résoudre les modules, dont JSON</h2>
-<p>Pour une copie de travail du dépôt, <code>VITTE_MODULE_PATH</code> doit contenir la racine qui abrite les espaces de noms. Pour utiliser <code>json::parser::parser</code>, indiquez donc le dossier <code>modules</code>, et non le seul dossier <code>modules/json</code> :</p>
-<pre><code>VITTE_MODULE_PATH="$PWD/modules" \
-  ./build/bin/vitte run modules/json/tests/import_smoke.vit</code></pre>
+<p>Pour cet exemple JSON, indiquez comme racine le dossier du paquet : il contient l’espace de noms <code>json</code> et évite de mélanger les copies de développement et de paquet présentes dans le dépôt.</p>
+<pre><code>VITTE_MODULE_PATH="$PWD/examples:$PWD/modules/json" \
+  ./build/bin/vitte-bootstrap run examples/projects/json_config/main.vit</code></pre>
 <p>Le séparateur entre plusieurs racines suit le système hôte : <code>:</code> sur les systèmes de type Unix et <code>;</code> sous Windows. Les déclarations <code>space</code>, les imports <code>use</code>, les exports et le chemin des fichiers doivent aussi correspondre. La variable ajoute des racines de recherche ; elle ne corrige pas un chemin de module erroné.</p>
 <p>Après <code>make install PREFIX="$HOME/.local"</code>, le module JSON est placé dans <code>$HOME/.local/share/vitte/modules/json</code>. Si votre configuration ne découvre pas cette racine automatiquement, ajoutez <code>$HOME/.local/share/vitte/modules</code> à <code>VITTE_MODULE_PATH</code>. Pour installer ou vérifier uniquement le paquet JSON, son Makefile fournit des cibles dédiées :</p>
 <pre><code>make -C modules/json check

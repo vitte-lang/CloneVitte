@@ -3851,14 +3851,17 @@ vitte_main_driver_compile_ast(
 
     {
         vitte_c17_compile_options_t compile_options;
+        vitte_c17_compile_failure_t compile_failure;
 
         memset(&compile_options, 0, sizeof(compile_options));
+        memset(&compile_failure, 0, sizeof(compile_failure));
         compile_options.debug_info = context->options->debug_info;
         compile_options.debug_runtime = context->options->debug_probes;
         compile_options.emit_line_directives =
             context->options->emit_line_directives ||
             context->options->debug_info;
         compile_options.source_path = context->options->input_path;
+        compile_options.failure = &compile_failure;
 
 #ifdef VITTE_NATIVE_FRONTEND_LINKED
         if (context->native_frontend_completed) {
@@ -3986,6 +3989,7 @@ vitte_main_driver_compile_ast(
             const char *code;
             const char *message;
             const char *details;
+            const vitte_parser_span_t *diagnostic_span = NULL;
 
             switch (compile_result) {
                 case VITTE_C17_COMPILE_INVALID_ARGUMENT:
@@ -4035,6 +4039,12 @@ vitte_main_driver_compile_ast(
                     details = "the backend returned an unclassified failure";
                     break;
             }
+            if (compile_result == VITTE_C17_COMPILE_EMIT_FAILED &&
+                compile_failure.message != NULL) {
+                message = compile_failure.message;
+                details = compile_failure.details;
+                diagnostic_span = &compile_failure.span;
+            }
 
             if (!vitte_main_render_diagnostic(
                     context,
@@ -4042,7 +4052,7 @@ vitte_main_driver_compile_ast(
                     code,
                     message,
                     details,
-                    NULL,
+                    diagnostic_span,
                     NULL,
                     "C17 backend")) {
                 vitte_main_error(

@@ -210,6 +210,14 @@ proc main() -> i64 {
     return 0;
 }
 """,
+    "fixed-array for loop through HIR and IR": """\
+proc sum(values: [3]i64) -> i64 {
+    let mut total: i64 = 0;
+    for value in values { set total += value; }
+    return total;
+}
+proc main() -> i64 { return 0; }
+""",
     "scalar picks and match through native IR": """\
 pick State { Cold, Ready, Done }
 pick Other { Started }
@@ -474,7 +482,11 @@ AST_FALLBACK_CASES = {
         "proc main() -> i64 { return 0; }\n",
         "accept",
     ),
-
+    "unsupported macro declaration": (
+        "macro identity() { }\n"
+        "proc main() -> i64 { return 0; }\n",
+        "unsupported-construct",
+    ),
 }
 
 
@@ -540,10 +552,29 @@ def assert_ast_fallback_path(binary: Path, source_path: Path, name: str, expecta
             f"stdout={result.stdout!r}; stderr={result.stderr!r}"
         )
     diagnostics = diagnostics_for(result, name)
-    if "VITTE_BACKEND_E_CODEGEN" not in {
-        item.get("internal_code") for item in diagnostics
-    }:
+    codegen_diagnostic = next(
+        (
+            item
+            for item in diagnostics
+            if item.get("internal_code") == "VITTE_BACKEND_E_CODEGEN"
+        ),
+        None,
+    )
+    if codegen_diagnostic is None:
         raise AssertionError(f"{name}: expected owned backend codegen diagnostic, got {diagnostics!r}")
+    if expectation == "unsupported-construct":
+        position = codegen_diagnostic.get("position", {})
+        if (
+            "macro declaration" not in codegen_diagnostic.get("message", "")
+            or "expand or remove" not in codegen_diagnostic.get("details", "")
+            or not position.get("has_span")
+            or position.get("start_line") != 0
+            or position.get("start_column") != 0
+        ):
+            raise AssertionError(
+                f"{name}: expected a construct-specific diagnostic at the macro span, "
+                f"got {codegen_diagnostic!r}"
+            )
 def assert_generic_form_runtime(binary: Path):
     source_path = (
         Path(__file__).resolve().parents[2]
@@ -673,9 +704,9 @@ def main() -> int:
                     timeout=60,
                 )
                 generated = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
-                if emitted.returncode != 0 or "vitte_optional_require" not in generated:
+                if emitted.returncode != 0 or "vitte_internal_optional_require_" not in generated:
                     raise AssertionError(
-                        "C17 must emit a checked optional unwrap; "
+                        "C17 must emit a checked optional unwrap temporary; "
                         f"return={emitted.returncode}; stderr={emitted.stderr!r}; "
                         f"generated={generated[-1000:]!r}"
                     )
@@ -696,6 +727,23 @@ def main() -> int:
                 executed = invoke(binary, "run", source_path)
                 if executed.returncode != 0:
                     raise AssertionError(f"{name}: run returned {executed.returncode}; {executed.stderr!r}")
+            if name == "fixed-array for loop through HIR and IR":
+                lowered = subprocess.run(
+                    [
+                        str(binary), "compile", str(source_path), "--emit-ir",
+                        "--no-color",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                for opcode in ("icmp_ult", "gep", "cond_br"):
+                    if lowered.returncode != 0 or opcode not in lowered.stdout:
+                        raise AssertionError(
+                            f"{name}: expected {opcode} in lowered IR; "
+                            f"return={lowered.returncode}; stdout={lowered.stdout!r}; "
+                            f"stderr={lowered.stderr!r}"
+                        )
             if name == "fixed arrays through native IR":
                 lowered = subprocess.run(
                     [

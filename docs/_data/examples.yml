@@ -101,7 +101,7 @@
   source: examples/projects/json_config/main.vit
   lesson: /projets/configuration-json/
   mode: Bootstrap
-  command: VITTE_MODULE_PATH=examples:modules build/bin/vitte-bootstrap run examples/projects/json_config/main.vit --quiet --no-color
+  command: VITTE_MODULE_PATH=examples:modules/json build/bin/vitte-bootstrap run examples/projects/json_config/main.vit --quiet --no-color
   result: 'Code de sortie 0 ; affiche « Configuration valide : gateway écoute sur le port 8443. » puis le JSON indenté.'
 - title: Diagnostic de type attendu
   group: Résultats négatifs attendus

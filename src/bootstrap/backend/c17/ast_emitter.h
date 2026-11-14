@@ -11,11 +11,18 @@
  * source-compatible with its historical API; callers that need native
  * debugging metadata use this small explicit contract.
  */
+typedef struct vitte_c17_compile_failure {
+    const char *message;
+    const char *details;
+    vitte_parser_span_t span;
+} vitte_c17_compile_failure_t;
+
 typedef struct vitte_c17_compile_options {
     bool debug_info;
     bool debug_runtime;
     bool emit_line_directives;
     const char *source_path;
+    vitte_c17_compile_failure_t *failure;
 } vitte_c17_compile_options_t;
 
 /* Failure phase reported by the AST-to-C17 compile driver. */

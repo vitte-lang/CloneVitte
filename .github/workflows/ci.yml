@@ -168,7 +168,7 @@ jobs:
           VERSION="$version" OUT_DIR="$package_dir" scripts/verify-installers.sh
           deb="$package_dir/vitte_${version}_amd64.deb"
           python3 scripts/verify-package-manifest.py "$deb" "$version" linux amd64
-          sudo dpkg -i "$deb"
+          sudo apt-get install --no-install-recommends -y "$deb"
           VITTE_BIN=/usr/local/bin/vitte scripts/ci/real-install-smoke.sh
           VITTE_BIN=/usr/local/bin/vitte scripts/ci/package-install-smoke.sh
 

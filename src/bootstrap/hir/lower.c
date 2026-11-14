@@ -215,6 +215,24 @@ vitte_hir_lower_type(vitte_hir_lower_context_t *context,
         type.kind = node->child_count == 1u
             ? VITTE_HIR_TYPE_SLICE : VITTE_HIR_TYPE_ARRAY;
         type.element_type = vitte_hir_lower_type(context, node->children[element_index]);
+        if (node->child_count > 1u) {
+            const vitte_ast_node_t *length_node =
+                vitte_hir_lower_node(context, node->children[0]);
+            const vitte_token_t *length_token =
+                vitte_hir_lower_token(context, length_node);
+            char *end = NULL;
+            unsigned long long length;
+            if (length_node == NULL ||
+                length_node->kind != VITTE_AST_NODE_INTEGER_LITERAL ||
+                length_token == NULL) return VITTE_HIR_INVALID_ID;
+            errno = 0;
+            length = strtoull(length_token->lexeme, &end, 0);
+            if (errno != 0 || end == length_token->lexeme ||
+                length > (unsigned long long)SIZE_MAX) {
+                return VITTE_HIR_INVALID_ID;
+            }
+            type.array_length = (size_t)length;
+        }
         return vitte_hir_add_type(context->hir, &type);
     }
     return context->i64_type;
@@ -1064,6 +1082,46 @@ vitte_hir_lower_statement(vitte_hir_lower_context_t *context, vitte_ast_node_id_
             result.kind = VITTE_HIR_NODE_LOOP;
             result.as.loop_stmt.body = vitte_hir_lower_statement(context, node->children[0]);
             return vitte_hir_lower_add(context, &result);
+        case VITTE_AST_NODE_FOR_STMT: {
+            const vitte_hir_node_t *iterator;
+            const vitte_hir_type_t *iterator_type;
+            const vitte_ast_node_t *pattern_node;
+            vitte_hir_node_t pattern;
+            vitte_hir_symbol_id_t symbol;
+            if (node->child_count != 3u) return VITTE_HIR_INVALID_ID;
+            result.as.for_stmt.iterator =
+                vitte_hir_lower_expr(context, node->children[1]);
+            iterator = vitte_hir_get_node(
+                context->hir, result.as.for_stmt.iterator);
+            iterator_type = iterator == NULL
+                ? NULL : vitte_hir_get_type(context->hir, iterator->type);
+            pattern_node = vitte_hir_lower_node(context, node->children[0]);
+            if (iterator_type == NULL ||
+                iterator_type->kind != VITTE_HIR_TYPE_ARRAY ||
+                pattern_node == NULL ||
+                (pattern_node->kind != VITTE_AST_NODE_IDENTIFIER &&
+                 pattern_node->kind != VITTE_AST_NODE_PATH)) {
+                return VITTE_HIR_INVALID_ID;
+            }
+            symbol = vitte_hir_lower_symbol(
+                context, node->children[0], VITTE_HIR_SYMBOL_LOCAL,
+                iterator_type->element_type, VITTE_HIR_VISIBILITY_PRIVATE,
+                VITTE_HIR_MUTABILITY_IMMUTABLE);
+            if (symbol == VITTE_HIR_INVALID_ID) return VITTE_HIR_INVALID_ID;
+            memset(&pattern, 0, sizeof(pattern));
+            pattern.kind = VITTE_HIR_NODE_PATTERN_BINDING;
+            pattern.span = vitte_hir_lower_span(&pattern_node->span);
+            pattern.as.binding_pattern.symbol = symbol;
+            result.as.for_stmt.pattern = vitte_hir_lower_add(context, &pattern);
+            result.as.for_stmt.body =
+                vitte_hir_lower_statement(context, node->children[2]);
+            if (result.as.for_stmt.pattern == VITTE_HIR_INVALID_ID ||
+                result.as.for_stmt.body == VITTE_HIR_INVALID_ID) {
+                return VITTE_HIR_INVALID_ID;
+            }
+            result.kind = VITTE_HIR_NODE_FOR;
+            return vitte_hir_lower_add(context, &result);
+        }
         case VITTE_AST_NODE_BREAK_STMT:
             result.kind = VITTE_HIR_NODE_BREAK;
             if (node->child_count != 0u) result.as.break_stmt.value = vitte_hir_lower_expr(context, node->children[0]);

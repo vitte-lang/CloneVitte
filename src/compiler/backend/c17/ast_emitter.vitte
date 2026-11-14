@@ -3164,6 +3164,27 @@ proc ast_emit_coalesce_temporaries(
         ast_write(emitter, " vitte_internal_coalesce_" +
             (node?.id as usize).to_string() + " = NULL;\n");
     }
+    if node?.kind == ASTNodeKind.TryExpr and node?.child_count == 1 {
+        let operand = ast_child(emitter, node, 0);
+        let operand_type: ?&ASTNode = ast_expression_type_node(
+            emitter,
+            operand,
+            namespace,
+            depth + 1
+        );
+        if operand_type == null {
+            ast_fail(
+                emitter,
+                "optional unwrap operand type cannot be resolved for node " +
+                    (node?.id as usize).to_string()
+            );
+            return;
+        }
+        ast_emit_indent(emitter, 1);
+        ast_emit_type(emitter, operand_type, namespace);
+        ast_write(emitter, " vitte_internal_optional_require_" +
+            (node?.id as usize).to_string() + ";\n");
+    }
     let mut index: usize = 0;
     while index < node?.child_count and not emitter.failed {
         ast_emit_coalesce_temporaries(
@@ -5614,13 +5635,27 @@ proc ast_emit_expression(emitter: &mut C17AstEmitter, node: ?&ASTNode, namespace
                 namespace,
                 0
             ) {
-                ast_write(emitter, "vitte_optional_require(");
+                let temporary_name =
+                    "vitte_internal_optional_require_" +
+                    (node.id as usize).to_string();
+                ast_write(emitter, "((" + temporary_name + " = ");
                 ast_emit_expression(emitter, operand, namespace, depth + 1);
-                ast_write(emitter, ")");
+                ast_write(
+                    emitter,
+                    ") != NULL ? " + temporary_name +
+                        " : (abort(), " + temporary_name + "))"
+                );
             } else {
-                ast_write(emitter, "(*vitte_optional_require(");
+                let temporary_name =
+                    "vitte_internal_optional_require_" +
+                    (node.id as usize).to_string();
+                ast_write(emitter, "((" + temporary_name + " = ");
                 ast_emit_expression(emitter, operand, namespace, depth + 1);
-                ast_write(emitter, "))");
+                ast_write(
+                    emitter,
+                    ") != NULL ? *" + temporary_name +
+                        " : (abort(), *" + temporary_name + "))"
+                );
             }
         },
         case ASTNodeKind.CastExpr => {
@@ -10357,11 +10392,6 @@ proc ast_emit_runtime(emitter: &mut C17AstEmitter) {
         "#define VITTE_C17_AST_COLD\n" +
         "#endif\n" +
         "typedef struct VitteArray { void *data; size_t length; size_t capacity; size_t element_size; } VitteArray;\n" +
-        "#define VITTE_OPTIONAL_REQUIRE_IMPL(value, id) \\\n" +
-        "    __extension__ ({ __typeof__(value) vitte_optional_value_##id = (value); \\\n" +
-        "        if (vitte_optional_value_##id == NULL) { abort(); } vitte_optional_value_##id; })\n" +
-        "#define VITTE_OPTIONAL_REQUIRE_EXPAND(value, id) VITTE_OPTIONAL_REQUIRE_IMPL(value, id)\n" +
-        "#define vitte_optional_require(value) VITTE_OPTIONAL_REQUIRE_EXPAND(value, __COUNTER__)\n" +
         "static inline VITTE_C17_AST_UNUSED uint8_t *vitte_pointer_add_bytes_mut(uint8_t *value, size_t offset) {\n" +
         "    if (value == NULL) return NULL; uintptr_t base = (uintptr_t)value;\n" +
         "    if (offset > UINTPTR_MAX - base) return NULL; return (uint8_t *)(base + offset);\n" +

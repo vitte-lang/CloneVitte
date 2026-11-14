@@ -121,11 +121,11 @@ available even though the parse reports failure.
 
 ## Frontend Synchronisation
 
-`grammar/vitte.ebnf` is the canonical grammar. `scripts/check-ebnf-frontend-sync.py`
-checks its generated documentation copies, lexer terminals, bootstrap parser
-entry points, Tree-sitter rules and editor keyword tables. Regenerate the
-Tree-sitter artifacts with `npm run generate` from `editors/tree-sitter`, then
-run `make -C src docs-check` and `make -C src test-grammar`.
+`grammar/vitte.ebnf` is the canonical syntax inventory.
+`make test-grammar` checks terminal coverage across the native and C lexer
+tables and token references in the legacy C parsers. It does not prove that
+all frontends accept identical productions or synchronize Tree-sitter,
+generated documentation, or editor tables.
 
 ## Module Integration
 
