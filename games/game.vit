@@ -868,7 +868,7 @@ proc player_attack(
     }
 
     damage_enemy(
-        &game.enemy,
+        &mut game.enemy,
         damage
     );
 
@@ -930,7 +930,7 @@ proc player_power_attack(
     }
 
     damage_enemy(
-        &game.enemy,
+        &mut game.enemy,
         damage
     );
 
@@ -984,7 +984,7 @@ proc player_use_potion(
 
     let restored: i64 =
         heal_player(
-            &game.player,
+            &mut game.player,
             amount
         );
 
@@ -1033,7 +1033,7 @@ proc enemy_attack(
     }
 
     damage_player(
-        &game.player,
+        &mut game.player,
         damage
     );
 
@@ -1257,7 +1257,7 @@ proc reward_player(
     }
 
     update_level(
-        &game.player
+        &mut game.player
     );
 }
 
@@ -1479,7 +1479,7 @@ proc fountain_room(
 
     let restored: i64 =
         heal_player(
-            &game.player,
+            &mut game.player,
             heal_amount
         );
 
@@ -1511,7 +1511,7 @@ proc trap_room(
         );
 
     damage_player(
-        &game.player,
+        &mut game.player,
         damage
     );
 
@@ -1675,7 +1675,7 @@ proc next_floor(
 
     let restored: i64 =
         heal_player(
-            &game.player,
+            &mut game.player,
             recovery
         );
 
@@ -1886,7 +1886,7 @@ pub proc main() -> i64 {
         create_game();
 
     run_game(
-        &game
+        &mut game
     );
 
     final_screen(
@@ -1930,7 +1930,7 @@ test "damage player" {
         create_player();
 
     damage_player(
-        &player,
+        &mut player,
         20
     );
 
@@ -1946,7 +1946,7 @@ test "damage cannot go below zero" {
         create_player();
 
     damage_player(
-        &player,
+        &mut player,
         100000
     );
 
@@ -1970,7 +1970,7 @@ test "healing" {
 
     let restored: i64 =
         heal_player(
-            &player,
+            &mut player,
             20
         );
 
@@ -1993,7 +1993,7 @@ test "healing maximum" {
 
     let restored: i64 =
         heal_player(
-            &player,
+            &mut player,
             100
         );
 
@@ -2040,7 +2040,7 @@ test "level up" {
         player.defense;
 
     level_up(
-        &player
+        &mut player
     );
 
     assert(
@@ -2171,7 +2171,7 @@ test "floor progression" {
         game.player.floor;
 
     next_floor(
-        &game
+        &mut game
     );
 
     assert(
@@ -2192,7 +2192,7 @@ test "victory condition" {
     game.player.floor = 16;
 
     check_victory(
-        &game
+        &mut game
     );
 
     assert(

@@ -770,6 +770,158 @@ vitte_ir_lower_branch(vitte_ir_lower_context_t *context,
 }
 
 static bool
+vitte_ir_lower_for_statement(vitte_ir_lower_context_t *context,
+                             vitte_ir_function_id_t function,
+                             vitte_ir_block_id_t block,
+                             const vitte_hir_node_t *statement,
+                             vitte_ir_block_id_t *fallthrough)
+{
+    const vitte_hir_node_t *iterator;
+    const vitte_hir_node_t *pattern;
+    const vitte_hir_type_t *array_type;
+    vitte_ir_type_id_t array_ir_type;
+    vitte_ir_type_id_t element_ir_type;
+    vitte_ir_type_id_t index_ir_type;
+    vitte_ir_type_desc_t pointer_description;
+    vitte_ir_value_id_t array_value;
+    vitte_ir_value_id_t initial_index;
+    vitte_ir_value_id_t end_index;
+    vitte_ir_value_id_t index_value;
+    vitte_ir_value_id_t condition;
+    vitte_ir_value_id_t element_address;
+    vitte_ir_value_id_t element_value;
+    vitte_ir_value_id_t next_index;
+    vitte_ir_instruction_desc_t instruction_description;
+    vitte_ir_instruction_id_t phi_instruction;
+    vitte_ir_instruction_id_t instruction;
+    vitte_ir_block_id_t condition_block;
+    vitte_ir_block_id_t body_block;
+    vitte_ir_block_id_t increment_block;
+    vitte_ir_block_id_t exit_block;
+    vitte_ir_block_id_t body_end;
+    vitte_ir_value_id_t gep_operands[2];
+    vitte_ir_span_t span;
+
+    if (statement == NULL || statement->kind != VITTE_HIR_NODE_FOR ||
+        fallthrough == NULL) return false;
+    iterator = vitte_hir_get_node(context->hir, statement->as.for_stmt.iterator);
+    pattern = vitte_hir_get_node(context->hir, statement->as.for_stmt.pattern);
+    array_type = iterator == NULL
+        ? NULL : vitte_hir_get_type(context->hir, iterator->type);
+    if (array_type == NULL || array_type->kind != VITTE_HIR_TYPE_ARRAY ||
+        pattern == NULL || pattern->kind != VITTE_HIR_NODE_PATTERN_BINDING) {
+        return false;
+    }
+
+    array_ir_type = vitte_ir_lower_type(context, iterator->type);
+    element_ir_type = vitte_ir_lower_type(context, array_type->element_type);
+    index_ir_type = vitte_ir_lower_default_type(context);
+    array_value = vitte_ir_lower_expr(
+        context, function, block, statement->as.for_stmt.iterator);
+    if (array_ir_type == VITTE_IR_INVALID_ID ||
+        element_ir_type == VITTE_IR_INVALID_ID ||
+        index_ir_type == VITTE_IR_INVALID_ID ||
+        array_value == VITTE_IR_INVALID_ID) return false;
+
+    condition_block = vitte_ir_lower_new_block(context, function, "for.cond");
+    body_block = vitte_ir_lower_new_block(context, function, "for.body");
+    increment_block = vitte_ir_lower_new_block(context, function, "for.increment");
+    exit_block = vitte_ir_lower_new_block(context, function, "for.exit");
+    if (condition_block == VITTE_IR_INVALID_ID ||
+        body_block == VITTE_IR_INVALID_ID ||
+        increment_block == VITTE_IR_INVALID_ID ||
+        exit_block == VITTE_IR_INVALID_ID) return false;
+    span = vitte_ir_lower_span(&statement->span);
+    initial_index = vitte_ir_const_integer(context->ir, index_ir_type, 0u);
+    end_index = vitte_ir_const_integer(
+        context->ir, index_ir_type, (uint64_t)array_type->array_length);
+    if (initial_index == VITTE_IR_INVALID_ID ||
+        end_index == VITTE_IR_INVALID_ID ||
+        vitte_ir_build_br(context->ir, block, condition_block, span) ==
+            VITTE_IR_INVALID_ID) return false;
+
+    memset(&instruction_description, 0, sizeof(instruction_description));
+    instruction_description.opcode = VITTE_IR_OP_PHI;
+    instruction_description.block = condition_block;
+    instruction_description.result_type = index_ir_type;
+    instruction_description.span = span;
+    phi_instruction = vitte_ir_add_instruction(
+        context->ir, &instruction_description);
+    index_value = vitte_ir_instruction_result(context->ir, phi_instruction);
+    if (index_value == VITTE_IR_INVALID_ID ||
+        !vitte_ir_phi_add_incoming(
+            context->ir, phi_instruction, block, initial_index)) return false;
+    instruction = vitte_ir_build_binary(
+        context->ir, VITTE_IR_OP_ICMP_ULT, condition_block,
+        vitte_ir_intern_type(context->ir, &(vitte_ir_type_desc_t){
+            .kind = VITTE_IR_TYPE_BOOL
+        }), index_value, end_index, span);
+    condition = vitte_ir_instruction_result(context->ir, instruction);
+    if (condition == VITTE_IR_INVALID_ID ||
+        vitte_ir_build_cond_br(
+            context->ir, condition_block, condition,
+            body_block, exit_block, span) == VITTE_IR_INVALID_ID) return false;
+
+    memset(&pointer_description, 0, sizeof(pointer_description));
+    pointer_description.kind = VITTE_IR_TYPE_POINTER;
+    pointer_description.element_type = element_ir_type;
+    gep_operands[0] = array_value;
+    gep_operands[1] = index_value;
+    memset(&instruction_description, 0, sizeof(instruction_description));
+    instruction_description.opcode = VITTE_IR_OP_GEP;
+    instruction_description.block = body_block;
+    instruction_description.result_type =
+        vitte_ir_intern_type(context->ir, &pointer_description);
+    instruction_description.operands = gep_operands;
+    instruction_description.operand_count = 2u;
+    instruction_description.span = span;
+    instruction = vitte_ir_add_instruction(
+        context->ir, &instruction_description);
+    element_address = vitte_ir_instruction_result(context->ir, instruction);
+    if (element_address == VITTE_IR_INVALID_ID) return false;
+    memset(&instruction_description, 0, sizeof(instruction_description));
+    instruction_description.opcode = VITTE_IR_OP_LOAD;
+    instruction_description.block = body_block;
+    instruction_description.result_type = element_ir_type;
+    instruction_description.operands = &element_address;
+    instruction_description.operand_count = 1u;
+    instruction_description.span = span;
+    instruction = vitte_ir_add_instruction(
+        context->ir, &instruction_description);
+    element_value = vitte_ir_instruction_result(context->ir, instruction);
+    if (element_value == VITTE_IR_INVALID_ID ||
+        !vitte_ir_lower_bind_value(
+            context, pattern->as.binding_pattern.symbol, element_value) ||
+        !vitte_ir_lower_add_loop(context, exit_block, increment_block)) {
+        return false;
+    }
+
+    body_end = body_block;
+    if (!vitte_ir_lower_block(
+            context, function, body_block, statement->as.for_stmt.body,
+            &body_end)) return false;
+    --context->loop_count;
+    if (!vitte_ir_get_block(context->ir, body_end)->terminated &&
+        vitte_ir_build_br(context->ir, body_end, increment_block, span) ==
+            VITTE_IR_INVALID_ID) return false;
+
+    next_index = vitte_ir_instruction_result(
+        context->ir,
+        vitte_ir_build_binary(
+            context->ir, VITTE_IR_OP_ADD, increment_block, index_ir_type,
+            index_value, vitte_ir_const_integer(context->ir, index_ir_type, 1u),
+            span));
+    if (next_index == VITTE_IR_INVALID_ID ||
+        !vitte_ir_phi_add_incoming(
+            context->ir, phi_instruction, increment_block, next_index) ||
+        vitte_ir_build_br(
+            context->ir, increment_block, condition_block, span) ==
+            VITTE_IR_INVALID_ID) return false;
+    *fallthrough = exit_block;
+    return true;
+}
+
+static bool
 vitte_ir_lower_if_statement(vitte_ir_lower_context_t *context,
                             vitte_ir_function_id_t function,
                             vitte_ir_block_id_t block,
@@ -1024,6 +1176,12 @@ vitte_ir_lower_block(vitte_ir_lower_context_t *context,
                 current = exit_block;
                 break;
             }
+            case VITTE_HIR_NODE_FOR:
+                if (!vitte_ir_lower_for_statement(
+                        context, function, current, statement, &current)) {
+                    return false;
+                }
+                break;
             case VITTE_HIR_NODE_BREAK:
             case VITTE_HIR_NODE_CONTINUE:
                 if (context->loop_count == 0u ||

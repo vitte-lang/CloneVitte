@@ -1233,7 +1233,7 @@ proc buy_commodity(
         total;
 
     cargo_add(
-        &game.player.cargo,
+        &mut game.player.cargo,
         commodity,
         quantity
     );
@@ -1314,7 +1314,7 @@ proc sell_commodity(
         quantity * price;
 
     cargo_remove(
-        &game.player.cargo,
+        &mut game.player.cargo,
         commodity,
         quantity
     );
@@ -1603,7 +1603,7 @@ proc pirate_attack(
     }
 
     damage_ship(
-        &game.player.ship,
+        &mut game.player.ship,
         damage
     );
 
@@ -1704,7 +1704,7 @@ proc pirate_combat(
         if action == 1 {
             player_combat_attack(
                 game,
-                &pirate
+                &mut pirate
             );
         } else if action == 2 {
             defending = true;
@@ -1840,7 +1840,7 @@ proc event_asteroid(
         random_i64(5, 20);
 
     damage_ship(
-        &game.player.ship,
+        &mut game.player.ship,
         damage
     );
 
@@ -1884,7 +1884,7 @@ proc event_free_cargo(
         );
 
     cargo_add(
-        &game.player.cargo,
+        &mut game.player.cargo,
         CommodityKind::Crystal,
         quantity
     );
@@ -3072,7 +3072,7 @@ pub proc main() -> i64 {
         create_game();
 
     run_game(
-        &game
+        &mut game
     );
 
     final_screen(
@@ -3104,7 +3104,7 @@ test "cargo add food" {
         create_cargo();
 
     cargo_add(
-        &cargo,
+        &mut cargo,
         CommodityKind::Food,
         10
     );
@@ -3126,13 +3126,13 @@ test "cargo remove" {
         create_cargo();
 
     cargo_add(
-        &cargo,
+        &mut cargo,
         CommodityKind::Ore,
         20
     );
 
     cargo_remove(
-        &cargo,
+        &mut cargo,
         CommodityKind::Ore,
         5
     );
@@ -3150,7 +3150,7 @@ test "cargo cannot become negative" {
     cargo.technology = 5;
 
     cargo_remove(
-        &cargo,
+        &mut cargo,
         CommodityKind::Technology,
         100
     );
@@ -3257,7 +3257,7 @@ test "cargo free space" {
     );
 
     cargo_add(
-        &player.cargo,
+        &mut player.cargo,
         CommodityKind::Food,
         10
     );
@@ -3309,7 +3309,7 @@ test "ship damage" {
         create_ship();
 
     damage_ship(
-        &ship,
+        &mut ship,
         20
     );
 
@@ -3325,7 +3325,7 @@ test "ship destruction" {
         create_ship();
 
     damage_ship(
-        &ship,
+        &mut ship,
         100000
     );
 
@@ -3354,7 +3354,7 @@ test "pirate damage" {
         pirate.health;
 
     damage_pirate(
-        &pirate,
+        &mut pirate,
         10
     );
 
@@ -3466,7 +3466,7 @@ test "victory" {
         WIN_CREDITS;
 
     check_victory(
-        &game
+        &mut game
     );
 
     assert(
@@ -3484,7 +3484,7 @@ test "no early victory" {
         WIN_CREDITS - 1;
 
     check_victory(
-        &game
+        &mut game
     );
 
     assert(

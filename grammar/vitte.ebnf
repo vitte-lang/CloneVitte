@@ -1,18 +1,23 @@
 (*
-  Vitte syntax accepted by the parser.
+  Canonical syntax target for the full Vitte language.
+  The C bootstrap compiler is required to implement this grammar end-to-end.
   ::= production, | choice, [...] optional, {...} repetition.
+  This grammar describes syntax, not type checking, name resolution, or recovery.
+  check-ebnf-frontend-sync.py checks lexer vocabulary and C-parser token
+  references, not production equivalence or successful compilation.
 *)
 
-program ::= { declaration } EOF ;
+translation_unit ::= { declaration } EOF ;
 
 (* Declarations *)
 
-declaration ::= { "pub" | "export" | "async" | "unsafe" | "comptime" }
-                declaration_body ;
+declaration ::= { attribute | declaration_modifier }
+                ( export_clause | declaration_body ) ;
+
+declaration_modifier ::= "pub" | "export" | "async" | "unsafe" | "comptime" ;
 
 declaration_body ::= space_declaration
                    | use_declaration
-                   | export_declaration
                    | value_declaration
                    | type_declaration
                    | opaque_declaration
@@ -24,128 +29,168 @@ declaration_body ::= space_declaration
                    | external_procedure_declaration
                    | intrinsic_declaration
                    | macro_declaration
-                   | test_declaration
-                   ;
+                   | test_declaration ;
 
-space_declaration ::= "space" path [ ";" | block ] ;
+attribute ::= "#" [ "!" ] "[" attribute_name { "::" attribute_name }
+              [ "(" [ attribute_arguments ] ")" ] "]" ;
 
-use_declaration ::= "use" path
+attribute_arguments ::= attribute_argument { "," attribute_argument } [ "," ] ;
+
+attribute_argument ::= attribute_name [ "=" attribute_literal ]
+                     | attribute_literal ;
+
+attribute_name ::= identifier | vitte_keyword_token ;
+
+attribute_literal ::= integer_literal | float_literal | string_literal
+                    | character_literal | "true" | "false" | "null" ;
+
+space_declaration ::= "space" module_path [ ";" | space_body ] ;
+
+space_body ::= "{" { declaration } "}" ;
+
+use_declaration ::= "use" module_path
                     [ "as" identifier
-                    | ( "::" | "." ) ( "*" | "{" path_alias
-                                       { "," path_alias } [ "," ] "}" )
+                    | "::" ( "*" | "{" [ import_items ] "}" )
                     ] ";" ;
 
-path_alias ::= path [ "as" identifier ] ;
+import_items ::= path_alias { "," path_alias } [ "," ] ;
 
-export_declaration ::= "export"
-                       ( "*"
-                       | path_alias
-                       | "{" path_alias { "," path_alias } [ "," ] "}"
-                       ) ";" ;
+path_alias ::= module_path [ "as" identifier ] ;
 
-value_declaration ::= "const" identifier
-                    | "static" [ "mut" ] identifier
-                      [ ":" type ]
+export_clause ::= "export"
+                  ( "*"
+                  | path_alias
+                  | "{" export_items "}"
+                  ) ";" ;
+
+export_items ::= path_alias { "," path_alias } [ "," ] ;
+
+value_declaration ::= "const" identifier [ ":" type ]
+                      "=" expression ";"
+                    | "static" [ "mut" ] identifier [ ":" type ]
                       "=" expression ";" ;
 
-type_declaration ::= "type" identifier generic_parameters
-                     [ where_clause ]
-                     "=" type ";" ;
+type_declaration ::= "type" identifier generic_parameters [ where_clause ]
+                     [ ":" type_bound { "+" type_bound } ]
+                     [ "=" type ] ";" ;
 
-opaque_declaration ::= "opaque" identifier generic_parameters
-                       [ where_clause ] ";" ;
+opaque_declaration ::= "opaque" [ "type" ] identifier generic_parameters
+                       [ where_clause ] [ "=" type ] ";" ;
 
-form_declaration ::= "form" identifier generic_parameters
-                     [ where_clause ]
+form_declaration ::= "form" identifier generic_parameters [ where_clause ]
                      "{"
-                       [ identifier ":" type
-                         { ( "," | ";" ) identifier ":" type }
+                       [ form_field { ( "," | ";" ) form_field }
                          [ "," | ";" ]
                        ]
                      "}" ;
 
-pick_declaration ::= "pick" identifier generic_parameters
-                     "{" [ identifier [ "(" type { "," type } ")" ]
-                           { "," identifier
-                             [ "(" type { "," type } ")" ] } [ "," ] ] "}" ;
+form_field ::= identifier ":" type ;
 
-trait_declaration ::= "trait" identifier generic_parameters
-                      [ where_clause ]
+pick_declaration ::= "pick" identifier generic_parameters [ where_clause ]
+                     "{"
+                       [ pick_variant { "," pick_variant } [ "," ] ]
+                     "}" ;
+
+pick_variant ::= identifier
+                 [ "(" [ type { "," type } [ "," ] ] ")" ] ;
+
+trait_declaration ::= "trait" identifier generic_parameters [ where_clause ]
                       declaration_block ;
 
 implementation_declaration ::= "impl" generic_parameters type
-                               [ "for" type ]
-                               [ where_clause ]
+                               [ "for" type ] [ where_clause ]
                                declaration_block ;
-
-procedure_declaration ::= "proc" identifier generic_parameters
-                          parameter_list [ "->" type ]
-                          [ where_clause ]
-                          { contract_clause } block ;
-
-contract_clause ::= ( "requires" | "ensures" ) expression ";" ;
-
-external_procedure_declaration ::= "extern" [ string_literal ]
-                                   "proc" identifier generic_parameters
-                                   parameter_list [ "->" type ]
-                                   [ where_clause ] ";" ;
-
-intrinsic_declaration ::= "intrinsic" identifier generic_parameters
-                          parameter_list [ "->" type ] ";" ;
-
-macro_declaration ::= "macro" identifier [ parameter_list ] block ;
-
-test_declaration ::= "test" [ identifier | string_literal ] block ;
 
 declaration_block ::= "{" { declaration } "}" ;
 
+procedure_declaration ::= "proc" identifier generic_parameters
+                          procedure_parameters [ "->" type ]
+                          [ where_clause ] { contract_clause }
+                          ( block | ";" ) ;
+
+external_procedure_declaration ::= "extern" [ string_literal ] "proc"
+                                   identifier generic_parameters
+                                   procedure_parameters [ "->" type ]
+                                   [ where_clause ] { contract_clause } ";" ;
+
+intrinsic_declaration ::= "intrinsic" identifier generic_parameters
+                          procedure_parameters [ "->" type ]
+                          [ where_clause ] { contract_clause } ";" ;
+
+contract_clause ::= ( "requires" | "ensures" ) expression ";" ;
+
+macro_declaration ::= "macro" identifier [ procedure_parameters ] block ;
+
+test_declaration ::= "test" [ identifier | string_literal ] block ;
+
 generic_parameters ::= [ "<" [ generic_parameter
-                               { "," generic_parameter } ] ">" ] ;
+                               { "," generic_parameter } [ "," ] ] ">" ] ;
 
-generic_parameter ::= identifier [ ":" type { "+" type } ]
-                    | "const" identifier ":" type ;
+generic_parameter ::= [ "const" ] identifier
+                      [ ":" type_bound { "+" type_bound } ] ;
 
-where_clause ::= "where" type ":" type { "+" type }
-                 { "," type ":" type { "+" type } } ;
+where_clause ::= "where" where_predicate { "," where_predicate } ;
 
-parameter_list ::= "(" [ parameter { "," parameter } [ "," ] ] ")" ;
+where_predicate ::= type ":" type_bound { "+" type_bound }
+                  | type relational_operator expression ;
 
-parameter ::= identifier ":" type ;
+type_bound ::= type ;
+
+relational_operator ::= "==" | "!=" | "<" | "<=" | ">" | ">=" ;
+
+procedure_parameters ::= "(" [ procedure_parameter
+                               { "," procedure_parameter } [ "," ] ] ")" ;
+
+procedure_parameter ::= [ "mut" | "move" | "owned" | "borrow" ]
+                        pattern ":" type ;
 
 (* Types *)
 
-type ::= reference_type
+type ::= procedure_type
+       | reference_type
        | pointer_type
-       | array_type
+       | array_or_slice_type
        | optional_type
-       | path_type
-       ;
+       | path_type ;
+
+procedure_type ::= "proc" "(" [ procedure_type_parameters ] ")"
+                   [ "->" type ] ;
+
+procedure_type_parameters ::= procedure_type_parameter
+                              { "," procedure_type_parameter } [ "," ] ;
+
+procedure_type_parameter ::= [ identifier ":" ] type ;
 
 reference_type ::= ( "&" | "ref" ) [ "mut" ] type ;
 
-pointer_type ::= "*" type ;
+pointer_type ::= "*" ( "mut" | [ "const" ] [ "volatile" ] ) type ;
 
-array_type ::= "[" expression "]" type ;
+array_or_slice_type ::= "[" type "]"
+                      | "[" type ";" expression "]"
+                      | "[" expression "]" type ;
 
 optional_type ::= "?" type ;
 
-path_type ::= path
-              [ ( "<" [ type { "," type } ] ">"
-                | "[" [ type { "," type } ] "]"
-                )
-              ] ;
+path_type ::= module_path [ generic_arguments ] ;
 
-path ::= identifier { ( "::" | "/" ) identifier } ;
+generic_arguments ::= ( "<" [ type { "," type } [ "," ] ] ">"
+                      | "[" [ type { "," type } [ "," ] ] "]"
+                      ) ;
 
-(* Blocks and statements *)
+module_path ::= path_segment { ( "::" | "/" ) path_segment } ;
+
+value_path ::= path_segment { "::" path_segment } ;
+
+path_segment ::= identifier | "compiler" | "diagnostic" ;
+
+(* Blocks and statements. Declarations are not block statements. *)
 
 block ::= "{" { statement } "}" ;
 
-statement ::= declaration
-            | let_statement
+statement ::= let_statement
             | set_statement
             | return_statement
-            | ( "break" | "continue" ) ";"
+            | jump_statement
             | defer_statement
             | assert_statement
             | if_statement
@@ -155,23 +200,24 @@ statement ::= declaration
             | match_statement
             | unsafe_statement
             | assembly_statement
-            | expression_statement
-            ;
+            | block
+            | expression_statement ;
 
-let_statement ::= "let" [ "mut" ] identifier
-                  [ ":" type ]
+let_statement ::= "let" [ "mut" ] pattern [ ":" type ]
                   [ "=" expression ] ";" ;
 
-set_statement ::= "set" expression ";" ;
+set_statement ::= "set" coalesce_expression assignment_operator
+                  assignment_expression ";" ;
 
-return_statement ::= ( "return" | "give" ) [ expression ] ";" ;
+return_statement ::= "return" [ expression ] [ ";" ] ;
+
+jump_statement ::= ( "break" | "continue" ) ";" ;
 
 defer_statement ::= "defer" ( block | expression ";" ) ;
 
-assert_statement ::= "assert"
-                     ( "(" expression ")" | expression ) ";" ;
+assert_statement ::= "assert" "(" expression ")" ";" ;
 
-if_statement ::= "if" expression block
+if_statement ::= ( "if" | "elif" ) expression block
                  { "elif" expression block }
                  [ "else" ( if_statement | block ) ] ;
 
@@ -179,32 +225,73 @@ while_statement ::= "while" expression block ;
 
 loop_statement ::= "loop" block ;
 
-for_statement ::= "for" identifier "in" expression block ;
+for_statement ::= "for" pattern "in" expression block ;
 
-match_statement ::= "match" expression
-                    "{"
-                      [ match_arm { "," match_arm } [ "," ] ]
+match_statement ::= "match" expression "{"
+                    [ match_arm { "," match_arm } [ "," ] ]
                     "}" ;
 
-match_arm ::= expression "=>" ( block | expression ) ;
+match_arm ::= [ "case" ] pattern [ "if" expression ]
+              "=>" match_arm_body ;
+
+match_arm_body ::= block | statement | expression [ ";" ] ;
 
 unsafe_statement ::= "unsafe" block ;
 
 assembly_statement ::= "asm"
-                       ( "(" [ expression { "," expression } ] ")"
-                       | string_literal )
-                       ";" ;
+                       ( "(" [ expression_list ] ")"
+                       | string_literal
+                       ) ";" ;
 
 expression_statement ::= expression [ ";" ] ;
 
+(* Patterns *)
+
+pattern ::= pattern_atom { "|" pattern_atom } ;
+
+pattern_atom ::= ( "mut" | "ref" ) pattern_atom
+               | "(" [ pattern_list ] ")"
+               | "[" [ pattern_list ] "]"
+               | "else"
+               | range_pattern
+               | literal_pattern
+               | generic_variant_pattern
+               | path_pattern ;
+
+pattern_list ::= pattern { "," pattern } [ "," ] ;
+
+range_pattern ::= pattern_literal ( ".." | "..=" )
+                  ( integer_literal | float_literal | character_literal ) ;
+
+literal_pattern ::= pattern_literal ;
+
+pattern_literal ::= integer_literal | float_literal | string_literal
+                  | character_literal | "true" | "false" | "null" ;
+
+generic_variant_pattern ::= path_type "::" identifier
+                            [ "(" [ pattern_list ] ")" ] ;
+
+path_pattern ::= pattern_path
+                 [ "(" [ pattern_list ] ")"
+                 | "{" [ struct_pattern_items ] "}"
+                 ] ;
+
+pattern_path ::= ( value_path | "self" ) { "." identifier } ;
+
+struct_pattern_items ::= struct_pattern_item
+                         { "," struct_pattern_item } [ "," ] ;
+
+struct_pattern_item ::= identifier [ ":" pattern ] | ".." ;
+
 (* Expressions *)
 
-expression ::= coalesce_expression
-               [ ( "=" | "+=" | "-=" | "*=" | "/=" | "%="
-                 | "&=" | "|=" | "^=" | "<<=" | ">>="
-                 )
-                 expression
-               ] ;
+expression ::= assignment_expression ;
+
+assignment_expression ::= coalesce_expression
+                          [ assignment_operator assignment_expression ] ;
+
+assignment_operator ::= "=" | "+=" | "-=" | "*=" | "/=" | "%="
+                      | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
 
 coalesce_expression ::= logical_or_expression
                         [ "??" coalesce_expression ] ;
@@ -242,57 +329,133 @@ multiplicative_expression ::= range_expression
 range_expression ::= unary_expression
                      { ( ".." | "..=" ) unary_expression } ;
 
-unary_expression ::= ( "+" | "-" | "!" | "~" | "*" | "&"
-                     | "not" | "move" | "ref" | "await"
-                     ) unary_expression
-                   | postfix_expression ;
+unary_expression ::= ( "&" | "ref" ) "mut" unary_expression
+                   | unary_operator unary_expression
+                   | cast_expression ;
+
+unary_operator ::= "+" | "-" | "~" | "*" | "&" | "not" | "move" | "ref"
+                 | "await" ;
+
+cast_expression ::= postfix_expression { "as" type } ;
 
 postfix_expression ::= primary_expression
-                       { "(" [ expression { "," expression } [ "," ] ] ")"
-                       | "[" expression "]"
-                       | "." identifier
-                       | "?"
-                       } ;
+                       { ordinary_postfix_suffix }
+                       [ generic_form_or_variant_suffix ]
+                       { ordinary_postfix_suffix }
+                     | value_path form_initializer
+                       { ordinary_postfix_suffix } ;
+
+ordinary_postfix_suffix ::= "(" [ expression_list ] ")"
+                          | "[" expression "]"
+                          | "." identifier
+                          | "?" ;
+
+generic_form_or_variant_suffix ::= generic_arguments
+                                   ( form_initializer
+                                   | "::" identifier
+                                   ) ;
 
 primary_expression ::= literal
-                      | path
-                      | generic_variant_path
-                      | "self"
-                      | "[" [ expression { "," expression } [ "," ] ] "]"
-                      | "(" expression ")"
-                      | block
-                      ;
+                     | value_path
+                     | "self"
+                     | "print"
+                     | "null" "(" [ expression_list ] ")"
+                     | sizeof_expression
+                     | alignof_expression
+                     | if_expression
+                     | array_expression
+                     | "(" expression ")"
+                     | block_expression ;
 
-generic_variant_path ::= path "<" [ type { "," type } ] ">"
-                         "::" identifier ;
+sizeof_expression ::= "sizeof" "(" ( type | expression ) ")" ;
 
-literal ::= integer_literal
-          | float_literal
-          | string_literal
-          | character_literal
-          | "true"
-          | "false"
-          | "null"
-          ;
+alignof_expression ::= "alignof" "(" type ")" ;
 
-(* Lexical forms kept here are the ones needed to read the grammar. *)
+if_expression ::= ( "if" | "elif" ) expression block_expression
+                  if_expression_tail ;
 
-identifier ::= ( letter | "_" | unicode_identifier_character )
-               { letter | digit | "_" | unicode_identifier_character } ;
+if_expression_tail ::= "elif" expression block_expression if_expression_tail
+                     | "else" ( if_expression | block_expression ) ;
 
-(* Integer and floating-point literals *)
+block_expression ::= "{"
+                     { block_expression_statement }
+                     [ expression ]
+                     "}" ;
+
+block_expression_statement ::= let_statement
+                             | set_statement
+                             | return_statement
+                             | jump_statement
+                             | defer_statement
+                             | assert_statement
+                             | if_statement_without_else
+                             | while_statement
+                             | loop_statement
+                             | for_statement
+                             | expression ";" ;
+
+if_statement_without_else ::= "if" expression block ;
+
+array_expression ::= "[" [ expression_list ] "]" ;
+
+form_initializer ::= "{" [ form_initializer_field
+                            { "," form_initializer_field } [ "," ] ] "}" ;
+
+form_initializer_field ::= identifier ":" expression ;
+
+expression_list ::= expression { "," expression } [ "," ] ;
+
+literal ::= integer_literal | float_literal | string_literal
+          | character_literal | "true" | "false" | "null" ;
+
+(* Lexical forms *)
+
+EOF ::= end of source ;
+
+CR ::= U+000D ;
+
+LF ::= U+000A ;
+
+valid_utf8_scalar ::= Unicode scalar value encoded as valid UTF-8 ;
+
+identifier ::= identifier_start { identifier_continue } ;
+
+identifier_start ::= "A"..."Z" | "a"..."z" | "_"
+                   | non_ascii_identifier_start ;
+
+identifier_continue ::= identifier_start | "0"..."9"
+                      | non_ascii_identifier_continue ;
+
+vitte_keyword_token ::= "space" | "use" | "pub" | "const" | "static"
+                      | "type" | "opaque" | "form" | "pick" | "trait"
+                      | "impl" | "where" | "proc" | "extern" | "intrinsic"
+                      | "macro" | "comptime" | "test" | "let" | "mut"
+                      | "set" | "return" | "defer" | "requires" | "ensures"
+                      | "export" | "if" | "else" | "elif" | "while"
+                      | "loop" | "for" | "in" | "break" | "continue"
+                      | "match" | "as" | "async" | "await" | "unsafe"
+                      | "asm" | "move" | "ref" | "self" | "and" | "or"
+                      | "not" | "true" | "false" | "null" | "assert"
+                      | "sizeof" | "alignof" | "print" | "share" | "region"
+                      | "compiler" | "diagnostic" | "bench" | "entry"
+                      | "select" | "when" | "case" | "critical" | "owned"
+                      | "borrow" | "is" | "kernel" | "class" | "flags" ;
+
+(* `give` is emitted only by an older C lexer; it is not native syntax. *)
+legacy_lexer_keyword ::= "give" ;
+
+(* The native lexer emits these operators, but the parser assigns them no syntax. *)
+lexer_only_operator ::= "@" | "$" ;
 
 integer_literal ::= digit_sequence
                   | ( "0b" | "0B" ) binary_digit_sequence
                   | ( "0o" | "0O" ) octal_digit_sequence
-                  | ( "0x" | "0X" ) hexadecimal_digit_sequence
-                  ;
+                  | ( "0x" | "0X" ) hexadecimal_digit_sequence ;
 
 float_literal ::= decimal_float | hexadecimal_float ;
 
 decimal_float ::= digit_sequence "." [ digit_sequence ] [ decimal_exponent ]
-                | digit_sequence decimal_exponent
-                ;
+                | digit_sequence decimal_exponent ;
 
 decimal_exponent ::= ( "e" | "E" ) [ "+" | "-" ] digit_sequence ;
 
@@ -308,8 +471,6 @@ octal_digit_sequence ::= octal_digit { [ "_" ] octal_digit } ;
 
 hexadecimal_digit_sequence ::= hexadecimal_digit
                                { [ "_" ] hexadecimal_digit } ;
-
-(* Strings, characters and escapes *)
 
 string_literal ::= '"' { string_character | escape_sequence } '"' ;
 
@@ -327,13 +488,11 @@ escape_sequence ::= BACKSLASH
                            hexadecimal_digit hexadecimal_digit
                     ) ;
 
-string_character ::= any valid source character except '"', BACKSLASH, CR or LF ;
+string_character ::= valid_utf8_scalar except '"', BACKSLASH, CR, or LF ;
 
-character ::= any valid source character except "'", BACKSLASH, CR or LF ;
+character ::= valid_utf8_scalar except "'", BACKSLASH, CR, or LF ;
 
 BACKSLASH ::= U+005C ;
-
-letter ::= "A"..."Z" | "a"..."z" ;
 
 digit ::= "0"..."9" ;
 
@@ -343,7 +502,19 @@ octal_digit ::= "0"..."7" ;
 
 hexadecimal_digit ::= digit | "a"..."f" | "A"..."F" ;
 
-unicode_identifier_character ::= valid non-ASCII Unicode scalar except
-                                 whitespace and control characters ;
+non_ascii_identifier_start ::= codepoint accepted by
+                               vitte_unicode_is_identifier_start ;
 
-(* Trivia consists of whitespace, line comments, and nested block comments. *)
+non_ascii_identifier_continue ::= codepoint accepted by
+                                  vitte_unicode_is_identifier_continue ;
+
+(* Trivia is ASCII space, tab, LF, CR, form feed, or vertical tab.
+   Line comments start with // and end before LF. Block comments /* ... */
+   nest and must be balanced. Identifiers use the compiler's explicit Unicode
+   predicates, not the full Unicode XID properties. Numeric digit separators
+   are single underscores between digits. Hexadecimal floats require p/P.
+   The `[expression] type` array form requires an integer literal as its first
+   token; the parser uses that token to distinguish it from a slice type.
+   Match arms may omit a comma only when the following arm starts with `case`
+   or the `else` wildcard.
+   `return expr` may omit its semicolon only immediately before `}` or EOF. *)

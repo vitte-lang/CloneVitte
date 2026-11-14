@@ -137,6 +137,7 @@ typedef struct vitte_c17_ast_emitter {
     bool generic_proc_context_active;
     const char *generic_proc_c_name;
     const char *function_c_name_override;
+    vitte_c17_compile_failure_t *failure;
     unsigned int async_signature_mode;
     const vitte_ast_node_t *space_stack[128];
     size_t space_depth;
@@ -590,8 +591,8 @@ vitte_c17_ast_build_parent_index(
 
 /* Trait declarations are compile-time contracts; their methods are emitted
  * from concrete implementations. Macros still need expansion before C17. */
-static bool
-vitte_c17_ast_contains_unlowered_declaration(
+static const vitte_ast_node_t *
+vitte_c17_ast_find_unlowered_declaration(
     const vitte_c17_ast_emitter_t *emitter,
     const vitte_ast_node_t *node,
     bool in_impl)
@@ -601,12 +602,12 @@ vitte_c17_ast_contains_unlowered_declaration(
     size_t index;
 
     if (node == NULL) {
-        return false;
+        return NULL;
     }
     nested_in_impl = in_impl || node->kind == VITTE_AST_NODE_IMPL_DECL ||
                      node->kind == VITTE_AST_NODE_TRAIT_DECL;
     if (node->kind == VITTE_AST_NODE_MACRO_DECL) {
-        return true;
+        return node;
     }
     if ((node->flags & VITTE_AST_FLAG_COMPTIME) != 0u) {
         const vitte_ast_node_t *name =
@@ -618,18 +619,20 @@ vitte_c17_ast_contains_unlowered_declaration(
                 emitter, node, &has_where) != 0u ||
             has_where ||
             vitte_c17_ast_token_is(emitter, name, "main")) {
-            return true;
+            return node;
         }
     }
     for (index = 0u; index < node->child_count; ++index) {
-        if (vitte_c17_ast_contains_unlowered_declaration(
+        const vitte_ast_node_t *unsupported =
+            vitte_c17_ast_find_unlowered_declaration(
                 emitter,
                 vitte_c17_ast_child(emitter, node, index),
-                nested_in_impl)) {
-            return true;
+                nested_in_impl);
+        if (unsupported != NULL) {
+            return unsupported;
         }
     }
-    return false;
+    return NULL;
 }
 
 static bool
@@ -753,7 +756,8 @@ vitte_c17_ast_function_returns_value(
 static bool
 vitte_c17_ast_contains_unsupported_attributes(
     const vitte_c17_ast_emitter_t *emitter,
-    const vitte_ast_node_t *node)
+    const vitte_ast_node_t *node,
+    const vitte_ast_node_t **unsupported_node)
 {
     size_t index;
 
@@ -775,7 +779,10 @@ vitte_c17_ast_contains_unsupported_attributes(
             for (index = 0u; index < node->attribute_count; ++index) {
                 const vitte_ast_attribute_t *attribute = vitte_parser_get_attribute(
                     emitter->parser, node->id, index);
-                if (!vitte_c17_ast_attribute_is_doc(emitter, attribute)) return true;
+                if (!vitte_c17_ast_attribute_is_doc(emitter, attribute)) {
+                    *unsupported_node = node;
+                    return true;
+                }
             }
         } else {
             for (index = 0u; index < node->attribute_count; ++index) {
@@ -796,25 +803,62 @@ vitte_c17_ast_contains_unsupported_attributes(
                          attribute->argument_count != 0u) ||
                         (vitte_c17_ast_attribute_is_no_argument(emitter, attribute, "must_use") &&
                          !vitte_c17_ast_function_returns_value(emitter, node)))
+                    {
+                        *unsupported_node = node;
                         return true;
+                    }
                     cold |= vitte_c17_ast_attribute_is_cold(emitter, attribute);
                     hot |= vitte_c17_ast_attribute_is_no_argument(emitter, attribute, "hot");
                 } else if (!vitte_c17_ast_attribute_is_thread_local(emitter, attribute) ||
                            attribute->argument_count != 0u) {
+                    *unsupported_node = node;
                     return true;
                 }
             }
         }
-        if (cold && hot) return true;
+        if (cold && hot) {
+            *unsupported_node = node;
+            return true;
+        }
     }
     for (index = 0u; index < node->child_count; ++index) {
         if (vitte_c17_ast_contains_unsupported_attributes(
                 emitter,
-                vitte_c17_ast_child(emitter, node, index))) {
+                vitte_c17_ast_child(emitter, node, index),
+                unsupported_node)) {
             return true;
         }
     }
     return false;
+}
+
+static void
+vitte_c17_ast_set_unsupported_failure(
+    vitte_c17_ast_emitter_t *emitter,
+    const vitte_ast_node_t *node,
+    bool attribute)
+{
+    if (emitter->failure == NULL || node == NULL) {
+        return;
+    }
+
+    if (attribute) {
+        emitter->failure->message =
+            "an attribute on this declaration is not supported by the C17 backend";
+        emitter->failure->details =
+            "remove the unsupported attribute or replace it with one supported by the C17 backend";
+    } else if (node->kind == VITTE_AST_NODE_MACRO_DECL) {
+        emitter->failure->message =
+            "macro declarations cannot be emitted by the C17 backend";
+        emitter->failure->details =
+            "expand or remove the macro declaration before compiling with the C17 backend";
+    } else {
+        emitter->failure->message =
+            "this compile-time declaration cannot be lowered by the C17 backend";
+        emitter->failure->details =
+            "evaluate it before code generation or rewrite it as a supported ordinary declaration";
+    }
+    emitter->failure->span = node->span;
 }
 
 static bool
@@ -8103,15 +8147,57 @@ vitte_c17_ast_emit_expression(
                  operand_type->kind == VITTE_AST_NODE_REFERENCE_TYPE) ||
                 (operand_type == NULL &&
                  vitte_c17_ast_expression_is_pointer(emitter, operand))) {
-                vitte_c17_ast_write(emitter, "vitte_optional_require(");
+                vitte_c17_ast_write(emitter, "((");
+                if (fprintf(
+                        emitter->output,
+                        "vitte_internal_optional_require_%llu = ",
+                        (unsigned long long)node->id) < 0) {
+                    emitter->failed = true;
+                    return;
+                }
                 vitte_c17_ast_emit_expression(emitter, operand);
-                vitte_c17_ast_write(emitter, ")");
+                vitte_c17_ast_write(emitter, ") != NULL ? ");
+                if (fprintf(
+                        emitter->output,
+                        "vitte_internal_optional_require_%llu",
+                        (unsigned long long)node->id) < 0) {
+                    emitter->failed = true;
+                    return;
+                }
+                vitte_c17_ast_write(emitter, " : (abort(), ");
+                if (fprintf(
+                        emitter->output,
+                        "vitte_internal_optional_require_%llu))",
+                        (unsigned long long)node->id) < 0) {
+                    emitter->failed = true;
+                }
                 return;
             }
 
-            vitte_c17_ast_write(emitter, "(*vitte_optional_require(");
+            vitte_c17_ast_write(emitter, "((");
+            if (fprintf(
+                    emitter->output,
+                    "vitte_internal_optional_require_%llu = ",
+                    (unsigned long long)node->id) < 0) {
+                emitter->failed = true;
+                return;
+            }
             vitte_c17_ast_emit_expression(emitter, operand);
-            vitte_c17_ast_write(emitter, "))");
+            vitte_c17_ast_write(emitter, ") != NULL ? *");
+            if (fprintf(
+                    emitter->output,
+                    "vitte_internal_optional_require_%llu",
+                    (unsigned long long)node->id) < 0) {
+                emitter->failed = true;
+                return;
+            }
+            vitte_c17_ast_write(emitter, " : (abort(), *");
+            if (fprintf(
+                    emitter->output,
+                    "vitte_internal_optional_require_%llu))",
+                    (unsigned long long)node->id) < 0) {
+                emitter->failed = true;
+            }
             return;
         }
 
@@ -10014,6 +10100,27 @@ vitte_c17_ast_emit_coalesce_temporaries(
         if (fprintf(
                 emitter->output,
                 " vitte_internal_coalesce_%llu = NULL;\n",
+                (unsigned long long)node->id) < 0) {
+            emitter->failed = true;
+            return;
+        }
+    }
+    if (node->kind == VITTE_AST_NODE_TRY_EXPR &&
+        node->child_count == 1u) {
+        const vitte_ast_node_t *operand_type =
+            vitte_c17_ast_expression_type(
+                emitter,
+                vitte_c17_ast_child(emitter, node, 0u));
+
+        if (operand_type == NULL) {
+            emitter->failed = true;
+            return;
+        }
+        vitte_c17_ast_indent(emitter, 1u);
+        vitte_c17_ast_emit_type(emitter, operand_type);
+        if (fprintf(
+                emitter->output,
+                " vitte_internal_optional_require_%llu;\n",
                 (unsigned long long)node->id) < 0) {
             emitter->failed = true;
             return;
@@ -15399,6 +15506,7 @@ vitte_c17_emit_ast_with_options(
     vitte_c17_ast_emitter_t emitter;
     vitte_c17_compile_options_t default_options;
     const vitte_ast_node_t *root;
+    const vitte_ast_node_t *unsupported_node;
     size_t index;
     size_t test_count;
     bool has_main;
@@ -15414,6 +15522,9 @@ vitte_c17_emit_ast_with_options(
     if (options == NULL) {
         options = &default_options;
     }
+    if (options->failure != NULL) {
+        memset(options->failure, 0, sizeof(*options->failure));
+    }
 
     memset(&emitter, 0, sizeof(emitter));
     emitter.output = output;
@@ -15422,6 +15533,7 @@ vitte_c17_emit_ast_with_options(
     emitter.debug_info = options->debug_info;
     emitter.debug_runtime = options->debug_runtime;
     emitter.emit_line_directives = options->emit_line_directives;
+    emitter.failure = options->failure;
 
     root =
         vitte_parser_get_node(
@@ -15431,15 +15543,25 @@ vitte_c17_emit_ast_with_options(
         root->kind != VITTE_AST_NODE_TRANSLATION_UNIT) {
         return false;
     }
-    if (vitte_c17_ast_contains_unlowered_declaration(
+    unsupported_node = vitte_c17_ast_find_unlowered_declaration(
+        &emitter,
+        root,
+        false);
+    if (unsupported_node != NULL) {
+        vitte_c17_ast_set_unsupported_failure(
             &emitter,
-            root,
-            false)) {
+            unsupported_node,
+            false);
         return false;
     }
     if (vitte_c17_ast_contains_unsupported_attributes(
             &emitter,
-            root)) {
+            root,
+            &unsupported_node)) {
+        vitte_c17_ast_set_unsupported_failure(
+            &emitter,
+            unsupported_node,
+            true);
         return false;
     }
     if (!vitte_c17_ast_build_parent_index(&emitter)) {
@@ -15495,11 +15617,6 @@ vitte_c17_emit_ast_with_options(
         "#define vitte_core_pointer_is_null(value) ((value) == NULL)\n"
         "#define vitte_core_pointer_read(source) (*(source))\n"
         "#define vitte_core_pointer_write(destination, ...) ((void)(*(destination) = (__VA_ARGS__)))\n"
-        "#define VITTE_OPTIONAL_REQUIRE_IMPL(value, id) \\\n"
-        "    __extension__ ({ __typeof__(value) vitte_optional_value_##id = (value); \\\n"
-        "        if (vitte_optional_value_##id == NULL) { abort(); } vitte_optional_value_##id; })\n"
-        "#define VITTE_OPTIONAL_REQUIRE_EXPAND(value, id) VITTE_OPTIONAL_REQUIRE_IMPL(value, id)\n"
-        "#define vitte_optional_require(value) VITTE_OPTIONAL_REQUIRE_EXPAND(value, __COUNTER__)\n"
         "\n"
         "#if defined(__GNUC__) || defined(__clang__)\n"
         "#define VITTE_C17_AST_UNUSED __attribute__((__unused__))\n"
